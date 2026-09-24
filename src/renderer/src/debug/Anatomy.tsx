@@ -7,6 +7,7 @@ import { cn, formatContext, formatTokens } from '@/lib/format'
 import { JsonBlock } from './bits'
 
 interface Req {
+  options?: { num_ctx?: number } & Record<string, unknown>
   messages?: Array<{ role?: string; content?: string; images?: unknown[]; thinking?: string; tool_calls?: unknown[]; tool_name?: string }>
 }
 
@@ -33,10 +34,12 @@ export function Anatomy({
   actualTokens: number | null
   model: string | null
 }) {
-  const [contextLength, setContextLength] = useState<number | null>(null)
+  const [modelContext, setModelContext] = useState<number | null>(null)
   useEffect(() => {
-    if (model) void api.models.info(model).then((m) => setContextLength(m.contextLength))
+    if (model) void api.models.info(model).then((m) => setModelContext(m.contextLength))
   }, [model])
+  // Local requests carry the num_ctx Ollama actually used; the model's native length would overstate it.
+  const contextLength = request.options?.num_ctx ?? modelContext
 
   const used = actualTokens ?? anatomy.total
   const share = contextLength ? used / contextLength : null

@@ -8,10 +8,10 @@ import { Button, Field, IconButton, Menu, MenuContent, MenuItem, MenuTrigger, Mo
 import { api } from '@/lib/api'
 import { sendMessage } from '@/lib/chatActions'
 import { cn, displayModelName, formatBytes, formatTokens, relativeTime } from '@/lib/format'
-import { findModel, reportError, useApp } from '@/stores/app'
+import { contextWindowFor, findModel, reportError, useApp } from '@/stores/app'
 
 export function ProjectView({ id }: { id: string }) {
-  const { projects, conversations, loadProjects, loadConversations, navigate, models, draftModel } = useApp()
+  const { projects, conversations, loadProjects, loadConversations, navigate, models, draftModel, settings } = useApp()
   const project = projects.find((p) => p.id === id)
   const [files, setFiles] = useState<ProjectFile[]>([])
   const [uploading, setUploading] = useState(false)
@@ -34,7 +34,7 @@ export function ProjectView({ id }: { id: string }) {
   const chats = conversations.filter((c) => c.projectId === id)
   const knowledgeTokens = files.reduce((n, f) => n + f.tokenEstimate, 0)
   const model = findModel(models, draftModel)
-  const capacity = model?.contextLength ?? null
+  const capacity = contextWindowFor(model, settings)
   const usage = capacity ? knowledgeTokens / capacity : 0
 
   const save = async (patch: Parameters<typeof api.projects.update>[1]) => {

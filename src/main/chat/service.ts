@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { BrowserWindow } from 'electron'
 import { parseMessage } from '@shared/artifactParser'
 import { normalizeSpaces } from '@shared/text'
+import { effectiveContext } from '@shared/context'
 import { EVENT_CHANNELS } from '@shared/ipc'
 import { resolveThinkProfile, toOllamaThink } from '@shared/thinking'
 import type {
@@ -31,7 +32,7 @@ import {
 import { getProject, projectKnowledge, touchProject } from '../db/projects'
 import { imageForModel, removeFiles } from '../files/ingest'
 import { type ChatBody, type ChatChunk, chatOnce, chatStream, endpointFor, type ToolCall } from '../ollama/client'
-import { getModelInfo, isCloudName } from '../ollama/models'
+import { getModelInfo } from '../ollama/models'
 import { webAvailable, webEndpoint } from '../ollama/web'
 import { startTrace, type Trace } from '../debug/traces'
 import { paths } from '../paths'
@@ -176,6 +177,7 @@ async function generate(
     const profile = resolveThinkProfile(modelName, model.capabilities, model.overrides.think)
     const vision = model.capabilities.includes('vision')
     const toolsCapable = model.capabilities.includes('tools')
+    const numCtx = effectiveContext(model, settings.localNumCtx)
     const autoSkills = settings.skills.autoLoad && toolsCapable && model.overrides.autoSkills !== false
     const web: WebStatus = !settings.web.enabled ? 'off' : !toolsCapable ? 'unsupported' : webAvailable() ? 'on' : 'no-key'
 
@@ -198,7 +200,7 @@ async function generate(
 
     const assembled = assemble({
       model: modelName,
-      contextLength: model.contextLength,
+      contextLength: numCtx,
       userName: settings.userName,
       preferences: settings.preferences,
       date: new Date(),
@@ -220,9 +222,7 @@ async function generate(
       think: toOllamaThink(profile, think),
       tools: toolsFor(toolContext),
       // Cloud models manage their own context; local ones default to a small window unless told otherwise.
-      options: isCloudName(modelName)
-        ? undefined
-        : { num_ctx: Math.min(model.contextLength ?? settings.localNumCtx, settings.localNumCtx) }
+      options: model.location === 'cloud' ? undefined : { num_ctx: numCtx ?? settings.localNumCtx }
     }
 
     const triedUnknown: string[] = []

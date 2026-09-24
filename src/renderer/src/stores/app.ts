@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { effectiveContext } from '@shared/context'
 import type { DeepPartial } from '@shared/ipc'
 import { defaultThinkSetting, resolveThinkProfile } from '@shared/thinking'
 import type { Conversation, ModelInfo, Project, Settings, Skill, ThemeDef, ThinkProfile, ThinkSetting } from '@shared/types'
@@ -141,6 +142,12 @@ export const useApp = create<AppState>((set, get) => ({
 
 export function findModel(models: ModelInfo[], name: string | null): ModelInfo | undefined {
   return name ? models.find((m) => m.name === name) : undefined
+}
+
+/** The window a chat with this model actually gets (local models are capped at the num_ctx setting). */
+export function contextWindowFor(model: ModelInfo | undefined, settings: Settings | null): number | null {
+  if (!model) return null
+  return settings ? effectiveContext(model, settings.localNumCtx) : model.contextLength
 }
 
 export function thinkProfileFor(models: ModelInfo[], name: string | null): ThinkProfile {
