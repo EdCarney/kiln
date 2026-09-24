@@ -1,4 +1,5 @@
 import type {
+  AccountUsage,
   Artifact,
   ArtifactSummary,
   ArtifactType,
@@ -11,6 +12,7 @@ import type {
   ModelInfo,
   ModelListResult,
   ModelOverrides,
+  PriceTable,
   Project,
   ProjectFile,
   SearchHit,
@@ -20,7 +22,8 @@ import type {
   Skill,
   SkillDetail,
   ThemeDef,
-  ThinkSetting
+  ThinkSetting,
+  UsageSummary
 } from './types'
 
 export type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? (T[K] extends unknown[] ? T[K] : DeepPartial<T[K]>) : T[K] }
@@ -122,6 +125,14 @@ export interface KilnApi {
     exportTheme(theme: ThemeDef): Promise<boolean>
     importTheme(): Promise<ThemeDef | null>
   }
+  usage: {
+    /** Quota windows and recent spend from ollama.com (needs an API key). */
+    account(refresh?: boolean): Promise<AccountUsage>
+    /** Kiln's own ledger of requests over the last N days. */
+    summary(days: number): Promise<UsageSummary>
+    prices(): Promise<PriceTable>
+    refreshPrices(): Promise<PriceTable>
+  }
   events: {
     onChat(cb: (e: ChatEvent) => void): () => void
     onSkillsChanged(cb: () => void): () => void
@@ -144,7 +155,8 @@ export const INVOKE_CHANNELS = {
   attachments: ['ingest', 'pick', 'remove'],
   artifacts: ['list', 'stage', 'save', 'createFromBlock'],
   skills: ['list', 'get', 'save', 'delete', 'duplicate', 'setEnabled', 'reveal'],
-  themes: ['list', 'save', 'delete', 'exportTheme', 'importTheme']
+  themes: ['list', 'save', 'delete', 'exportTheme', 'importTheme'],
+  usage: ['account', 'summary', 'prices', 'refreshPrices']
 } as const satisfies { [G in Exclude<keyof KilnApi, 'events' | 'files'>]: ReadonlyArray<keyof KilnApi[G]> }
 
 export const EVENT_CHANNELS = { chat: 'event:chat', skills: 'event:skills', menu: 'event:menu' } as const

@@ -2,7 +2,8 @@ import type { ModelInfo, ModelListResult, ModelOverrides } from '@shared/types'
 import { type CachedModelInfo, readModelProfile, writeModelInfo, writeModelOverrides } from '../db/kv'
 import { getSettings } from '../settings'
 import { errorMessage } from '../util'
-import { connectionMode, listTags, showModel } from './client'
+import { modelPrice } from '../usage/pricing'
+import { connectionMode, isCloudName, listTags, showModel } from './client'
 
 const INFO_TTL = 24 * 60 * 60 * 1000
 const CATALOG_TTL = 60 * 60 * 1000
@@ -17,7 +18,7 @@ export function toDaemonCloudName(catalogName: string): string {
   return catalogName.includes(':') ? `${catalogName}-cloud` : `${catalogName}:cloud`
 }
 
-export const isCloudName = (name: string): boolean => /(:|-)cloud$/.test(name)
+export { isCloudName }
 
 async function cloudCatalog(refresh: boolean): Promise<string[]> {
   if (!refresh && catalogCache && Date.now() - catalogCache.at < CATALOG_TTL) return catalogCache.names
@@ -60,7 +61,8 @@ function toModelInfo(name: string, info: CachedModelInfo, installed: boolean): M
     contextLength: info.contextLength,
     family: info.family,
     parameterSize: info.parameterSize,
-    overrides: readModelProfile(name).overrides
+    overrides: readModelProfile(name).overrides,
+    price: connectionMode() === 'direct' || isCloudName(name) ? modelPrice(name) : null
   }
 }
 

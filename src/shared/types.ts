@@ -69,6 +69,10 @@ export interface MessageStats {
   tokensPerSecond?: number
   thinkingMs?: number
   truncatedHistory?: number
+  /** Estimated USD for the requests behind this reply; null when the model's price is unknown. */
+  costUsd?: number | null
+  /** Token counts were estimated (e.g. the reply was stopped). */
+  estimated?: boolean
 }
 
 export interface Message {
@@ -126,6 +130,7 @@ export interface ConversationDetail {
   conversation: Conversation
   messages: Message[]
   artifacts: Artifact[]
+  usage: ChatUsage
 }
 
 export interface SearchHit {
@@ -149,6 +154,20 @@ export interface ModelOverrides {
   autoSkills?: boolean
 }
 
+export interface ModelPrice {
+  /** USD per million tokens. */
+  input: number
+  cachedInput: number | null
+  output: number
+}
+
+export interface PriceTable {
+  prices: Record<string, ModelPrice>
+  /** When the table was read from ollama.com/pricing (or the bundled snapshot date). */
+  updatedAt: number
+  source: 'ollama.com' | 'bundled'
+}
+
 export interface ModelInfo {
   name: string
   /** Cloud models run on ollama.com; local ones on this machine. */
@@ -159,11 +178,64 @@ export interface ModelInfo {
   family: string | null
   parameterSize: string | null
   overrides: ModelOverrides
+  /** Published cloud price, if known. Local models are free. */
+  price: ModelPrice | null
 }
 
 export interface ModelListResult {
   models: ModelInfo[]
   error: string | null
+}
+
+// ---- Usage & cost ---------------------------------------------------------
+
+export interface UsageWindow {
+  id: string
+  label: string
+  /** Fraction of the window's allowance used, 0–1. */
+  usage: number
+  periodMs: number | null
+  /** Next reset, when known (Ollama's API doesn't report it). */
+  resetAt: number | null
+  resetSource: 'configured' | 'detected' | null
+}
+
+export interface AccountUsage {
+  plan: string | null
+  windows: UsageWindow[]
+  spend: {
+    cost: number
+    label: string
+    periodStart: number | null
+    periodEnd: number | null
+    models: Array<{ model: string; cost: number }>
+  } | null
+  fetchedAt: number
+  /** Set when there's no API key, so the UI can prompt for one. */
+  needsKey: boolean
+  error: string | null
+}
+
+export interface TokenTotals {
+  promptTokens: number
+  completionTokens: number
+  /** Null when some usage came from a cloud model without a known price. */
+  costUsd: number | null
+  /** At least one request had no token counts (e.g. stopped mid-stream) and was estimated. */
+  estimated: boolean
+}
+
+export interface ChatUsage extends TokenTotals {
+  byModel: Array<TokenTotals & { model: string; requests: number }>
+  /** Tokens the most recent request sent + received, for a context-window meter. */
+  lastContextTokens: number | null
+}
+
+export interface UsageSummary {
+  days: number
+  total: TokenTotals & { requests: number }
+  byModel: Array<TokenTotals & { model: string; requests: number }>
+  byDay: Array<{ day: string; costUsd: number; tokens: number }>
 }
 
 // ---- Skills -------------------------------------------------------------
@@ -204,6 +276,8 @@ export const PALETTE_KEYS = [
   'accentFg',
   'accentSoft',
   'danger',
+  'success',
+  'warn',
   'synKeyword',
   'synString',
   'synComment',
@@ -245,6 +319,16 @@ export interface Settings {
   artifacts: { enabled: boolean; allowCdn: boolean }
   /** `disabled` turns off app/Ollama skills; Claude skills are off unless listed in `enabledImports`. */
   skills: { sources: { ollama: boolean; claude: boolean }; disabled: string[]; enabledImports: string[]; autoLoad: boolean }
+  usage: {
+    /** Show quota and chat cost in the title bar. */
+    showInHeader: boolean
+    /** Which quota window the title bar shows ('auto' picks the longest one reported). */
+    headerWindow: string
+    /** Known reset moments per window, set by the user or detected from a usage drop. */
+    anchors: Record<string, { at: number; source: 'configured' | 'detected' } | null>
+    /** Day of month a credit-based plan refreshes. */
+    monthlyDay: number | null
+  }
 }
 
 // ---- Chat streaming -----------------------------------------------------
@@ -268,7 +352,7 @@ export interface SendResult {
 export type ChatEvent =
   | { type: 'delta'; conversationId: ID; messageId: ID; content?: string; thinking?: string }
   | { type: 'tool'; conversationId: ID; messageId: ID; event: ToolEvent }
-  | { type: 'done'; conversationId: ID; message: Message; artifacts: Artifact[]; conversation: Conversation }
+  | { type: 'done'; conversationId: ID; message: Message; artifacts: Artifact[]; conversation: Conversation; usage: ChatUsage }
   | { type: 'error'; conversationId: ID; messageId: ID; error: string }
   | { type: 'title'; conversationId: ID; title: string }
 

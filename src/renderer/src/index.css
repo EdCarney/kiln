@@ -21,6 +21,8 @@
   --color-accent-fg: var(--k-accentFg);
   --color-accent-soft: var(--k-accentSoft);
   --color-danger: var(--k-danger);
+  --color-success: var(--k-success);
+  --color-warn: var(--k-warn);
 
   --font-ui: var(--k-font-ui);
   --font-reading: var(--k-font-reading);

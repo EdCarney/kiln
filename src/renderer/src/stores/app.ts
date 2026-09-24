@@ -4,7 +4,7 @@ import { defaultThinkSetting, resolveThinkProfile } from '@shared/thinking'
 import type { Conversation, ModelInfo, Project, Settings, Skill, ThemeDef, ThinkProfile, ThinkSetting } from '@shared/types'
 import { api } from '@/lib/api'
 
-export type SettingsTab = 'general' | 'appearance' | 'models' | 'features' | 'data'
+export type SettingsTab = 'general' | 'appearance' | 'models' | 'usage' | 'features' | 'data'
 
 export type Route =
   | { name: 'home' }

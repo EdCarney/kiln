@@ -160,6 +160,8 @@ export async function showModel(model: string): Promise<ShowResponse> {
   return (await res.json()) as ShowResponse
 }
 
+export const isCloudName = (name: string): boolean => /(:|-)cloud$/.test(name)
+
 export function connectionMode(): 'local' | 'direct' {
   return getSettings().connection.mode
 }

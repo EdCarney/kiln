@@ -3,9 +3,13 @@ import type { ReactNode } from 'react'
 import { cn } from '@/lib/format'
 import { useApp } from '@/stores/app'
 import { IconButton } from './ui'
+import { AccountQuota } from './UsageBar'
 
-/** Draggable title bar. When the sidebar is hidden it clears the traffic lights and shows its toggle. */
-export function TopBar({ children, className }: { children?: ReactNode; className?: string }) {
+/**
+ * Draggable title bar. When the sidebar is hidden it clears the traffic lights and shows its toggle.
+ * The right side always carries the Ollama quota chip; views can add their own items before it.
+ */
+export function TopBar({ children, right, className }: { children?: ReactNode; right?: ReactNode; className?: string }) {
   const { sidebarOpen, toggleSidebar, navigate } = useApp()
   return (
     <header className={cn('drag flex h-12 shrink-0 items-center gap-2 px-3', !sidebarOpen && 'pl-[84px]', className)}>
@@ -19,7 +23,11 @@ export function TopBar({ children, className }: { children?: ReactNode; classNam
           </IconButton>
         </div>
       )}
-      {children}
+      <div className="flex min-w-0 flex-1 items-center gap-2">{children}</div>
+      <div className="flex shrink-0 items-center gap-1">
+        {right}
+        <AccountQuota />
+      </div>
     </header>
   )
 }

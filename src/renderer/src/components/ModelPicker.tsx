@@ -84,7 +84,11 @@ export function ModelPicker({ value, onChange }: { value: string | null; onChang
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm">{displayModelName(m.name)}</span>
                     <span className="block text-xs text-subtle">
-                      {[formatParams(m.parameterSize), formatContext(m.contextLength) && `${formatContext(m.contextLength)} context`]
+                      {[
+                        formatParams(m.parameterSize),
+                        formatContext(m.contextLength) && `${formatContext(m.contextLength)} context`,
+                        m.price && `$${m.price.input} / $${m.price.output} per M`
+                      ]
                         .filter(Boolean)
                         .join(' · ') || (m.installed ? 'Installed' : 'Available')}
                     </span>

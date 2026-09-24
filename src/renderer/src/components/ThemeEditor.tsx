@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { FONT_CHOICES } from '@shared/themes'
+import { BUILTIN_THEMES, FONT_CHOICES } from '@shared/themes'
 import type { Palette, PaletteKey, ThemeDef } from '@shared/types'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/format'
@@ -30,11 +30,13 @@ const GROUPS: Array<{ label: string; keys: Array<[PaletteKey, string]> }> = [
     ]
   },
   {
-    label: 'Accent',
+    label: 'Accent & status',
     keys: [
       ['accent', 'Accent'],
       ['accentFg', 'Text on accent'],
       ['accentSoft', 'Accent tint'],
+      ['success', 'Good'],
+      ['warn', 'Warning'],
       ['danger', 'Danger']
     ]
   },
@@ -86,7 +88,9 @@ export function ThemeEditor({ base, open, onClose }: { base: ThemeDef; open: boo
 
   useEffect(() => {
     if (!open) return
-    setDraft(base.builtin ? { ...base, id: `custom-${Date.now().toString(36)}`, name: `${base.name} (custom)`, builtin: false } : base)
+    // Themes saved before newer tokens existed get the default theme's values for them.
+    const filled = { ...base, light: { ...BUILTIN_THEMES[0].light, ...base.light }, dark: { ...BUILTIN_THEMES[0].dark, ...base.dark } }
+    setDraft(filled.builtin ? { ...filled, id: `custom-${Date.now().toString(36)}`, name: `${base.name} (custom)`, builtin: false } : filled)
   }, [open, base])
 
   // Live preview while the editor is open.

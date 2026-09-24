@@ -10,6 +10,7 @@ import { registerIpc } from './ipc'
 import { initPaths, paths } from './paths'
 import { handleProtocols, registerSchemes } from './protocols'
 import { getSettings } from './settings'
+import { refreshPrices } from './usage/pricing'
 
 app.setName('Kiln')
 // Tests and experiments can point Kiln at a throwaway data folder.
@@ -132,6 +133,8 @@ app.whenReady().then(async () => {
   nativeTheme.themeSource = getSettings().appearance.mode
   buildMenu()
   createWindow()
+  // Keep per-token prices current (at most daily); the bundled snapshot covers offline starts.
+  void refreshPrices()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

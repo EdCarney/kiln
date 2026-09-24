@@ -1,19 +1,22 @@
 import { Cloud, Download, HardDrive, Monitor, Moon, Palette, Pencil, RefreshCw, Sun, Trash2, Upload } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
 import { resolveThinkProfile } from '@shared/thinking'
-import type { ModelInfo, ModelOverrides, Settings, ThemeDef } from '@shared/types'
+import type { ModelInfo, ModelOverrides, PriceTable, Settings, ThemeDef, UsageSummary } from '@shared/types'
+import { formatDollars, formatPercent } from '@shared/usage'
 import { ThemeEditor } from '@/components/ThemeEditor'
 import { TopBar } from '@/components/TopBar'
 import { Badge, Button, Field, Spinner, Switch, TextArea, TextField } from '@/components/ui'
 import { api } from '@/lib/api'
-import { cn, displayModelName, formatContext } from '@/lib/format'
+import { cn, displayModelName, formatContext, formatTokens } from '@/lib/format'
 import { reportError, type SettingsTab, useApp } from '@/stores/app'
+import { useUsage } from '@/stores/usage'
 import { isDark } from '@/theme/applyTheme'
 
 const TABS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'general', label: 'General' },
   { id: 'appearance', label: 'Appearance' },
   { id: 'models', label: 'Models' },
+  { id: 'usage', label: 'Usage & cost' },
   { id: 'features', label: 'Artifacts & skills' },
   { id: 'data', label: 'Data' }
 ]
@@ -98,6 +101,7 @@ export function SettingsView({ tab = 'general' }: { tab?: SettingsTab }) {
             {tab === 'general' && <GeneralTab settings={settings} />}
             {tab === 'appearance' && <AppearanceTab settings={settings} />}
             {tab === 'models' && <ModelsTab settings={settings} />}
+            {tab === 'usage' && <UsageTab settings={settings} />}
             {tab === 'features' && <FeaturesTab settings={settings} />}
             {tab === 'data' && <DataTab />}
           </div>
@@ -259,6 +263,262 @@ function AppearanceTab({ settings }: { settings: Settings }) {
   )
 }
 
+function ApiKeyField({ hasKey, onSaved }: { hasKey: boolean; onSaved?: () => void }) {
+  const [apiKey, setApiKey] = useState('')
+  const refresh = async () => {
+    await useApp.getState().loadSettings()
+    await useUsage.getState().load(true)
+    onSaved?.()
+  }
+  return (
+    <Field
+      label="ollama.com API key"
+      hint={
+        hasKey ? (
+          'A key is saved, encrypted with your macOS keychain.'
+        ) : (
+          <>
+            Create one at{' '}
+            <button className="text-accent hover:underline" onClick={() => api.app.openExternal('https://ollama.com/settings/keys')}>
+              ollama.com/settings/keys
+            </button>
+            . It's stored encrypted and only ever sent to ollama.com.
+          </>
+        )
+      }
+    >
+      <div className="flex gap-2">
+        <TextField type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={hasKey ? '••••••••••••' : 'Paste your API key'} />
+        <Button
+          disabled={!apiKey.trim()}
+          onClick={async () => {
+            try {
+              await api.settings.setApiKey(apiKey.trim())
+              setApiKey('')
+              await refresh()
+            } catch (err) {
+              reportError(err)
+            }
+          }}
+        >
+          Save
+        </Button>
+        {hasKey && (
+          <Button
+            variant="ghost"
+            onClick={async () => {
+              await api.settings.setApiKey(null)
+              await refresh()
+            }}
+          >
+            Remove
+          </Button>
+        )}
+      </div>
+    </Field>
+  )
+}
+
+const toLocalInput = (ts: number) => {
+  const d = new Date(ts - new Date(ts).getTimezoneOffset() * 60_000)
+  return d.toISOString().slice(0, 16)
+}
+
+function UsageTab({ settings }: { settings: Settings }) {
+  const { account, loading, load } = useUsage()
+  const update = useApp((s) => s.updateSettings)
+  const loadModels = useApp((s) => s.loadModels)
+  const [prices, setPrices] = useState<PriceTable | null>(null)
+  const [summary, setSummary] = useState<UsageSummary | null>(null)
+  const [refreshingPrices, setRefreshingPrices] = useState(false)
+  const u = settings.usage
+  const weekly = account?.windows.find((w) => w.id === 'weekly')
+  const anchor = u.anchors.weekly
+
+  useEffect(() => {
+    void api.usage.prices().then(setPrices)
+    void api.usage.summary(30).then(setSummary)
+    void load(true)
+  }, [load])
+
+  const setAnchors = async (patch: Settings['usage']['anchors']) => {
+    await update({ usage: { anchors: patch } })
+    await load(true)
+  }
+
+  return (
+    <>
+      <Section
+        title="Ollama account"
+        description="Quota numbers come from ollama.com and need an API key. Token counts and cost estimates for your chats work without one."
+      >
+        <ApiKeyField hasKey={settings.connection.hasApiKey} />
+        <div className="flex items-center gap-2 text-xs text-subtle">
+          <Button size="sm" variant="ghost" loading={loading} onClick={() => load(true)}>
+            {!loading && <RefreshCw className="size-3.5" />} Check now
+          </Button>
+          {account?.plan && <Badge tone="accent">{account.plan} plan</Badge>}
+          {account?.error ? (
+            <span className="text-danger">{account.error}</span>
+          ) : (
+            account?.windows.map((w) => (
+              <span key={w.id}>
+                {w.label}: {formatPercent(w.usage)}
+              </span>
+            ))
+          )}
+        </div>
+      </Section>
+
+      <Section
+        title="Reset times"
+        description="Ollama's API doesn't say when limits reset. Kiln works it out the first time it sees your usage drop, or you can copy the time from ollama.com/settings."
+      >
+        <Row
+          label="Weekly limit resets"
+          hint={
+            anchor
+              ? anchor.source === 'configured'
+                ? 'Set by you. Repeats every 7 days.'
+                : `Detected when usage dropped, around ${new Date(anchor.at).toLocaleString()}. Repeats every 7 days.`
+              : 'Not known yet.'
+          }
+        >
+          <div className="flex items-center gap-2">
+            <input
+              type="datetime-local"
+              value={weekly?.resetAt ? toLocalInput(weekly.resetAt) : anchor ? toLocalInput(anchor.at) : ''}
+              onChange={(e) => e.target.value && setAnchors({ weekly: { at: new Date(e.target.value).getTime(), source: 'configured' } })}
+              className="h-9 rounded-kiln border border-line bg-canvas px-2 text-sm outline-none"
+            />
+            {anchor && (
+              <Button size="sm" variant="ghost" onClick={() => setAnchors({ weekly: null })}>
+                Clear
+              </Button>
+            )}
+          </div>
+        </Row>
+        <Row label="Monthly credits refresh on day" hint="For credit-based plans, which reset on the day your subscription started.">
+          <input
+            type="number"
+            min={1}
+            max={31}
+            value={u.monthlyDay ?? ''}
+            placeholder="—"
+            onChange={(e) => update({ usage: { monthlyDay: e.target.value ? Math.min(31, Math.max(1, Number(e.target.value))) : null } })}
+            className="h-9 w-20 rounded-kiln border border-line bg-canvas px-2 text-sm outline-none"
+          />
+        </Row>
+      </Section>
+
+      <Section title="Title bar">
+        <Row label="Show quota and chat cost in the title bar">
+          <Switch checked={u.showInHeader} onChange={(showInHeader) => update({ usage: { showInHeader } })} />
+        </Row>
+        <Row label="Quota shown" hint="Automatic shows the weekly limit when Ollama reports one.">
+          <select
+            value={u.headerWindow}
+            onChange={(e) => update({ usage: { headerWindow: e.target.value } })}
+            className="h-9 rounded-kiln border border-line bg-canvas px-2 text-sm outline-none"
+          >
+            <option value="auto">Automatic</option>
+            {(account?.windows ?? []).map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.label}
+              </option>
+            ))}
+          </select>
+        </Row>
+      </Section>
+
+      <Section title="Spend in Kiln, last 30 days" description="From token counts Kiln recorded. Other apps using your Ollama account aren't included.">
+        {summary && summary.total.requests > 0 ? (
+          <table className="w-full text-[13px] tabular-nums">
+            <thead>
+              <tr className="text-xs text-subtle">
+                <th className="pb-2 text-left font-medium">Model</th>
+                <th className="pb-2 text-right font-medium">Requests</th>
+                <th className="pb-2 text-right font-medium">Input</th>
+                <th className="pb-2 text-right font-medium">Output</th>
+                <th className="pb-2 text-right font-medium">Cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              {summary.byModel.map((m) => (
+                <tr key={m.model} className="border-t border-line">
+                  <td className="py-1.5">{displayModelName(m.model)}</td>
+                  <td className="py-1.5 text-right">{m.requests}</td>
+                  <td className="py-1.5 text-right">{formatTokens(m.promptTokens)}</td>
+                  <td className="py-1.5 text-right">{formatTokens(m.completionTokens)}</td>
+                  <td className="py-1.5 text-right">{m.costUsd === 0 ? 'local' : formatDollars(m.costUsd)}</td>
+                </tr>
+              ))}
+              <tr className="border-t border-line-strong font-medium">
+                <td className="py-1.5">Total</td>
+                <td className="py-1.5 text-right">{summary.total.requests}</td>
+                <td className="py-1.5 text-right">{formatTokens(summary.total.promptTokens)}</td>
+                <td className="py-1.5 text-right">{formatTokens(summary.total.completionTokens)}</td>
+                <td className="py-1.5 text-right">{formatDollars(summary.total.costUsd)}</td>
+              </tr>
+            </tbody>
+          </table>
+        ) : (
+          <p className="text-sm text-subtle">No requests recorded yet.</p>
+        )}
+      </Section>
+
+      <Section
+        title="Prices"
+        description={
+          prices
+            ? `Per million tokens, ${prices.source === 'ollama.com' ? 'read from ollama.com/pricing' : 'from the snapshot bundled with Kiln'} (updated ${new Date(prices.updatedAt).toLocaleDateString()}). Estimates use the full input rate.`
+            : undefined
+        }
+      >
+        <Button
+          size="sm"
+          loading={refreshingPrices}
+          onClick={async () => {
+            setRefreshingPrices(true)
+            try {
+              setPrices(await api.usage.refreshPrices())
+              await loadModels(true)
+            } finally {
+              setRefreshingPrices(false)
+            }
+          }}
+        >
+          {!refreshingPrices && <RefreshCw className="size-3.5" />} Refresh from ollama.com
+        </Button>
+        {prices && (
+          <table className="w-full text-[13px] tabular-nums">
+            <thead>
+              <tr className="text-xs text-subtle">
+                <th className="pb-2 text-left font-medium">Model</th>
+                <th className="pb-2 text-right font-medium">Input</th>
+                <th className="pb-2 text-right font-medium">Cached input</th>
+                <th className="pb-2 text-right font-medium">Output</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(prices.prices)
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([name, p]) => (
+                  <tr key={name} className="border-t border-line">
+                    <td className="py-1.5">{name}</td>
+                    <td className="py-1.5 text-right">${p.input.toFixed(2)}</td>
+                    <td className="py-1.5 text-right">{p.cachedInput === null ? '—' : `$${p.cachedInput}`}</td>
+                    <td className="py-1.5 text-right">${p.output.toFixed(2)}</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        )}
+      </Section>
+    </>
+  )
+}
+
 const THINK_OPTIONS: Array<{ value: ModelOverrides['think'] | 'auto'; label: string }> = [
   { value: 'auto', label: 'Automatic' },
   { value: 'toggle', label: 'On / off' },
@@ -325,7 +585,6 @@ function ModelRow({ model, onChange }: { model: ModelInfo; onChange: (m: ModelIn
 
 function ModelsTab({ settings }: { settings: Settings }) {
   const { models, modelsLoading, modelsError, loadModels, updateSettings } = useApp()
-  const [apiKey, setApiKey] = useState('')
   const [list, setList] = useState(models)
   useEffect(() => setList(models), [models])
   const conn = settings.connection
@@ -363,40 +622,7 @@ function ModelsTab({ settings }: { settings: Settings }) {
             <BlurField value={conn.host} onSave={(host) => saveConnection({ host })} placeholder="http://127.0.0.1:11434" />
           </Field>
         ) : (
-          <Field
-            label="API key"
-            hint={conn.hasApiKey ? 'A key is saved, encrypted with your macOS keychain.' : 'Create one at ollama.com/settings/keys. It is stored encrypted and never leaves this Mac except to call ollama.com.'}
-          >
-            <div className="flex gap-2">
-              <TextField type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={conn.hasApiKey ? '••••••••••••' : 'Paste your API key'} />
-              <Button
-                disabled={!apiKey.trim()}
-                onClick={async () => {
-                  try {
-                    await api.settings.setApiKey(apiKey.trim())
-                    setApiKey('')
-                    await useApp.getState().loadSettings()
-                    await loadModels(true)
-                  } catch (err) {
-                    reportError(err)
-                  }
-                }}
-              >
-                Save
-              </Button>
-              {conn.hasApiKey && (
-                <Button
-                  variant="ghost"
-                  onClick={async () => {
-                    await api.settings.setApiKey(null)
-                    await useApp.getState().loadSettings()
-                  }}
-                >
-                  Remove
-                </Button>
-              )}
-            </div>
-          </Field>
+          <ApiKeyField hasKey={conn.hasApiKey} onSaved={() => loadModels(true)} />
         )}
         {conn.mode === 'local' && (
           <Row label="Show the Ollama cloud catalog" hint="List every cloud model, not only ones you've pulled.">

@@ -4,6 +4,7 @@ import { Composer } from '@/components/Composer'
 import { ConversationMenu } from '@/components/ConversationMenu'
 import { AssistantMessage, UserMessage } from '@/components/Messages'
 import { TopBar } from '@/components/TopBar'
+import { ChatCost } from '@/components/UsageBar'
 import { Spinner } from '@/components/ui'
 import { api } from '@/lib/api'
 import { editMessage, retryLast, sendMessage } from '@/lib/chatActions'
@@ -11,7 +12,7 @@ import { useApp } from '@/stores/app'
 import { useChat } from '@/stores/chat'
 
 export function ChatView({ id }: { id: string }) {
-  const { conversation, messages, artifacts, loading, open } = useChat()
+  const { conversation, messages, artifacts, loading, open, usage } = useChat()
   const stream = useChat((s) => s.streams[id])
   const { projects, navigate } = useApp()
   const scroller = useRef<HTMLDivElement>(null)
@@ -46,7 +47,7 @@ export function ChatView({ id }: { id: string }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <TopBar className="border-b border-transparent">
+      <TopBar className="border-b border-transparent" right={current && <ChatCost usage={usage} model={current.model} />}>
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
           {project && (
             <>

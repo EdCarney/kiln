@@ -117,5 +117,23 @@ export const MIGRATIONS: string[] = [
   /* sql */ `
   -- Skills the model loaded itself (via load_skill), kept apart from ones the user picked.
   ALTER TABLE conversations ADD COLUMN auto_skills TEXT NOT NULL DEFAULT '[]';
+  `,
+  /* sql */ `
+  -- One row per billed request (chat rounds, titles). Kept when messages or chats are deleted,
+  -- because the tokens were still spent.
+  CREATE TABLE usage_events (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
+    message_id TEXT,
+    model TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    prompt_tokens INTEGER NOT NULL DEFAULT 0,
+    completion_tokens INTEGER NOT NULL DEFAULT 0,
+    cost_usd REAL,
+    estimated INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX usage_events_conversation ON usage_events(conversation_id, created_at);
+  CREATE INDEX usage_events_created ON usage_events(created_at);
   `
 ]

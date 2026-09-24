@@ -17,6 +17,7 @@ import {
   updateConversation
 } from './db/conversations'
 import { deleteCustomTheme, listCustomThemes, saveCustomTheme } from './db/kv'
+import { conversationUsage, usageSummary } from './db/usage'
 import {
   createProject,
   deleteProject,
@@ -32,6 +33,8 @@ import { getModelInfo, listModels, setModelOverrides } from './ollama/models'
 import { paths } from './paths'
 import { stageArtifact } from './protocols'
 import { getSettings, setApiKey, updateSettings } from './settings'
+import { getAccountUsage, invalidateAccountUsage } from './usage/account'
+import { getPriceTable, refreshPrices } from './usage/pricing'
 import {
   deleteSkill,
   duplicateSkill,
@@ -68,6 +71,7 @@ const impl: Impl = {
     update: async (patch) => {
       const before = getSettings().skills.sources
       const next = updateSettings(patch)
+      if (patch.usage) invalidateAccountUsage()
       if (JSON.stringify(before) !== JSON.stringify(next.skills.sources)) {
         invalidateSkills()
         watchSkills(broadcastSkillsChanged)
@@ -77,6 +81,7 @@ const impl: Impl = {
     },
     setApiKey: async (key) => {
       setApiKey(key)
+      invalidateAccountUsage()
       return getSettings()
     }
   },
@@ -125,7 +130,9 @@ const impl: Impl = {
     list: async (opts) => listConversations(opts),
     get: async (id) => {
       const conversation = getConversation(id)
-      return conversation ? { conversation, messages: listMessages(id), artifacts: listArtifacts(id) } : null
+      return conversation
+        ? { conversation, messages: listMessages(id), artifacts: listArtifacts(id), usage: conversationUsage(id) }
+        : null
     },
     update: async (id, patch) => updateConversation(id, patch),
     delete: async (id) => {
@@ -199,6 +206,13 @@ const impl: Impl = {
     duplicate: (id) => duplicateSkill(id),
     setEnabled: async (id, enabled) => setSkillEnabled(id, enabled),
     reveal: (id) => revealSkill(id)
+  },
+
+  usage: {
+    account: (refresh) => getAccountUsage(refresh),
+    summary: async (days) => usageSummary(days),
+    prices: async () => getPriceTable(),
+    refreshPrices: () => refreshPrices(true)
   },
 
   themes: {

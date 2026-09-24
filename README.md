@@ -2,7 +2,7 @@
 
 A desktop chat app in the style of the Claude desktop app, running on your Ollama models (cloud and local).
 
-Features: projects (instructions + knowledge files), pinned chats and projects, searchable history, attachments (images, PDF, DOCX, XLSX, text/code), a model picker that adapts to each model's capabilities, thinking/effort controls, skills (`SKILL.md`), artifacts in a side panel, and fully customisable themes.
+Features: projects (instructions + knowledge files), pinned chats and projects, searchable history, attachments (images, PDF, DOCX, XLSX, text/code), a model picker that adapts to each model's capabilities, thinking/effort controls, skills (`SKILL.md`), artifacts in a side panel, live token/cost and quota tracking, and fully customisable themes.
 
 ## Run it
 
@@ -45,6 +45,14 @@ tests/           Vitest unit tests      e2e/   live Playwright run against real 
   - `~/.claude/skills`, read-only. These start off, because many rely on Claude-only tools.
 
   A skill you pick with `/` or the + menu applies to every reply. Models that support tools can also call `load_skill` on their own; a skill loaded that way stays loaded for the rest of the chat.
+- **Usage & cost.** The title bar shows two chips.
+  - **This chat:** tokens and estimated cost so far, including retries and title generation. Click it for a per-model breakdown and how full the context window is.
+  - **Your Ollama quota:** % used, and time left until the next reset. Its mini bar also marks how much of the period has passed.
+
+  Details:
+  - Costs use Ollama's published per-token prices. Kiln re-reads them daily from ollama.com/pricing and falls back to a bundled snapshot. Each request is also logged locally (`usage_events`) for Settings → Usage & cost.
+  - Quota comes from `ollama.com/api/usage`, which is undocumented and **needs an ollama.com API key** (Settings → Usage & cost). The Ollama app's sign-in doesn't cover it.
+  - That endpoint doesn't say when limits reset. Kiln dates a reset itself when it sees usage drop, or you can enter the time shown on ollama.com/settings.
 - **Theming.** Every colour, font and radius is a CSS variable (`src/renderer/src/index.css`). Themes are JSON with a light and a dark palette; you can edit, import and export them from Settings → Appearance.
 
 ## Tests
@@ -72,4 +80,5 @@ Screenshots go to `e2e/shots/`. Set `KILN_DEBUG=1` to log every request Kiln sen
 - **React artifacts aren't rendered.** They're shown as JSX source.
 - **Scanned PDFs have no text layer.** They're flagged, but there's no OCR.
 - **Large projects aren't searched.** Project knowledge goes straight into the context window, with a capacity meter. There's no retrieval for oversized projects.
+- **Costs are estimates.** All input is priced at the full rate; Ollama doesn't report cached tokens or apply off-peak rates per request. Quota reset times are inferred unless you set them.
 - **Edits don't keep branches.** Editing a message replaces everything after it; the database has room for branch navigation later.

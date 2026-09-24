@@ -2,6 +2,7 @@ import { Check, Copy, FileText, Pencil, RotateCcw, Sparkles, TriangleAlert } fro
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { parseMessage, type Segment, typeForCodeLanguage } from '@shared/artifactParser'
 import type { Artifact, Message, ToolEvent } from '@shared/types'
+import { formatCost } from '@shared/usage'
 import { api } from '@/lib/api'
 import { cn, displayModelName, formatDuration, formatTokens } from '@/lib/format'
 import { reportError } from '@/stores/app'
@@ -126,6 +127,7 @@ function statsLine(message: Message): string {
     s.tokensPerSecond && `${s.tokensPerSecond.toFixed(0)} tok/s`,
     s.completionTokens && `${formatTokens(s.completionTokens)} output tokens`,
     s.durationMs && formatDuration(s.durationMs),
+    s.costUsd === 0 ? 'local' : s.costUsd != null ? `${s.estimated ? '≈' : ''}${formatCost(s.costUsd)}` : null,
     s.truncatedHistory && `${s.truncatedHistory} older messages left out to fit the context window`
   ]
     .filter(Boolean)

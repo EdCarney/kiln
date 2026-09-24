@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Artifact, ChatEvent, Conversation, Message, SendResult, ToolEvent } from '@shared/types'
+import type { Artifact, ChatEvent, ChatUsage, Conversation, Message, SendResult, ToolEvent } from '@shared/types'
 import { api } from '@/lib/api'
 import { useApp } from './app'
 import { useArtifactPanel } from './artifactPanel'
@@ -18,6 +18,8 @@ interface ChatState {
   conversation: Conversation | null
   messages: Message[]
   artifacts: Artifact[]
+  /** Token and cost totals for the open chat. */
+  usage: ChatUsage | null
   loading: boolean
   /** Keyed by conversation id so a reply keeps streaming while you look at another chat. */
   streams: Record<string, StreamState>
@@ -61,22 +63,29 @@ export const useChat = create<ChatState>((set, get) => ({
   conversation: null,
   messages: [],
   artifacts: [],
+  usage: null,
   loading: false,
   streams: {},
 
   open: async (id) => {
     if (get().conversation?.id === id && !get().loading) return
-    set({ loading: true, conversation: null, messages: [], artifacts: [] })
+    set({ loading: true, conversation: null, messages: [], artifacts: [], usage: null })
     const detail = await api.conversations.get(id)
     if (!detail) {
       set({ loading: false })
       useApp.getState().navigate({ name: 'home' })
       return
     }
-    set({ conversation: detail.conversation, messages: detail.messages, artifacts: detail.artifacts, loading: false })
+    set({
+      conversation: detail.conversation,
+      messages: detail.messages,
+      artifacts: detail.artifacts,
+      usage: detail.usage,
+      loading: false
+    })
   },
 
-  clear: () => set({ conversation: null, messages: [], artifacts: [] }),
+  clear: () => set({ conversation: null, messages: [], artifacts: [], usage: null }),
 
   began: (result, { replaceFrom }) => {
     const convId = result.conversation.id
@@ -160,6 +169,7 @@ function handle(e: ChatEvent): void {
           streams,
           conversation: e.conversation,
           artifacts: e.artifacts,
+          usage: e.usage,
           messages: exists ? s.messages.map((m) => (m.id === e.message.id ? e.message : m)) : [...s.messages, e.message]
         }
       })

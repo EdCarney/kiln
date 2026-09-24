@@ -9,6 +9,7 @@ import { api } from './lib/api'
 import { cn } from './lib/format'
 import { useApp } from './stores/app'
 import { useArtifactPanel } from './stores/artifactPanel'
+import { startUsagePolling } from './stores/usage'
 import { applyTheme, onSystemThemeChange } from './theme/applyTheme'
 import { ArtifactsView } from './views/ArtifactsView'
 import { ChatsView } from './views/ChatsView'
@@ -28,6 +29,7 @@ function useBootstrap() {
       await app.loadModels()
     })()
 
+    const stopUsage = startUsagePolling()
     const offSkills = api.events.onSkillsChanged(() => void useApp.getState().loadSkills())
     const offMenu = api.events.onMenu((action) => {
       const s = useApp.getState()
@@ -47,6 +49,7 @@ function useBootstrap() {
     }
     window.addEventListener('keydown', onKey)
     return () => {
+      stopUsage()
       offSkills()
       offMenu()
       window.removeEventListener('keydown', onKey)

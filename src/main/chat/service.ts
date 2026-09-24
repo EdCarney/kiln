@@ -34,7 +34,9 @@ import { getModelInfo, isCloudName } from '../ollama/models'
 import { paths } from '../paths'
 import { getSettings } from '../settings'
 import { getSkill, listSkills } from '../skills/library'
-import { errorMessage } from '../util'
+import { conversationUsage, insertUsageEvent } from '../db/usage'
+import { requestCost } from '../usage/pricing'
+import { errorMessage, estimateTokens } from '../util'
 import { assemble, type HistoryTurn } from './assemble'
 import { TITLE_PROMPT } from './prompts'
 import { runTool, SKILL_TOOLS } from './tools'
@@ -141,6 +143,22 @@ async function generate(
   let thinkEnd: number | null = null
   let evalNs = 0
   let error: string | null = null
+  let openRound: { content: string; thinking: string; promptEstimate: number } | null = null
+
+  // Each round is a separate billed request: log it, and roll it into the message's stats.
+  const recordRound = (final: ChatChunk | null) => {
+    if (!openRound) return
+    const estimated = !final?.eval_count
+    const promptTokens = final?.prompt_eval_count ?? openRound.promptEstimate
+    const completionTokens = final?.eval_count ?? estimateTokens(openRound.content + openRound.thinking)
+    const costUsd = requestCost(modelName, promptTokens, completionTokens)
+    insertUsageEvent({ conversationId, messageId, model: modelName, kind: 'chat', promptTokens, completionTokens, costUsd, estimated })
+    stats.promptTokens! += promptTokens
+    stats.completionTokens! += completionTokens
+    stats.costUsd = stats.costUsd === null || costUsd === null ? null : (stats.costUsd ?? 0) + costUsd
+    if (estimated) stats.estimated = true
+    openRound = null
+  }
 
   const delta = (d: { content?: string; thinking?: string }) => emit({ type: 'delta', conversationId, messageId, ...d })
 
@@ -203,25 +221,27 @@ async function generate(
       let roundContent = ''
       let roundThinking = ''
       let final: ChatChunk | null = null
+      openRound = { content: '', thinking: '', promptEstimate: estimatePrompt(body) }
       for await (const chunk of chatStream(body, controller.signal)) {
         const m = chunk.message
         if (m?.thinking) {
           thinkStart ??= Date.now()
           thinking += m.thinking
           roundThinking += m.thinking
+          openRound.thinking += m.thinking
           delta({ thinking: m.thinking })
         }
         if (m?.content) {
           if (thinkStart && !thinkEnd) thinkEnd = Date.now()
           content += m.content
           roundContent += m.content
+          openRound.content += m.content
           delta({ content: m.content })
         }
         if (m?.tool_calls?.length) calls.push(...m.tool_calls)
         if (chunk.done) final = chunk
       }
-      stats.promptTokens = final?.prompt_eval_count ?? stats.promptTokens
-      stats.completionTokens! += final?.eval_count ?? 0
+      recordRound(final)
       evalNs += final?.eval_duration ?? 0
       if (!calls.length) break
 
@@ -244,6 +264,8 @@ async function generate(
     }
   } catch (err) {
     if (!controller.signal.aborted) error = errorMessage(err)
+    // A stopped or failed stream still spent tokens; record an estimate for the partial round.
+    if (openRound && (openRound.content || openRound.thinking)) recordRound(null)
   }
 
   stats.durationMs = Date.now() - startedAt
@@ -259,7 +281,14 @@ async function generate(
   })
   saveArtifacts(conversationId, messageId, message.content)
   if (error) emit({ type: 'error', conversationId, messageId, error })
-  emit({ type: 'done', conversationId, message, artifacts: listArtifacts(conversationId), conversation: getConversation(conversationId)! })
+  emit({
+    type: 'done',
+    conversationId,
+    message,
+    artifacts: listArtifacts(conversationId),
+    conversation: getConversation(conversationId)!,
+    usage: conversationUsage(conversationId)
+  })
 
   if (!error && message.content && getConversation(conversationId)?.title === 'New chat')
     void generateTitle(conversationId, modelName)
@@ -273,6 +302,10 @@ function debugLog(body: ChatBody): void {
     messages: body.messages.map((m) => (m.images ? { ...m, images: m.images.map(() => '<image>') } : m))
   }
   appendFileSync(join(paths.data, 'debug.log'), `${new Date().toISOString()} ${JSON.stringify(redacted)}\n`)
+}
+
+function estimatePrompt(body: ChatBody): number {
+  return body.messages.reduce((n, m) => n + estimateTokens(m.content) + (m.images?.length ?? 0) * 1600, 0)
 }
 
 function saveArtifacts(conversationId: string, messageId: string, content: string): void {
@@ -335,6 +368,18 @@ async function generateTitle(conversationId: string, chatModel: string): Promise
       options: { temperature: 0.3 }
     })
     title = cleanTitle(res.message?.content ?? '')
+    const promptTokens = res.prompt_eval_count ?? estimateTokens(transcript)
+    const completionTokens = res.eval_count ?? estimateTokens(res.message?.content ?? '')
+    insertUsageEvent({
+      conversationId,
+      messageId: null,
+      model: modelName,
+      kind: 'title',
+      promptTokens,
+      completionTokens,
+      costUsd: requestCost(modelName, promptTokens, completionTokens),
+      estimated: res.eval_count === undefined
+    })
   } catch {
     /* fall back below */
   }
