@@ -47,6 +47,7 @@ export interface ConversationPatch {
   model?: string | null
   think?: ThinkSetting | null
   skills?: string[]
+  instructions?: string
 }
 
 export interface SkillInput {

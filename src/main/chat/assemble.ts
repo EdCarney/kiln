@@ -5,6 +5,7 @@ import { estimateTokens } from '../util'
 import {
   artifactsPrompt,
   basePrompt,
+  chatInstructionsPrompt,
   documentBlock,
   loadedSkillsPrompt,
   preferencesPrompt,
@@ -52,6 +53,8 @@ export interface AssembleInput {
    */
   pastTools: boolean
   project: { name: string; instructions: string } | null
+  /** Instructions for this chat only; '' when unset. */
+  chatInstructions: string
   knowledge: Array<{ name: string; text: string }>
   skillIndex: Skill[]
   /** Skills the user picked: applied to every reply. */
@@ -76,6 +79,7 @@ export function buildSystemPrompt(input: AssembleInput): string {
   if (input.web === 'on') parts.push(webPrompt())
   if (input.preferences.trim()) parts.push(preferencesPrompt(input.preferences))
   if (input.project) parts.push(projectPrompt(input.project))
+  if (input.chatInstructions.trim()) parts.push(chatInstructionsPrompt(input.chatInstructions))
   if (input.knowledge.length)
     parts.push(
       `<project_knowledge>\nThe user added these files to the project. Use them when relevant.\n${input.knowledge

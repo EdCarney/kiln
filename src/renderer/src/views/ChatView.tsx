@@ -1,11 +1,11 @@
-import { ArrowDown, Bug, ChevronDown, FolderClosed } from 'lucide-react'
+import { ArrowDown, Bug, ChevronDown, FolderClosed, ScrollText } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Composer } from '@/components/Composer'
 import { ConversationMenu } from '@/components/ConversationMenu'
 import { AssistantMessage, UserMessage } from '@/components/Messages'
 import { TopBar } from '@/components/TopBar'
 import { ChatCost } from '@/components/UsageBar'
-import { IconButton, Spinner } from '@/components/ui'
+import { IconButton, Spinner, Tooltip } from '@/components/ui'
 import { api } from '@/lib/api'
 import { continueReply, editMessage, retryLast, sendMessage } from '@/lib/chatActions'
 import { useApp } from '@/stores/app'
@@ -83,6 +83,13 @@ export function ChatView({ id }: { id: string }) {
                 </button>
               }
             />
+          )}
+          {current?.instructions.trim() && (
+            <Tooltip content={`Chat instructions: ${current.instructions.trim().slice(0, 200)}`}>
+              <span aria-label="This chat has its own instructions" className="flex shrink-0 items-center text-subtle">
+                <ScrollText className="size-3.5" />
+              </span>
+            </Tooltip>
           )}
         </div>
       </TopBar>

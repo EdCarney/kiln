@@ -285,6 +285,7 @@ async function generate(
       web,
       pastTools: toolsCapable,
       project: project ? { name: project.name, instructions: project.instructions } : null,
+      chatInstructions: conversation.instructions,
       knowledge: project ? projectKnowledge(project.id) : [],
       skillIndex,
       selectedSkills: await load(selectedIds),

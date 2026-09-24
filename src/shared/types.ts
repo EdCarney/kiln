@@ -36,6 +36,8 @@ export interface Conversation {
   skills: string[]
   /** Skill ids the model loaded itself; kept for later turns but applied only where relevant. */
   autoSkills: string[]
+  /** Instructions for this chat only (a system prompt or persona); '' when unset. */
+  instructions: string
   pinned: boolean
   createdAt: number
   updatedAt: number

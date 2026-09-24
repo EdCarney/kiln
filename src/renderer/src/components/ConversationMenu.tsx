@@ -1,4 +1,4 @@
-import { Ellipsis, FolderInput, FolderMinus, Pencil, Pin, PinOff, Trash2 } from 'lucide-react'
+import { Ellipsis, FolderInput, FolderMinus, Pencil, Pin, PinOff, ScrollText, Trash2 } from 'lucide-react'
 import { type ReactNode, useState } from 'react'
 import type { Conversation } from '@shared/types'
 import { api } from '@/lib/api'
@@ -7,7 +7,7 @@ import { reportError, useApp } from '@/stores/app'
 import { useArtifactPanel } from '@/stores/artifactPanel'
 import { useChat } from '@/stores/chat'
 import { useDrafts } from '@/stores/drafts'
-import { Button, Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuSub, MenuTrigger, Modal, TextField } from './ui'
+import { Button, Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuSub, MenuTrigger, Modal, TextArea, TextField } from './ui'
 
 async function patch(conversation: Conversation, p: Parameters<typeof api.conversations.update>[1]) {
   try {
@@ -24,6 +24,8 @@ export function ConversationMenu({ conversation, trigger, align = 'start' }: { c
   const [renaming, setRenaming] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [title, setTitle] = useState(conversation.title)
+  const [editingInstructions, setEditingInstructions] = useState(false)
+  const [instructions, setInstructions] = useState(conversation.instructions)
 
   const remove = async () => {
     try {
@@ -68,6 +70,15 @@ export function ConversationMenu({ conversation, trigger, align = 'start' }: { c
             }}
           >
             Rename
+          </MenuItem>
+          <MenuItem
+            icon={<ScrollText className="size-4" />}
+            onSelect={() => {
+              setInstructions(conversation.instructions)
+              setEditingInstructions(true)
+            }}
+          >
+            {conversation.instructions.trim() ? 'Edit instructions' : 'Add instructions'}
           </MenuItem>
           <MenuSub label="Move to project" icon={<FolderInput className="size-4" />}>
             {projects.length === 0 && <MenuLabel>No projects yet</MenuLabel>}
@@ -121,6 +132,37 @@ export function ConversationMenu({ conversation, trigger, align = 'start' }: { c
         >
           <TextField autoFocus value={title} onChange={(e) => setTitle(e.target.value)} />
         </form>
+      </Modal>
+
+      <Modal
+        open={editingInstructions}
+        onOpenChange={setEditingInstructions}
+        title="Chat instructions"
+        description="Applied to every reply in this chat, on top of your preferences and any project instructions. Use it for a role, tone or rules, e.g. “You are a strict code reviewer. Answer in bullet points.”"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setEditingInstructions(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={async () => {
+                await patch(conversation, { instructions: instructions.trim() })
+                setEditingInstructions(false)
+              }}
+            >
+              Save
+            </Button>
+          </>
+        }
+      >
+        <TextArea
+          autoFocus
+          rows={8}
+          value={instructions}
+          onChange={(e) => setInstructions(e.target.value)}
+          placeholder="How should the model behave in this chat?"
+        />
       </Modal>
 
       <Modal

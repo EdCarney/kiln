@@ -13,6 +13,7 @@ interface ConversationRow {
   think: string | null
   skills: string
   auto_skills: string
+  instructions: string
   pinned: number
   created_at: number
   updated_at: number
@@ -26,6 +27,7 @@ const toConversation = (r: ConversationRow): Conversation => ({
   think: (r.think as ThinkSetting | null) ?? null,
   skills: parseJson<string[]>(r.skills, []),
   autoSkills: parseJson<string[]>(r.auto_skills, []),
+  instructions: r.instructions,
   pinned: !!r.pinned,
   createdAt: r.created_at,
   updatedAt: r.updated_at
@@ -84,11 +86,12 @@ export function updateConversation(
     model: patch.model !== undefined ? patch.model : c.model,
     think: patch.think !== undefined ? patch.think : c.think,
     skills: patch.skills ?? c.skills,
-    autoSkills: patch.autoSkills ?? c.autoSkills
+    autoSkills: patch.autoSkills ?? c.autoSkills,
+    instructions: patch.instructions ?? c.instructions
   }
   run(
     `UPDATE conversations SET title = ?, pinned = ?, project_id = ?, model = ?, think = ?, skills = ?, auto_skills = ?,
-       updated_at = ?
+       instructions = ?, updated_at = ?
      WHERE id = ?`,
     next.title,
     next.pinned ? 1 : 0,
@@ -97,6 +100,7 @@ export function updateConversation(
     next.think,
     JSON.stringify(next.skills),
     JSON.stringify(next.autoSkills),
+    next.instructions,
     patch.touch ? now() : c.updatedAt,
     id
   )

@@ -21,6 +21,7 @@ const base: AssembleInput = {
   web: 'off',
   pastTools: true,
   project: null,
+  chatInstructions: '',
   knowledge: [],
   skillIndex: [],
   selectedSkills: [],
@@ -177,5 +178,16 @@ describe('past web calls', () => {
   it('leaves them out for a model without tool support', () => {
     const roles = assemble({ ...base, pastTools: false, history }).messages.map((m) => m.role)
     expect(roles).toEqual(['system', 'user', 'assistant', 'user'])
+  })
+})
+
+describe('chat instructions', () => {
+  it('adds them to the system prompt after project instructions, and not when empty', () => {
+    const withBoth = assemble({ ...base, project: { name: 'P', instructions: 'Project rule' }, chatInstructions: 'Answer like a pirate.' })
+    const system = withBoth.messages[0].content
+    expect(system).toContain('<chat_instructions>')
+    expect(system).toContain('Answer like a pirate.')
+    expect(system.indexOf('Project rule')).toBeLessThan(system.indexOf('Answer like a pirate.'))
+    expect(assemble({ ...base, chatInstructions: '  ' }).messages[0].content).not.toContain('<chat_instructions>')
   })
 })
