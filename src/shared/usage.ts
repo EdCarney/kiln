@@ -64,6 +64,20 @@ const WINDOW_LABELS: Record<string, string> = { session: '5-hour session', weekl
 export interface RawUsageWindow {
   id: string
   usage: number
+  models: Array<{ name: string; requests: number }>
+}
+
+/** Per-model request counts: an array of {name, request_count} or a map of name → {request_count}. */
+function parseModels(raw: unknown): Array<{ name: string; requests: number }> {
+  const entries: Array<[string, unknown]> = Array.isArray(raw)
+    ? raw.map((m) => [String((m as Record<string, unknown>)?.name ?? (m as Record<string, unknown>)?.model ?? ''), m])
+    : raw && typeof raw === 'object'
+      ? Object.entries(raw)
+      : []
+  return entries
+    .map(([name, m]) => ({ name, requests: Number((m as { request_count?: unknown })?.request_count) }))
+    .filter((m) => m.name && Number.isFinite(m.requests))
+    .sort((a, b) => b.requests - a.requests)
 }
 
 /**
@@ -76,7 +90,7 @@ export function parseUsageResponse(json: unknown): { windows: RawUsageWindow[]; 
   const windows: RawUsageWindow[] = []
   for (const [id, value] of Object.entries(limits)) {
     const usage = Number((value as { usage?: unknown })?.usage)
-    if (Number.isFinite(usage)) windows.push({ id, usage: Math.max(0, usage) })
+    if (Number.isFinite(usage)) windows.push({ id, usage: Math.max(0, usage), models: parseModels((value as { models?: unknown }).models) })
   }
   windows.sort((a, b) => (WINDOW_PERIODS[a.id] ?? Infinity) - (WINDOW_PERIODS[b.id] ?? Infinity))
 
@@ -99,12 +113,38 @@ export function parseUsageResponse(json: unknown): { windows: RawUsageWindow[]; 
     spend = {
       cost,
       label: activity.period?.type === 'last_4_weeks' ? 'Last 4 weeks' : 'Recent',
+      source: 'activity',
+      pool: null,
       periodStart: activity.period?.starting_at ? Date.parse(activity.period.starting_at) : null,
       periodEnd: activity.period?.ending_at ? Date.parse(activity.period.ending_at) : null,
       models
     }
   }
   return { windows, spend }
+}
+
+/** Monthly credit pools from ollama.com/pricing (USD). */
+export const PLAN_CREDIT_POOLS: Record<string, number> = { pro: 60, max: 300, team: 1000 }
+
+export function creditPool(plan: string | null, override: number | null): number | null {
+  if (override && override > 0) return override
+  return plan ? (PLAN_CREDIT_POOLS[plan.toLowerCase()] ?? null) : null
+}
+
+/**
+ * Credit plans report no dollar spend (activity.cost stays "0.00000"), only the share of the monthly
+ * pool used, so spend = share × pool. Ollama rounds the share to 0.1%, so on a $60 pool this is
+ * good to about ±$0.03. Legacy plans (session/weekly windows) keep Ollama's own figure.
+ */
+export function effectiveSpend(
+  windows: RawUsageWindow[],
+  activitySpend: AccountUsage['spend'],
+  pool: number | null
+): AccountUsage['spend'] {
+  const monthly = windows.find((w) => w.id === 'monthly')
+  if (monthly && pool)
+    return { cost: Math.round(monthly.usage * pool * 100) / 100, label: 'This month', source: 'credits', pool, periodStart: null, periodEnd: null, models: [] }
+  return activitySpend
 }
 
 // ---- Reset schedule ---------------------------------------------------------
@@ -140,7 +180,7 @@ export interface ResetSchedule {
 /** Attach labels, periods and reset times to raw windows. */
 export function describeWindows(raw: RawUsageWindow[], schedule: ResetSchedule, now: number): UsageWindow[] {
   return raw.map((w) => {
-    const base = { id: w.id, label: WINDOW_LABELS[w.id] ?? w.id, usage: w.usage }
+    const base = { id: w.id, label: WINDOW_LABELS[w.id] ?? w.id, usage: w.usage, models: w.models ?? [] }
     if (w.id === 'monthly' && schedule.monthlyDay) {
       const { start, end } = monthlyBounds(schedule.monthlyDay, now)
       return { ...base, periodMs: end - start, resetAt: end, resetSource: 'configured' as const }

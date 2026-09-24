@@ -2,7 +2,7 @@ import { Cloud, Download, HardDrive, Monitor, Moon, Palette, Pencil, RefreshCw, 
 import { type ReactNode, useEffect, useState } from 'react'
 import { resolveThinkProfile } from '@shared/thinking'
 import type { ModelInfo, ModelOverrides, PriceTable, Settings, ThemeDef, UsageSummary } from '@shared/types'
-import { formatDollars, formatPercent } from '@shared/usage'
+import { creditPool, formatDollars, formatPercent } from '@shared/usage'
 import { ThemeEditor } from '@/components/ThemeEditor'
 import { TopBar } from '@/components/TopBar'
 import { Badge, Button, Field, Spinner, Switch, TextArea, TextField } from '@/components/ui'
@@ -324,6 +324,22 @@ const toLocalInput = (ts: number) => {
   return d.toISOString().slice(0, 16)
 }
 
+function RawUsage({ refreshKey }: { refreshKey: number }) {
+  const [raw, setRaw] = useState<{ at: number; json: unknown } | null>(null)
+  useEffect(() => {
+    void api.usage.raw().then(setRaw)
+  }, [refreshKey])
+  if (!raw) return null
+  return (
+    <details className="-mt-2 mb-2 text-xs text-subtle">
+      <summary className="cursor-pointer select-none hover:text-fg">Raw response from ollama.com ({new Date(raw.at).toLocaleString()})</summary>
+      <pre className="selectable mt-2 max-h-72 overflow-auto rounded-kiln border border-line bg-code p-3 font-mono text-[11px] text-muted">
+        {JSON.stringify(raw.json, null, 2)}
+      </pre>
+    </details>
+  )
+}
+
 function UsageTab({ settings }: { settings: Settings }) {
   const { account, loading, load } = useUsage()
   const update = useApp((s) => s.updateSettings)
@@ -333,6 +349,8 @@ function UsageTab({ settings }: { settings: Settings }) {
   const [refreshingPrices, setRefreshingPrices] = useState(false)
   const u = settings.usage
   const weekly = account?.windows.find((w) => w.id === 'weekly')
+  const defaultPool = creditPool(account?.plan ?? null, null)
+  const activity = (account?.windows ?? []).filter((w) => w.models.length > 0)
   const anchor = u.anchors.weekly
 
   useEffect(() => {
@@ -370,8 +388,10 @@ function UsageTab({ settings }: { settings: Settings }) {
         </div>
       </Section>
 
+      <RawUsage refreshKey={account?.fetchedAt ?? 0} />
+
       <Section
-        title="Reset times"
+        title="Plan & reset times"
         description="Ollama's API doesn't say when limits reset. Kiln works it out the first time it sees your usage drop, or you can copy the time from ollama.com/settings."
       >
         <Row
@@ -397,6 +417,23 @@ function UsageTab({ settings }: { settings: Settings }) {
               </Button>
             )}
           </div>
+        </Row>
+        <Row
+          label="Monthly credit pool"
+          hint={`Turns the monthly % into dollars. Leave blank to use your plan's published pool${defaultPool ? ` ($${defaultPool} for ${account?.plan})` : ''}.`}
+        >
+          <input
+            type="number"
+            min={1}
+            step={1}
+            value={u.poolUsd ?? ''}
+            placeholder={defaultPool ? String(defaultPool) : '—'}
+            onChange={async (e) => {
+              await update({ usage: { poolUsd: e.target.value ? Math.max(1, Number(e.target.value)) : null } })
+              await load(true)
+            }}
+            className="h-9 w-24 rounded-kiln border border-line bg-canvas px-2 text-sm outline-none"
+          />
         </Row>
         <Row label="Monthly credits refresh on day" hint="For credit-based plans, which reset on the day your subscription started.">
           <input
@@ -430,6 +467,33 @@ function UsageTab({ settings }: { settings: Settings }) {
           </select>
         </Row>
       </Section>
+
+      {activity.length > 0 && (
+        <Section title="Ollama activity, all apps" description="Requests per model as reported by ollama.com, including apps other than Kiln.">
+          {activity.map((w) => (
+            <table key={w.id} className="w-full text-[13px] tabular-nums">
+              <thead>
+                <tr className="text-xs text-subtle">
+                  <th className="pb-2 text-left font-medium">{w.label} window</th>
+                  <th className="pb-2 text-right font-medium">Requests</th>
+                </tr>
+              </thead>
+              <tbody>
+                {w.models.map((m) => (
+                  <tr key={m.name} className="border-t border-line">
+                    <td className="py-1.5">{displayModelName(m.name)}</td>
+                    <td className="py-1.5 text-right">{m.requests.toLocaleString()}</td>
+                  </tr>
+                ))}
+                <tr className="border-t border-line-strong font-medium">
+                  <td className="py-1.5">Total</td>
+                  <td className="py-1.5 text-right">{w.models.reduce((n, m) => n + m.requests, 0).toLocaleString()}</td>
+                </tr>
+              </tbody>
+            </table>
+          ))}
+        </Section>
+      )}
 
       <Section title="Spend in Kiln, last 30 days" description="From token counts Kiln recorded. Other apps using your Ollama account aren't included.">
         {summary && summary.total.requests > 0 ? (

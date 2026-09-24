@@ -33,7 +33,7 @@ import { getModelInfo, listModels, setModelOverrides } from './ollama/models'
 import { paths } from './paths'
 import { stageArtifact } from './protocols'
 import { getSettings, setApiKey, updateSettings } from './settings'
-import { getAccountUsage, invalidateAccountUsage } from './usage/account'
+import { getAccountUsage, invalidateAccountUsage, lastRawUsage } from './usage/account'
 import { getPriceTable, refreshPrices } from './usage/pricing'
 import {
   deleteSkill,
@@ -211,6 +211,7 @@ const impl: Impl = {
   usage: {
     account: (refresh) => getAccountUsage(refresh),
     summary: async (days) => usageSummary(days),
+    raw: async () => lastRawUsage(),
     prices: async () => getPriceTable(),
     refreshPrices: () => refreshPrices(true)
   },

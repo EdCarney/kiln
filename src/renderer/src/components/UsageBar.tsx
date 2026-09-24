@@ -17,6 +17,10 @@ export function headlineWindow(account: AccountUsage | null, preference: string)
   return windows.find((w) => w.id === preference) ?? windows.find((w) => w.id === 'weekly') ?? windows.at(-1) ?? null
 }
 
+function periodPhrase(windowId: string): string {
+  return windowId === 'monthly' ? 'this month' : windowId === 'weekly' ? 'this week' : windowId === 'session' ? 'this session' : windowId
+}
+
 export const PACE_META: Record<PaceStatus, { label: string; icon: typeof CircleCheck; text: string; fill: string }> = {
   under: { label: 'Under pace', icon: CircleCheck, text: 'text-success', fill: 'bg-success' },
   'on-track': { label: 'On pace', icon: CircleEqual, text: 'text-warn', fill: 'bg-warn' },
@@ -137,6 +141,8 @@ export function AccountQuota() {
   if (!settings?.usage.showInHeader) return null
   const w = headlineWindow(account, settings.usage.headerWindow)
   const pace = w ? paceOf(w, now) : null
+  // Per-model request counts cover every app on the account; prefer the longest window that has them.
+  const activityWindow = [...(account?.windows ?? [])].reverse().find((x) => x.models.length > 0) ?? null
   const PaceIcon = pace ? PACE_META[pace.status].icon : null
   const goSettings = () => {
     setOpen(false)
@@ -201,18 +207,45 @@ export function AccountQuota() {
             <p className="text-[13px] text-muted">{account ? 'Ollama reported no usage limits for this account.' : 'Loading…'}</p>
           )}
 
-          {account?.spend && (
-            <div className="flex items-baseline justify-between border-t border-line pt-3 text-[13px]">
-              <span className="text-muted">Ollama spend, {account.spend.label.toLowerCase()}</span>
-              <span className="font-medium tabular-nums">{formatDollars(account.spend.cost)}</span>
-            </div>
-          )}
-          {local && (
-            <div className="flex items-baseline justify-between text-[13px]">
-              <span className="text-muted">Kiln, last 30 days ({local.total.requests} requests)</span>
-              <span className="font-medium tabular-nums">
-                {local.total.costUsd === null ? '—' : `≈${formatDollars(local.total.costUsd)}`}
-              </span>
+          {(account?.spend || activityWindow || local) && (
+            <div className="space-y-2 border-t border-line pt-3 text-[13px]">
+              {account?.spend && (
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="text-muted">Ollama spend, {account.spend.label.toLowerCase()}</span>
+                  <span
+                    className="font-medium tabular-nums"
+                    title={account.spend.source === 'credits' ? 'Your share of the monthly credit pool. Ollama reports it to 0.1%, so this is approximate.' : undefined}
+                  >
+                    {account.spend.source === 'credits'
+                      ? `≈${formatDollars(account.spend.cost)} of ${formatDollars(account.spend.pool)}`
+                      : formatDollars(account.spend.cost)}
+                  </span>
+                </div>
+              )}
+              {activityWindow && (
+                <div>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="text-muted">Requests, {periodPhrase(activityWindow.id)} (all apps)</span>
+                    <span className="font-medium tabular-nums">{activityWindow.models.reduce((n, m) => n + m.requests, 0).toLocaleString()}</span>
+                  </div>
+                  <div className="mt-0.5 truncate text-xs text-subtle">
+                    {activityWindow.models
+                      .slice(0, 3)
+                      .map((m) => `${displayModelName(m.name)} ${m.requests.toLocaleString()}`)
+                      .join(' · ')}
+                  </div>
+                </div>
+              )}
+              {local && (
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="text-muted">Kiln, last 30 days ({local.total.requests} requests)</span>
+                  <span className="font-medium tabular-nums">
+                    {local.total.costUsd === null
+                      ? '—'
+                      : `${local.total.requests && local.total.costUsd > 0 ? '≈' : ''}${formatDollars(local.total.costUsd)}`}
+                  </span>
+                </div>
+              )}
             </div>
           )}
         </div>

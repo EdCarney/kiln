@@ -198,6 +198,8 @@ export interface UsageWindow {
   /** Next reset, when known (Ollama's API doesn't report it). */
   resetAt: number | null
   resetSource: 'configured' | 'detected' | null
+  /** Requests per model in this window, across every app using the account. */
+  models: Array<{ name: string; requests: number }>
 }
 
 export interface AccountUsage {
@@ -206,6 +208,13 @@ export interface AccountUsage {
   spend: {
     cost: number
     label: string
+    /**
+     * 'credits': worked out from the monthly window's share of the plan's credit pool (credit plans
+     * report no dollar figure). 'activity': Ollama's own cost figure.
+     */
+    source: 'credits' | 'activity'
+    /** Size of the monthly credit pool, for "$0.54 of $60". */
+    pool: number | null
     periodStart: number | null
     periodEnd: number | null
     models: Array<{ model: string; cost: number }>
@@ -328,6 +337,8 @@ export interface Settings {
     anchors: Record<string, { at: number; source: 'configured' | 'detected' } | null>
     /** Day of month a credit-based plan refreshes. */
     monthlyDay: number | null
+    /** Monthly credit pool in USD; null uses the plan's published size. */
+    poolUsd: number | null
   }
 }
 

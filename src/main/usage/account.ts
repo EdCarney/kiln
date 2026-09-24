@@ -1,4 +1,4 @@
-import { describeWindows, detectReset, parseUsageResponse } from '@shared/usage'
+import { creditPool, describeWindows, detectReset, effectiveSpend, parseUsageResponse } from '@shared/usage'
 import type { AccountUsage } from '@shared/types'
 import { readSetting, writeSetting } from '../db/kv'
 import { OLLAMA_CLOUD } from '../ollama/client'
@@ -50,6 +50,8 @@ async function load(): Promise<AccountUsage> {
       return { ...base, needsKey: true, error: 'Ollama rejected the API key. Create a new one at ollama.com/settings/keys.' }
     if (!res.ok) return { ...base, needsKey: false, error: `Ollama returned HTTP ${res.status} for usage.` }
     json = await res.json()
+    // The endpoint is undocumented: keep the last response so its shape can be inspected in Settings.
+    writeSetting('usageRaw', { at: now, json })
   } catch (err) {
     return { ...base, needsKey: false, error: `Couldn't reach ollama.com: ${errorMessage(err)}` }
   }
@@ -74,7 +76,7 @@ async function load(): Promise<AccountUsage> {
   return {
     ...base,
     windows: describeWindows(windows, { anchors, monthlyDay: settings.monthlyDay }, now),
-    spend,
+    spend: effectiveSpend(windows, spend, creditPool(base.plan, settings.poolUsd)),
     needsKey: false,
     error: null
   }
@@ -90,6 +92,10 @@ export function getAccountUsage(refresh = false): Promise<AccountUsage> {
     .then((u) => (cache = u))
     .finally(() => (inflight = null))
   return inflight
+}
+
+export function lastRawUsage(): { at: number; json: unknown } | null {
+  return readSetting<{ at: number; json: unknown } | null>('usageRaw', null)
 }
 
 /** Settings changed (key, reset times): drop the cache so the next read is fresh. */

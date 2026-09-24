@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { PriceTable } from '@shared/types'
 import {
   costOf,
+  creditPool,
+  effectiveSpend,
   describeWindows,
   detectReset,
   elapsedFraction,
@@ -88,15 +90,54 @@ describe('account usage', () => {
       limits: { weekly: { usage: 0.335, models: {} }, session: { usage: 0.025, models: {} } }
     })
     expect(parsed.windows).toEqual([
-      { id: 'session', usage: 0.025 },
-      { id: 'weekly', usage: 0.335 }
+      { id: 'session', usage: 0.025, models: [] },
+      { id: 'weekly', usage: 0.335, models: [] }
     ])
-    expect(parsed.spend).toMatchObject({ cost: 1.2345, label: 'Last 4 weeks', models: [{ model: 'glm-5.3', cost: 1.2 }] })
+    expect(parsed.spend).toMatchObject({ cost: 1.2345, label: 'Last 4 weeks', source: 'activity', models: [{ model: 'glm-5.3', cost: 1.2 }] })
+  })
+
+  // Shape returned for a credit-based Pro plan (numbers made up): no dollar figure, a monthly share,
+  // and per-model request counts across every app on the account.
+  const creditPlan = {
+    activity: { cost: '0.00000', period: { type: 'last_4_weeks' }, models: [] },
+    limits: {
+      monthly: {
+        usage: 0.009,
+        models: [
+          { name: 'kimi-k3', request_count: 12 },
+          { name: 'gpt-oss:120b', request_count: 200 },
+          { name: 'web search', request_count: 3 }
+        ]
+      }
+    }
+  }
+
+  it('reads per-model request counts, busiest first', () => {
+    const [monthly] = parseUsageResponse(creditPlan).windows
+    expect(monthly.models.map((m) => m.name)).toEqual(['gpt-oss:120b', 'kimi-k3', 'web search'])
+    expect(parseUsageResponse({ limits: { weekly: { usage: 0.1, models: { 'glm-5.3': { request_count: 4 } } } } }).windows[0].models).toEqual([
+      { name: 'glm-5.3', requests: 4 }
+    ])
+  })
+
+  it('works out credit-plan spend from the share of the monthly pool', () => {
+    const { windows, spend } = parseUsageResponse(creditPlan)
+    expect(spend?.cost).toBe(0) // what Ollama itself reports
+    const pool = creditPool('pro', null)
+    expect(pool).toBe(60)
+    expect(effectiveSpend(windows, spend, pool)).toMatchObject({ cost: 0.54, source: 'credits', pool: 60, label: 'This month' })
+    expect(creditPool('pro', 75)).toBe(75)
+    expect(creditPool(null, null)).toBeNull()
+  })
+
+  it("keeps Ollama's own figure on legacy plans", () => {
+    const legacy = parseUsageResponse({ activity: { cost: '4.5' }, limits: { weekly: { usage: 0.2 } } })
+    expect(effectiveSpend(legacy.windows, legacy.spend, 60)).toMatchObject({ cost: 4.5, source: 'activity' })
   })
 
   it('tolerates unexpected shapes', () => {
     expect(parseUsageResponse(null)).toEqual({ windows: [], spend: null })
-    expect(parseUsageResponse({ limits: { monthly: { usage: '0.5' }, junk: 3 } }).windows).toEqual([{ id: 'monthly', usage: 0.5 }])
+    expect(parseUsageResponse({ limits: { monthly: { usage: '0.5' }, junk: 3 } }).windows).toEqual([{ id: 'monthly', usage: 0.5, models: [] }])
   })
 })
 
@@ -109,7 +150,8 @@ describe('pace', () => {
     usage,
     periodMs: 7 * DAY,
     resetAt: daysLeft === null ? null : now + daysLeft * DAY,
-    resetSource: 'detected' as const
+    resetSource: 'detected' as const,
+    models: []
   })
 
   it('is under pace when usage trails the time elapsed', () => {
@@ -164,8 +206,8 @@ describe('reset schedule', () => {
     const now = Date.parse('2026-09-23T12:00:00Z')
     const [session, weekly] = describeWindows(
       [
-        { id: 'session', usage: 0.1 },
-        { id: 'weekly', usage: 0.5 }
+        { id: 'session', usage: 0.1, models: [] },
+        { id: 'weekly', usage: 0.5, models: [] }
       ],
       { anchors: { weekly: { at: now - 2 * DAY, source: 'detected' } }, monthlyDay: null },
       now

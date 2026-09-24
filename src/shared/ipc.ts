@@ -130,6 +130,8 @@ export interface KilnApi {
     account(refresh?: boolean): Promise<AccountUsage>
     /** Kiln's own ledger of requests over the last N days. */
     summary(days: number): Promise<UsageSummary>
+    /** Last raw /api/usage response, for troubleshooting the undocumented endpoint. */
+    raw(): Promise<{ at: number; json: unknown } | null>
     prices(): Promise<PriceTable>
     refreshPrices(): Promise<PriceTable>
   }
@@ -156,7 +158,7 @@ export const INVOKE_CHANNELS = {
   artifacts: ['list', 'stage', 'save', 'createFromBlock'],
   skills: ['list', 'get', 'save', 'delete', 'duplicate', 'setEnabled', 'reveal'],
   themes: ['list', 'save', 'delete', 'exportTheme', 'importTheme'],
-  usage: ['account', 'summary', 'prices', 'refreshPrices']
+  usage: ['account', 'summary', 'raw', 'prices', 'refreshPrices']
 } as const satisfies { [G in Exclude<keyof KilnApi, 'events' | 'files'>]: ReadonlyArray<keyof KilnApi[G]> }
 
 export const EVENT_CHANNELS = { chat: 'event:chat', skills: 'event:skills', menu: 'event:menu' } as const
