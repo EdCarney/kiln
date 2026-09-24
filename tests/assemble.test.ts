@@ -19,6 +19,7 @@ const base: AssembleInput = {
   date: new Date('2026-09-23'),
   artifacts: { enabled: true, allowCdn: false },
   web: 'off',
+  pastTools: true,
   project: null,
   knowledge: [],
   skillIndex: [],
@@ -153,5 +154,28 @@ describe('collapseSupersededArtifacts', () => {
     const collapsed = assemble({ ...base, history })
     const sent = collapsed.messages.map((m) => m.content).join('')
     expect(sent.split('line\n').length - 1).toBe(4000) // one copy, not two
+  })
+})
+
+describe('past web calls', () => {
+  const searched: HistoryTurn = {
+    ...turn('assistant', 'The top story is about kilns.'),
+    tools: [{ name: 'web_search', args: { query: 'news' }, record: '1. Kilns are back — https://a.example/kilns\n2. Pottery prices — https://b.example/pots' }]
+  }
+  const history = [turn('user', 'what is in the news?'), searched, turn('user', 'open the second result')]
+
+  it('replays them as a tool call and result before the reply that used them', () => {
+    const roles = assemble({ ...base, history }).messages.map((m) => m.role)
+    expect(roles).toEqual(['system', 'user', 'assistant', 'tool', 'assistant', 'user'])
+    const [call, result] = assemble({ ...base, history }).messages.slice(2, 4)
+    expect(call.tool_calls).toEqual([{ function: { name: 'web_search', arguments: { query: 'news' } } }])
+    expect(result).toMatchObject({ role: 'tool', tool_name: 'web_search' })
+    expect(result.content).toContain('https://b.example/pots')
+    expect(result.content).toMatch(/Untrusted web data/)
+  })
+
+  it('leaves them out for a model without tool support', () => {
+    const roles = assemble({ ...base, pastTools: false, history }).messages.map((m) => m.role)
+    expect(roles).toEqual(['system', 'user', 'assistant', 'user'])
   })
 })
