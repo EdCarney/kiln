@@ -29,7 +29,7 @@ const { openDatabase } = await import('../src/main/db/index')
 const { updateSettings, setApiKey } = await import('../src/main/settings')
 const service = await import('../src/main/chat/service')
 const { listTraces } = await import('../src/main/debug/traces')
-const { deleteConversation, getMessage, insertMessage, createConversation, search, updateMessage } = await import('../src/main/db/conversations')
+const { deleteConversation, getMessage, insertMessage, createConversation, search, updateConversation, updateMessage } = await import('../src/main/db/conversations')
 
 type ChatHandler = (body: Record<string, unknown>, res: ServerResponse, call: number) => unknown
 let chat: ChatHandler
@@ -112,6 +112,18 @@ describe('reply loop', () => {
     const done = await doneEvent(r.conversation.id)
     expect(done.message.stats?.doneReason).toBe('length')
     expect(done.message.error).toBeNull()
+  })
+
+  it("sends a chat's own instructions with its replies", async () => {
+    chat = reply('Arr.')
+    const r = start()
+    await doneEvent(r.conversation.id)
+    updateConversation(r.conversation.id, { instructions: 'Answer like a pirate.' })
+    events.length = 0
+    service.send({ conversationId: r.conversation.id, projectId: null, content: 'hi again', attachmentIds: [], model: 'llama3.2', think: null, skills: [] })
+    await doneEvent(r.conversation.id)
+    const system = (chatCalls.at(-1)!.messages as Array<{ role: string; content: string }>)[0]
+    expect(system.content).toContain('Answer like a pirate.')
   })
 
   it('saves a failed stream with its partial text and an error', async () => {
@@ -210,6 +222,30 @@ describe('reply loop', () => {
     expect(chatCalls).toHaveLength(2)
     expect(chatCalls[1].tools).toBeUndefined()
     expect(done.message.toolEvents[0]).toMatchObject({ tool: 'python', ok: false })
+  })
+
+  it('remembers earlier search results on the next turn', async () => {
+    setApiKey('test-key')
+    chat = (b, res, n) => (n === 1 ? void res.writeHead(200).end(toolCall('web_search', { query: 'kiln news' })) : reply(n === 2 ? 'Two stories today.' : 'Opening it.')(b, res, n))
+    web = (_p, res) =>
+      res.writeHead(200).end(
+        JSON.stringify({
+          results: [
+            { title: 'Kilns are back', url: 'https://a.example/kilns', content: 'x' },
+            { title: 'Pottery prices', url: 'https://b.example/pots', content: 'y' }
+          ]
+        })
+      )
+    const r = start('what is in the news?')
+    const first = await doneEvent(r.conversation.id)
+    expect(first.message.toolEvents[0].record).toContain('2. Pottery prices — https://b.example/pots')
+    events.length = 0
+    service.send({ conversationId: r.conversation.id, projectId: null, content: 'open the second one', attachmentIds: [], model: 'llama3.2', think: null, skills: [] })
+    await doneEvent(r.conversation.id)
+    const followUp = chatCalls[2].messages as Array<{ role: string; content: string; tool_calls?: unknown[] }>
+    const replayed = followUp.find((m) => m.role === 'tool')
+    expect(replayed?.content).toContain('https://b.example/pots')
+    expect(followUp.find((m) => m.tool_calls)?.tool_calls).toEqual([{ function: { name: 'web_search', arguments: { query: 'kiln news' } } }])
   })
 
   it('ends a tool-happy model with a tool-free final round', async () => {

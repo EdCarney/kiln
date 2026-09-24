@@ -141,6 +141,13 @@ This conversation is part of the user's project "${project.name}".${project.inst
 </project>`
 }
 
+export function chatInstructionsPrompt(instructions: string): string {
+  return `<chat_instructions>
+The user set these instructions for this conversation. Follow them throughout; where they conflict with the preferences or project instructions above, these win.
+${instructions.trim()}
+</chat_instructions>`
+}
+
 export function documentBlock(name: string, text: string, source?: string): string {
   const attr = source ? ` source="${source}"` : ''
   return `<document name="${name.replace(/"/g, "'")}"${attr}>\n${text}\n</document>`

@@ -156,5 +156,9 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX traces_conversation ON traces(conversation_id, started_at);
   CREATE INDEX traces_started ON traces(started_at);
+  `,
+  /* sql */ `
+  -- Instructions for one chat (a system prompt or persona), on top of preferences and project instructions.
+  ALTER TABLE conversations ADD COLUMN instructions TEXT NOT NULL DEFAULT '';
   `
 ]

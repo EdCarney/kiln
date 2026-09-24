@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { assemble, type AssembleInput, type HistoryTurn } from '../src/main/chat/assemble'
+import { assemble, type AssembleInput, collapseSupersededArtifacts, type HistoryTurn } from '../src/main/chat/assemble'
 import { effectiveContext } from '../src/shared/context'
 
 const turn = (role: 'user' | 'assistant', content: string, extra: Partial<HistoryTurn> = {}): HistoryTurn => ({
@@ -19,7 +19,9 @@ const base: AssembleInput = {
   date: new Date('2026-09-23'),
   artifacts: { enabled: true, allowCdn: false },
   web: 'off',
+  pastTools: true,
   project: null,
+  chatInstructions: '',
   knowledge: [],
   skillIndex: [],
   selectedSkills: [],
@@ -103,5 +105,89 @@ describe('effectiveContext', () => {
     const out = assemble({ ...base, contextLength: window, history })
     expect(out.droppedTurns).toBeGreaterThan(0)
     expect(out.estimatedTokens).toBeLessThanOrEqual(32_768)
+  })
+})
+
+describe('collapseSupersededArtifacts', () => {
+  const art = (id: string, body: string, title = 'Script') => `<artifact identifier="${id}" type="code" title="${title}" language="python">\n${body}\n</artifact>`
+
+  it('keeps only the newest version of each artifact in full', () => {
+    const v1 = 'print("v1")\n' + 'x = 1\n'.repeat(200)
+    const v2 = 'print("v2")'
+    const history = [
+      turn('user', 'write a script'),
+      turn('assistant', `Here it is.\n${art('script', v1)}\nEnjoy.`),
+      turn('user', 'change it'),
+      turn('assistant', `Updated.\n${art('script', v2)}`)
+    ]
+    const out = collapseSupersededArtifacts(history)
+    expect(out[1].content).not.toContain('print("v1")')
+    expect(out[1].content).toContain('Here it is.')
+    expect(out[1].content).toContain('Enjoy.')
+    expect(out[1].content).toMatch(/Earlier version of the artifact "Script" \(identifier script\), omitted/)
+    // The note is outside any artifact tag, so it can't read as a placeholder inside one.
+    expect(out[1].content).not.toMatch(/<artifact/)
+    expect(out[3]).toBe(history[3]) // the newest version's turn is passed through untouched
+  })
+
+  it('leaves turns alone when nothing is superseded', () => {
+    const history = [turn('user', 'two things'), turn('assistant', `${art('a', 'one')}\n${art('b', 'two', 'Other')}`)]
+    const out = collapseSupersededArtifacts(history)
+    expect(out[1]).toBe(history[1])
+  })
+
+  it('keeps the later of two versions in the same reply', () => {
+    const out = collapseSupersededArtifacts([turn('user', 'go'), turn('assistant', `${art('s', 'first draft')}\n${art('s', 'final draft')}`)])
+    expect(out[1].content).not.toContain('first draft')
+    expect(out[1].content).toContain('final draft')
+    expect(out[1].content).toContain('<artifact identifier="s" type="code" title="Script" language="python">')
+  })
+
+  it('shrinks what assemble sends', () => {
+    const big = 'line\n'.repeat(4000)
+    const history = [
+      turn('user', 'a'),
+      turn('assistant', art('doc', big)),
+      turn('user', 'b'),
+      turn('assistant', art('doc', big + 'more')),
+      turn('user', 'c')
+    ]
+    const collapsed = assemble({ ...base, history })
+    const sent = collapsed.messages.map((m) => m.content).join('')
+    expect(sent.split('line\n').length - 1).toBe(4000) // one copy, not two
+  })
+})
+
+describe('past web calls', () => {
+  const searched: HistoryTurn = {
+    ...turn('assistant', 'The top story is about kilns.'),
+    tools: [{ name: 'web_search', args: { query: 'news' }, record: '1. Kilns are back — https://a.example/kilns\n2. Pottery prices — https://b.example/pots' }]
+  }
+  const history = [turn('user', 'what is in the news?'), searched, turn('user', 'open the second result')]
+
+  it('replays them as a tool call and result before the reply that used them', () => {
+    const roles = assemble({ ...base, history }).messages.map((m) => m.role)
+    expect(roles).toEqual(['system', 'user', 'assistant', 'tool', 'assistant', 'user'])
+    const [call, result] = assemble({ ...base, history }).messages.slice(2, 4)
+    expect(call.tool_calls).toEqual([{ function: { name: 'web_search', arguments: { query: 'news' } } }])
+    expect(result).toMatchObject({ role: 'tool', tool_name: 'web_search' })
+    expect(result.content).toContain('https://b.example/pots')
+    expect(result.content).toMatch(/Untrusted web data/)
+  })
+
+  it('leaves them out for a model without tool support', () => {
+    const roles = assemble({ ...base, pastTools: false, history }).messages.map((m) => m.role)
+    expect(roles).toEqual(['system', 'user', 'assistant', 'user'])
+  })
+})
+
+describe('chat instructions', () => {
+  it('adds them to the system prompt after project instructions, and not when empty', () => {
+    const withBoth = assemble({ ...base, project: { name: 'P', instructions: 'Project rule' }, chatInstructions: 'Answer like a pirate.' })
+    const system = withBoth.messages[0].content
+    expect(system).toContain('<chat_instructions>')
+    expect(system).toContain('Answer like a pirate.')
+    expect(system.indexOf('Project rule')).toBeLessThan(system.indexOf('Answer like a pirate.'))
+    expect(assemble({ ...base, chatInstructions: '  ' }).messages[0].content).not.toContain('<chat_instructions>')
   })
 })

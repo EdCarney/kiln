@@ -36,6 +36,8 @@ export interface Conversation {
   skills: string[]
   /** Skill ids the model loaded itself; kept for later turns but applied only where relevant. */
   autoSkills: string[]
+  /** Instructions for this chat only (a system prompt or persona); '' when unset. */
+  instructions: string
   pinned: boolean
   createdAt: number
   updatedAt: number
@@ -62,6 +64,11 @@ export interface ToolEvent {
   summary: string
   /** Still running (web requests take a few seconds); replaced by the final event at the same index. */
   pending?: boolean
+  /**
+   * A short record of the result (search titles and links; a page's title, link and opening), replayed to
+   * the model on later turns so follow-ups like "open the third result" still work.
+   */
+  record?: string
 }
 
 export interface MessageStats {

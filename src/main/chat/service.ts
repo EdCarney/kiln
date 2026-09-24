@@ -43,7 +43,7 @@ import { getSkill, listSkills } from '../skills/library'
 import { conversationUsage, insertUsageEvent } from '../db/usage'
 import { requestCost } from '../usage/pricing'
 import { errorMessage, estimateTokens } from '../util'
-import { assemble, type HistoryTurn } from './assemble'
+import { assemble, type HistoryTurn, type PastToolCall } from './assemble'
 import { TITLE_PROMPT } from './prompts'
 import { pendingEvent, runTool, settleToolEvent, type ToolContext, type ToolResult, toolsFor } from './tools'
 import type { WebStatus } from './prompts'
@@ -172,9 +172,21 @@ function startAssistant(conversation: Conversation, parent: Message, model: stri
   return { conversation, userMessage: parent, assistantMessageId: assistant.id }
 }
 
+/** The successful web calls behind a reply, in brief, for replaying on later turns. */
+function pastToolCalls(events: ToolEvent[]): PastToolCall[] {
+  return events.flatMap((e): PastToolCall[] => {
+    if (!e.ok || e.pending || !e.record || (e.tool !== 'web_search' && e.tool !== 'web_fetch')) return []
+    const args = e.tool === 'web_search' ? { query: e.args.query } : { url: e.args.url }
+    return [{ name: e.tool, args, record: e.record }]
+  })
+}
+
 async function toTurn(message: Message, vision: boolean): Promise<HistoryTurn> {
   const turn: HistoryTurn = { role: message.role, content: message.content, documents: [], images: [], hiddenImages: [] }
-  if (message.role !== 'user') return turn
+  if (message.role !== 'user') {
+    turn.tools = pastToolCalls(message.toolEvents)
+    return turn
+  }
   for (const a of attachmentRowsForMessage(message.id)) {
     if (a.kind === 'image') {
       if (vision) turn.images.push(await imageForModel(a.path, a.mime))
@@ -271,7 +283,9 @@ async function generate(
       date: new Date(),
       artifacts: { enabled: settings.artifacts.enabled && model.overrides.artifacts !== false, allowCdn: settings.artifacts.allowCdn },
       web,
+      pastTools: toolsCapable,
       project: project ? { name: project.name, instructions: project.instructions } : null,
+      chatInstructions: conversation.instructions,
       knowledge: project ? projectKnowledge(project.id) : [],
       skillIndex,
       selectedSkills: await load(selectedIds),
