@@ -22,12 +22,12 @@ export function webAvailable(): boolean {
   return getApiKey() !== null
 }
 
+const TIMEOUT_MS = 30_000
+
 /**
  * Ollama's web search/fetch run on ollama.com (pages are fetched by Ollama, not this Mac) and are
  * authorised with the ollama.com API key, which stays in the main process.
  */
-const TIMEOUT_MS = 30_000
-
 async function call<T>(path: string, body: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
   const key = getApiKey()
   if (!key) throw new OllamaError('Web tools need an ollama.com API key (Settings → Usage & cost).')

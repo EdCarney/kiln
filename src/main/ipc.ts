@@ -4,7 +4,7 @@ import { artifactExtension, slugify } from '@shared/artifactParser'
 import { EVENT_CHANNELS, type KilnApi } from '@shared/ipc'
 import { BUILTIN_THEMES } from '@shared/themes'
 import type { ThemeDef } from '@shared/types'
-import { edit, regenerate, send, stop } from './chat/service'
+import { edit, regenerate, send, stop, stopAll } from './chat/service'
 import { addArtifactVersion, getArtifact, listAllArtifacts, listArtifacts } from './db/artifacts'
 import {
   deleteConversation,
@@ -105,7 +105,7 @@ const impl: Impl = {
     update: async (id, patch) => updateProject(id, patch),
     delete: async (id) => {
       // Let replies in the project's chats finish saving before their rows go.
-      await Promise.all(listConversations({ projectId: id, limit: 10_000 }).map((c) => stop(c.id)))
+      await stopAll((conversationId) => getConversation(conversationId)?.projectId === id)
       await removeFiles(deleteProject(id))
     },
     files: async (id) => listProjectFiles(id),

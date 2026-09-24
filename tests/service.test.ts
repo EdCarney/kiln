@@ -29,12 +29,13 @@ const { openDatabase } = await import('../src/main/db/index')
 const { updateSettings, setApiKey } = await import('../src/main/settings')
 const service = await import('../src/main/chat/service')
 const { listTraces } = await import('../src/main/debug/traces')
-const { deleteConversation, getMessage, insertMessage, createConversation, updateMessage } = await import('../src/main/db/conversations')
+const { deleteConversation, getMessage, insertMessage, createConversation, search, updateMessage } = await import('../src/main/db/conversations')
 
 type ChatHandler = (body: Record<string, unknown>, res: ServerResponse, call: number) => unknown
 let chat: ChatHandler
 let web: (path: string, res: ServerResponse) => unknown
 let chatCalls: Array<Record<string, unknown>>
+let titleCalls: Array<Record<string, unknown>>
 
 beforeAll(() => {
   openDatabase(':memory:')
@@ -43,8 +44,10 @@ beforeAll(() => {
     if (req.url === '/api/show')
       return res.writeHead(200).end(JSON.stringify({ capabilities: ['completion', 'tools'], model_info: { 'llama.context_length': 8192 } }))
     // Titles are generated in the background after a reply; answer them apart from the scripted chat.
-    if (req.url === '/api/chat' && req.json.stream === false)
+    if (req.url === '/api/chat' && req.json.stream === false) {
+      titleCalls.push(req.json)
       return res.writeHead(200).end(JSON.stringify({ message: { role: 'assistant', content: 'A title' }, done: true }))
+    }
     if (req.url === '/api/chat') {
       chatCalls.push(req.json)
       return chat(req.json, res, chatCalls.length)
@@ -56,6 +59,7 @@ afterAll(() => ollama.close())
 beforeEach(() => {
   events.length = 0
   chatCalls = []
+  titleCalls = []
   setApiKey(null)
   web = (_p, res) => res.writeHead(404).end()
 })
@@ -94,6 +98,9 @@ describe('reply loop', () => {
     expect(done.message.content).toBe('Hi there')
     expect(done.message.stats).toMatchObject({ promptTokens: 10, completionTokens: 3 })
     expect(chatCalls[0]).toMatchObject({ model: 'llama3.2', options: { num_ctx: 8192 } })
+    // The title request uses the same num_ctx, so Ollama doesn't reload the local model for it.
+    await waitFor(() => titleCalls.length > 0)
+    expect(titleCalls[0]).toMatchObject({ options: { num_ctx: 8192 } })
   })
 
   it('saves a failed stream with its partial text and an error', async () => {
@@ -132,6 +139,28 @@ describe('reply loop', () => {
     expect(saved.stats).not.toBeNull()
     // The chat can now be deleted without the reply writing to it afterwards.
     deleteConversation(r.conversation.id)
+    expect(service.isReplying()).toBe(false)
+    // A stop (often for a delete or a quit) doesn't start a title request.
+    await new Promise((r) => setTimeout(r, 50))
+    expect(titleCalls).toHaveLength(0)
+  })
+
+  it('keeps an overlapping reply stoppable after the earlier one finishes', async () => {
+    chat = reply('first')
+    const r = start()
+    await doneEvent(r.conversation.id)
+    events.length = 0
+    // regenerate() awaits file cleanup before registering its reply; a send() landing in that gap
+    // registers its own reply first. The regenerated reply streams and then hangs.
+    chat = (_b, res, n) =>
+      n === 2 ? reply('sent reply')(_b, res, n) : streamChunks(res, [line({ message: { role: 'assistant', content: 'regenerated' }, done: false })])
+    const regen = service.regenerate(r.conversation.id, { model: 'llama3.2', think: null })
+    service.send({ conversationId: r.conversation.id, projectId: null, content: 'again', attachmentIds: [], model: 'llama3.2', think: null, skills: [] })
+    const second = await regen
+    await doneEvent(r.conversation.id) // the send's reply finished
+    expect(service.isReplying()).toBe(true) // the regenerated reply is still tracked…
+    await service.stop(r.conversation.id) // …so stop() waits for it and it gets saved
+    expect(getMessage(second.assistantMessageId)?.stats).not.toBeNull()
     expect(service.isReplying()).toBe(false)
   })
 
@@ -190,6 +219,8 @@ describe('markInterruptedReplies', () => {
     expect(after.content).toBe('so far')
     expect(after.error).toMatch(/closed before this reply finished/)
     expect(after.toolEvents[0]).toMatchObject({ pending: false, ok: false })
+    // Checkpoints skip search indexing; marking the reply indexes the text it kept.
+    expect(search('so far').map((h) => h.conversationId)).toContain(c.id)
     expect(getMessage(finished.id)!.error).toBeNull()
   })
 })

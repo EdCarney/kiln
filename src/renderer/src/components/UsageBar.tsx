@@ -268,9 +268,8 @@ export function AccountQuota() {
 
 export function ChatCost({ usage, model: modelName }: { usage: ChatUsage | null; model: string | null }) {
   const models = useApp((s) => s.models)
-  const showInHeader = useApp((s) => s.settings?.usage.showInHeader)
   const settings = useApp((s) => s.settings)
-  if (!showInHeader || !usage || usage.promptTokens + usage.completionTokens === 0) return null
+  if (!settings?.usage.showInHeader || !usage || usage.promptTokens + usage.completionTokens === 0) return null
   const model = findModel(models, modelName)
   const total = usage.promptTokens + usage.completionTokens
   const contextWindow = contextWindowFor(model, settings)

@@ -17,7 +17,10 @@ app.setName('Kiln')
 if (process.env.KILN_USER_DATA) app.setPath('userData', process.env.KILN_USER_DATA)
 registerSchemes()
 
-if (!app.requestSingleInstanceLock()) app.quit()
+// A second launch hands off to the running instance. app.quit() is asynchronous, so whenReady below
+// must also bail out, or this process would touch the shared database (e.g. mark live replies interrupted).
+const hasLock = app.requestSingleInstanceLock()
+if (!hasLock) app.quit()
 
 let mainWindow: BrowserWindow | null = null
 
@@ -119,6 +122,7 @@ app.on('second-instance', () => {
 })
 
 app.whenReady().then(async () => {
+  if (!hasLock) return
   initPaths()
   openDatabase(paths.db)
   markInterruptedReplies()

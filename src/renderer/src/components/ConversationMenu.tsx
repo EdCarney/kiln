@@ -6,6 +6,7 @@ import { cn } from '@/lib/format'
 import { reportError, useApp } from '@/stores/app'
 import { useArtifactPanel } from '@/stores/artifactPanel'
 import { useChat } from '@/stores/chat'
+import { useDrafts } from '@/stores/drafts'
 import { Button, Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuSub, MenuTrigger, Modal, TextField } from './ui'
 
 async function patch(conversation: Conversation, p: Parameters<typeof api.conversations.update>[1]) {
@@ -27,6 +28,7 @@ export function ConversationMenu({ conversation, trigger, align = 'start' }: { c
   const remove = async () => {
     try {
       await api.conversations.delete(conversation.id)
+      useDrafts.getState().discard([conversation.id])
       setDeleting(false)
       const app = useApp.getState()
       await Promise.all([app.loadConversations(), app.loadProjects()])

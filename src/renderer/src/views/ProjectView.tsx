@@ -9,6 +9,7 @@ import { api } from '@/lib/api'
 import { sendMessage } from '@/lib/chatActions'
 import { cn, displayModelName, formatBytes, formatTokens, relativeTime } from '@/lib/format'
 import { contextWindowFor, findModel, reportError, useApp } from '@/stores/app'
+import { useDrafts } from '@/stores/drafts'
 
 export function ProjectView({ id }: { id: string }) {
   const { projects, conversations, loadProjects, loadConversations, navigate, models, draftModel, settings } = useApp()
@@ -269,6 +270,7 @@ export function ProjectView({ id }: { id: string }) {
               onClick={async () => {
                 try {
                   await api.projects.delete(id)
+                  useDrafts.getState().discard([`project:${id}`, ...chats.map((c) => c.id)])
                   await Promise.all([loadProjects(), loadConversations()])
                   navigate({ name: 'projects' })
                 } catch (err) {

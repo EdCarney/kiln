@@ -72,7 +72,10 @@ const SLASH_RE = /(^|\s)\/([a-z0-9-]*)$/i
 
 interface Props {
   conversation: Conversation | null
-  /** Where an unsent draft is kept before a chat exists (e.g. "project:<id>"); a chat uses its own id. */
+  /**
+   * Where the unsent draft is kept: the chat id in a chat (passed explicitly, since `conversation` is null
+   * while the chat loads), "project:<id>" on a project page, or "new" on Home.
+   */
   draftKey?: string
   streaming: boolean
   onSubmit: (input: ComposerSubmit) => Promise<boolean>
@@ -86,7 +89,7 @@ export function Composer({ conversation, draftKey, streaming, onSubmit, onStop, 
   const { models, skills: allSkills, navigate } = useApp()
   const settings = useComposerSettings(conversation)
   // Each chat keeps its own unsent text and files, so switching chats never carries them along.
-  const key = conversation?.id ?? draftKey ?? 'new'
+  const key = draftKey ?? conversation?.id ?? 'new'
   const { text, pending } = useDrafts((s) => s.drafts[key]) ?? EMPTY_DRAFT
   const updateDraft = useDrafts((s) => s.update)
   const setText = useCallback((value: string) => updateDraft(key, (d) => ({ ...d, text: value })), [key, updateDraft])

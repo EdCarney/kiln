@@ -110,10 +110,15 @@ export interface StreamTimeouts {
   firstByteMs: number
   /** Between chunks once the reply has started. */
   idleMs: number
+  /**
+   * Between chunks when the request offers tools. Ollama holds back a tool call until its arguments are
+   * complete, so a slow local model writing a long argument can go quiet for many minutes while healthy.
+   */
+  toolIdleMs: number
 }
 
 // Generous on purpose: these catch a dead connection, not a slow model.
-export const STREAM_TIMEOUTS: StreamTimeouts = { firstByteMs: 10 * 60_000, idleMs: 3 * 60_000 }
+export const STREAM_TIMEOUTS: StreamTimeouts = { firstByteMs: 10 * 60_000, idleMs: 3 * 60_000, toolIdleMs: 30 * 60_000 }
 
 function parseChunk(line: string): ChatChunk {
   try {
@@ -154,13 +159,14 @@ export async function* chatStream(body: ChatBody, signal: AbortSignal, timeouts:
     if (!res.body) throw new OllamaError('Ollama returned an empty response')
     const reader = res.body.getReader()
     const decoder = new TextDecoder()
-    const idle = `Ollama stopped responding in the middle of the reply (nothing for ${Math.round(timeouts.idleMs / 1000)} seconds).`
+    const idleMs = body.tools?.length ? timeouts.toolIdleMs : timeouts.idleMs
+    const idle = `Ollama stopped responding in the middle of the reply (nothing for ${Math.round(idleMs / 60_000)} minutes).`
     let buffer = ''
     let finished = false
     for (;;) {
       const { value, done } = await reader.read()
       if (done) break
-      arm(timeouts.idleMs, idle)
+      arm(idleMs, idle)
       buffer += decoder.decode(value, { stream: true })
       let nl: number
       while ((nl = buffer.indexOf('\n')) >= 0) {
@@ -187,6 +193,8 @@ export async function* chatStream(body: ChatBody, signal: AbortSignal, timeouts:
   } finally {
     clearTimeout(timer)
     signal.removeEventListener('abort', forward)
+    // A consumer that stops early (break or throw) must not leave Ollama generating into an unread socket.
+    inner.abort()
   }
 }
 

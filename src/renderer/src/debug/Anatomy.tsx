@@ -34,12 +34,13 @@ export function Anatomy({
   actualTokens: number | null
   model: string | null
 }) {
+  // Local requests carry the num_ctx Ollama actually used; only cloud requests need the model's length.
+  const numCtx = request.options?.num_ctx ?? null
   const [modelContext, setModelContext] = useState<number | null>(null)
   useEffect(() => {
-    if (model) void api.models.info(model).then((m) => setModelContext(m.contextLength))
-  }, [model])
-  // Local requests carry the num_ctx Ollama actually used; the model's native length would overstate it.
-  const contextLength = request.options?.num_ctx ?? modelContext
+    if (model && numCtx === null) void api.models.info(model).then((m) => setModelContext(m.contextLength))
+  }, [model, numCtx])
+  const contextLength = numCtx ?? modelContext
 
   const used = actualTokens ?? anatomy.total
   const share = contextLength ? used / contextLength : null

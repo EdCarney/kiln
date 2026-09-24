@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { BrowserWindow } from 'electron'
 import { parseMessage } from '@shared/artifactParser'
 import { normalizeSpaces } from '@shared/text'
-import { effectiveContext } from '@shared/context'
+import { contextOptions, effectiveContext } from '@shared/context'
 import { EVENT_CHANNELS } from '@shared/ipc'
 import { resolveThinkProfile, toOllamaThink } from '@shared/thinking'
 import type {
@@ -19,6 +19,7 @@ import type {
 import { addArtifactVersion, listArtifacts, pruneEmptyArtifacts } from '../db/artifacts'
 import {
   attachmentRowsForMessage,
+  checkpointMessage,
   createConversation,
   deleteMessagesFrom,
   getConversation,
@@ -120,14 +121,19 @@ export function markInterruptedReplies(): number {
   const ids = unfinishedReplyIds()
   for (const id of ids) {
     const m = getMessage(id)!
-    updateMessage(id, { toolEvents: m.toolEvents.map(settleToolEvent), error: 'Kiln closed before this reply finished.' })
+    // Passing the content indexes it for search; checkpoints skip indexing.
+    updateMessage(id, {
+      content: m.content,
+      toolEvents: m.toolEvents.map(settleToolEvent),
+      error: 'Kiln closed before this reply finished.'
+    })
   }
   return ids.length
 }
 
-/** Stop every reply in progress and wait for each to save (used before quitting). */
-export async function stopAll(): Promise<void> {
-  await Promise.all([...active.keys()].map(stop))
+/** Stop every reply in progress (or those in chats matching `which`) and wait for each to save. */
+export async function stopAll(which: (conversationId: string) => boolean = () => true): Promise<void> {
+  await Promise.all([...active.keys()].filter(which).map(stop))
 }
 
 async function dropAfter(conversationId: string, messages: Message[], index: number): Promise<void> {
@@ -142,7 +148,10 @@ function startAssistant(conversation: Conversation, parent: Message, model: stri
   const controller = new AbortController()
   const settled = generate(conversation.id, assistant.id, model, think, controller)
     .catch((err) => console.error('Kiln: a reply failed to finish', err))
-    .finally(() => active.delete(conversation.id))
+    .finally(() => {
+      // Only remove our own entry: a reply that overlapped this one must stay stoppable.
+      if (active.get(conversation.id)?.controller === controller) active.delete(conversation.id)
+    })
   active.set(conversation.id, { controller, settled })
   return { conversation, userMessage: parent, assistantMessageId: assistant.id }
 }
@@ -206,7 +215,7 @@ async function generate(
   const checkpoint = () => {
     if (Date.now() - savedAt < CHECKPOINT_MS) return
     savedAt = Date.now()
-    updateMessage(messageId, { content, thinking: thinking || null, toolEvents })
+    checkpointMessage(messageId, { content, thinking: thinking || null, toolEvents })
   }
 
   try {
@@ -261,7 +270,7 @@ async function generate(
       think: toOllamaThink(profile, think),
       tools: toolsFor(toolContext),
       // Cloud models manage their own context; local ones default to a small window unless told otherwise.
-      options: model.location === 'cloud' ? undefined : { num_ctx: numCtx ?? settings.localNumCtx }
+      options: contextOptions(model, settings.localNumCtx)
     }
 
     const triedUnknown: string[] = []
@@ -357,7 +366,6 @@ async function generate(
           response: { result: result.content, error: result.event.ok ? undefined : result.event.summary },
           summary: `${result.event.tool}: ${result.event.summary}`
         })
-        controller.signal.throwIfAborted()
         if (result.unknown) triedUnknown.push(call.function.name)
         else onlyUnknown = false
         toolEvents[index] = result.event
@@ -369,6 +377,8 @@ async function generate(
         }
         body.messages.push({ role: 'tool', content: result.content, tool_name: call.function.name })
         checkpoint()
+        // Checked only after the result is recorded, so a call that finished isn't saved as stopped.
+        controller.signal.throwIfAborted()
       }
       // A model reaching for tools Kiln lacks keeps guessing names; after one explanation, take the
       // tools away so the next request has to be answered in words.
@@ -421,7 +431,9 @@ async function generate(
     usage: conversationUsage(conversationId)
   })
 
-  if (!error && message.content && getConversation(conversationId)?.title === 'New chat')
+  // A stopped reply gets no title call: the stop may be for a delete or a quit, and the next finished
+  // reply still titles the chat.
+  if (!error && !controller.signal.aborted && message.content && getConversation(conversationId)?.title === 'New chat')
     void generateTitle(conversationId, modelName)
 }
 
@@ -497,7 +509,8 @@ async function generateTitle(conversationId: string, chatModel: string): Promise
         { role: 'user', content: transcript }
       ],
       think: profile.kind === 'levels' ? 'low' : profile.kind === 'toggle' ? false : undefined,
-      options: { temperature: 0.3 }
+      // Same num_ctx as the chat: a different one makes Ollama reload a local model just for the title.
+      options: { temperature: 0.3, ...contextOptions(info, getSettings().localNumCtx) }
     }
     titleTrace = startTrace({
       kind: 'title',

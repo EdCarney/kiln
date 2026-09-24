@@ -17,11 +17,11 @@ beforeAll(async () => {
 afterAll(() => ollama.close())
 
 const body = { model: 'llama3.2', messages: [{ role: 'user' as const, content: 'hi' }] }
-const fast = { firstByteMs: 2_000, idleMs: 2_000 }
+const fast = { firstByteMs: 2_000, idleMs: 2_000, toolIdleMs: 2_000 }
 
-async function collect(signal = new AbortController().signal, timeouts = fast) {
+async function collect(signal = new AbortController().signal, timeouts = fast, request: Parameters<typeof chatStream>[0] = body) {
   const chunks = []
-  for await (const c of chatStream(body, signal, timeouts)) chunks.push(c)
+  for await (const c of chatStream(request, signal, timeouts)) chunks.push(c)
   return chunks
 }
 
@@ -64,25 +64,46 @@ describe('chatStream', () => {
 
   it('gives up when the first byte never arrives', async () => {
     ollama.handler = () => undefined // never answers
-    await expect(collect(undefined, { firstByteMs: 150, idleMs: 5_000 })).rejects.toThrow(/didn't start replying/)
+    await expect(collect(undefined, { firstByteMs: 150, idleMs: 5_000, toolIdleMs: 5_000 })).rejects.toThrow(/didn't start replying/)
   })
 
   it('gives up when the stream stalls mid-reply', async () => {
     ollama.handler = (_req, res) => streamChunks(res, [line({ message: { role: 'assistant', content: 'a' }, done: false })]) // then silence
-    await expect(collect(undefined, { firstByteMs: 5_000, idleMs: 150 })).rejects.toThrow(/stopped responding/)
+    await expect(collect(undefined, { firstByteMs: 5_000, idleMs: 150, toolIdleMs: 5_000 })).rejects.toThrow(/stopped responding/)
   })
 
   it('keeps a slow but steady stream alive', async () => {
     const chunks = [0, 1, 2, 3].map((i) => line({ message: { role: 'assistant', content: String(i) }, done: false }))
     ollama.handler = (_req, res) => streamChunks(res, [...chunks, line({ done: true })], 80).then(() => res.end())
-    const out = await collect(undefined, { firstByteMs: 5_000, idleMs: 200 })
+    const out = await collect(undefined, { firstByteMs: 5_000, idleMs: 200, toolIdleMs: 5_000 })
     expect(out).toHaveLength(5)
+  })
+
+  it('waits longer for a quiet stream when tools are offered (Ollama holds back tool calls)', async () => {
+    const tools = [{ type: 'function' as const, function: { name: 'web_search', description: 'search', parameters: {} } }]
+    ollama.handler = async (_req, res) => {
+      await streamChunks(res, [line({ message: { role: 'assistant', content: '' }, done: false })])
+      await new Promise((r) => setTimeout(r, 300)) // longer than idleMs, as a tool call's arguments are generated
+      res.end(line({ message: { role: 'assistant', content: '', tool_calls: [{ function: { name: 'web_search', arguments: { query: 'q' } } }] }, done: false }) + line({ done: true }))
+    }
+    const out = await collect(undefined, { firstByteMs: 5_000, idleMs: 150, toolIdleMs: 5_000 }, { ...body, tools })
+    expect(out.at(-1)?.done).toBe(true)
+  })
+
+  it('closes the connection when the caller stops reading early', async () => {
+    let closed = false
+    ollama.handler = (req, res) => {
+      res.on('close', () => (closed = true))
+      return streamChunks(res, [line({ message: { role: 'assistant', content: 'a' }, done: false })]) // then keeps the socket open
+    }
+    for await (const _chunk of chatStream(body, new AbortController().signal, { firstByteMs: 5_000, idleMs: 5_000, toolIdleMs: 5_000 })) break
+    await vi.waitFor(() => expect(closed).toBe(true), { timeout: 2_000 })
   })
 
   it('stops with an AbortError, not a timeout error, when the user aborts', async () => {
     ollama.handler = (_req, res) => streamChunks(res, [line({ message: { role: 'assistant', content: 'a' }, done: false })])
     const controller = new AbortController()
-    const run = collect(controller.signal, { firstByteMs: 5_000, idleMs: 5_000 })
+    const run = collect(controller.signal, { firstByteMs: 5_000, idleMs: 5_000, toolIdleMs: 5_000 })
     setTimeout(() => controller.abort(), 50)
     const err = await run.catch((e) => e)
     expect(err.name).toBe('AbortError')
