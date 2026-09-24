@@ -1,11 +1,12 @@
 import { ArrowUp, FileText, Paperclip, Plus, Sparkles, Square, TriangleAlert, X } from 'lucide-react'
 import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { normalizeThinkSetting } from '@shared/thinking'
-import type { Attachment, Conversation, FileSource, Skill, ThinkSetting } from '@shared/types'
+import type { Conversation, FileSource, Skill, ThinkSetting } from '@shared/types'
 import { api } from '@/lib/api'
 import { cn, formatTokens } from '@/lib/format'
 import { findModel, reportError, thinkProfileFor, useApp } from '@/stores/app'
 import { useChat } from '@/stores/chat'
+import { EMPTY_DRAFT, type PendingFile, useDrafts } from '@/stores/drafts'
 import { ModelPicker } from './ModelPicker'
 import { ThinkingControl } from './ThinkingControl'
 import { Menu, MenuCheckItem, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuSub, MenuTrigger, Spinner, Tooltip } from './ui'
@@ -16,12 +17,6 @@ export interface ComposerSubmit {
   model: string
   think: ThinkSetting | null
   skills: string[]
-}
-
-interface Pending {
-  key: string
-  name: string
-  attachment: Attachment | null
 }
 
 /** Model/think/skills for this composer: persisted on the chat once it exists, drafted otherwise. */
@@ -77,6 +72,8 @@ const SLASH_RE = /(^|\s)\/([a-z0-9-]*)$/i
 
 interface Props {
   conversation: Conversation | null
+  /** Where an unsent draft is kept before a chat exists (e.g. "project:<id>"); a chat uses its own id. */
+  draftKey?: string
   streaming: boolean
   onSubmit: (input: ComposerSubmit) => Promise<boolean>
   onStop?: () => void
@@ -85,11 +82,18 @@ interface Props {
   large?: boolean
 }
 
-export function Composer({ conversation, streaming, onSubmit, onStop, placeholder, autoFocus, large }: Props) {
+export function Composer({ conversation, draftKey, streaming, onSubmit, onStop, placeholder, autoFocus, large }: Props) {
   const { models, skills: allSkills, navigate } = useApp()
   const settings = useComposerSettings(conversation)
-  const [text, setText] = useState('')
-  const [pending, setPending] = useState<Pending[]>([])
+  // Each chat keeps its own unsent text and files, so switching chats never carries them along.
+  const key = conversation?.id ?? draftKey ?? 'new'
+  const { text, pending } = useDrafts((s) => s.drafts[key]) ?? EMPTY_DRAFT
+  const updateDraft = useDrafts((s) => s.update)
+  const setText = useCallback((value: string) => updateDraft(key, (d) => ({ ...d, text: value })), [key, updateDraft])
+  const setPending = useCallback(
+    (fn: (list: PendingFile[]) => PendingFile[]) => updateDraft(key, (d) => ({ ...d, pending: fn(d.pending) })),
+    [key, updateDraft]
+  )
   const [dragging, setDragging] = useState(false)
   const [slash, setSlash] = useState<{ query: string; index: number } | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -123,7 +127,7 @@ export function Composer({ conversation, streaming, onSubmit, onStop, placeholde
       reportError(err)
       setPending((p) => p.filter((x) => !keys.some((k) => k.key === x.key)))
     }
-  }, [])
+  }, [setPending])
 
   const addFileObjects = useCallback(
     async (files: File[]) => addFiles(await toSources(files), files.map((f) => f.name || 'Pasted image')),
@@ -135,7 +139,7 @@ export function Composer({ conversation, streaming, onSubmit, onStop, placeholde
     await addFiles(sources, sources.map((s) => ('path' in s ? s.path.split('/').pop()! : s.name)))
   }
 
-  const removePending = (p: Pending) => {
+  const removePending = (p: PendingFile) => {
     setPending((list) => list.filter((x) => x.key !== p.key))
     if (p.attachment) void api.attachments.remove(p.attachment.id)
   }
@@ -223,7 +227,7 @@ export function Composer({ conversation, streaming, onSubmit, onStop, placeholde
       })
       if (ok) {
         setText('')
-        setPending([])
+        setPending(() => [])
         settings.resetDraft()
       }
     } finally {
@@ -404,7 +408,7 @@ export function Composer({ conversation, streaming, onSubmit, onStop, placeholde
   )
 }
 
-function AttachmentChip({ pending, onRemove }: { pending: Pending; onRemove: () => void }) {
+function AttachmentChip({ pending, onRemove }: { pending: PendingFile; onRemove: () => void }) {
   const a = pending.attachment
   if (a?.kind === 'image')
     return (

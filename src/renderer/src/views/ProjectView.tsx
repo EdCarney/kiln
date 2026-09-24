@@ -104,7 +104,7 @@ export function ProjectView({ id }: { id: string }) {
             </div>
           </div>
 
-          <Composer conversation={null} streaming={false} placeholder={`Start a chat in ${project.name}…`} onSubmit={(input) => sendMessage(null, id, input)} />
+          <Composer conversation={null} draftKey={`project:${id}`} streaming={false} placeholder={`Start a chat in ${project.name}…`} onSubmit={(input) => sendMessage(null, id, input)} />
 
           <div className="mt-8">
             {chats.length ? (
