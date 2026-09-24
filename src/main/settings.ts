@@ -17,6 +17,7 @@ const DEFAULTS: StoredSettings = {
   appearance: { themeId: DEFAULT_THEME_ID, mode: 'system', fontSize: 16, chatWidth: 768, responseFont: 'reading' },
   artifacts: { enabled: true, allowCdn: true },
   skills: { sources: { ollama: true, claude: true }, disabled: [], enabledImports: [], autoLoad: true },
+  web: { enabled: true },
   usage: { showInHeader: true, headerWindow: 'auto', anchors: {}, monthlyDay: null, poolUsd: null }
 }
 

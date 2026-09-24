@@ -60,6 +60,8 @@ export interface ToolEvent {
   args: Record<string, unknown>
   ok: boolean
   summary: string
+  /** Still running (web requests take a few seconds); replaced by the final event at the same index. */
+  pending?: boolean
 }
 
 export interface MessageStats {
@@ -328,6 +330,8 @@ export interface Settings {
   artifacts: { enabled: boolean; allowCdn: boolean }
   /** `disabled` turns off app/Ollama skills; Claude skills are off unless listed in `enabledImports`. */
   skills: { sources: { ollama: boolean; claude: boolean }; disabled: string[]; enabledImports: string[]; autoLoad: boolean }
+  /** Web search and page reading through Ollama's web API (needs an ollama.com API key). */
+  web: { enabled: boolean }
   usage: {
     /** Show quota and chat cost in the title bar. */
     showInHeader: boolean
@@ -362,7 +366,7 @@ export interface SendResult {
 
 export type ChatEvent =
   | { type: 'delta'; conversationId: ID; messageId: ID; content?: string; thinking?: string }
-  | { type: 'tool'; conversationId: ID; messageId: ID; event: ToolEvent }
+  | { type: 'tool'; conversationId: ID; messageId: ID; index: number; event: ToolEvent }
   | { type: 'done'; conversationId: ID; message: Message; artifacts: Artifact[]; conversation: Conversation; usage: ChatUsage }
   | { type: 'error'; conversationId: ID; messageId: ID; error: string }
   | { type: 'title'; conversationId: ID; title: string }

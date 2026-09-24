@@ -3,6 +3,7 @@ import ReactMarkdown, { type Components } from 'react-markdown'
 import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
+import { normalizeCitations } from '@shared/citations'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/format'
 import { CodeBlock } from './CodeBlock'
@@ -57,7 +58,7 @@ export const Markdown = memo(function Markdown({ text, className, onOpenAsArtifa
   return (
     <div className={cn('prose-kiln selectable', className)}>
       <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={components}>
-        {normalizeMath(text)}
+        {normalizeCitations(normalizeMath(text))}
       </ReactMarkdown>
     </div>
   )

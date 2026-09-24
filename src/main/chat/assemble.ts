@@ -9,7 +9,9 @@ import {
   preferencesPrompt,
   projectPrompt,
   selectedSkillsPrompt,
-  skillIndexPrompt
+  skillIndexPrompt,
+  type WebStatus,
+  webPrompt
 } from './prompts'
 
 export interface HistoryTurn {
@@ -32,6 +34,8 @@ export interface AssembleInput {
   preferences: string
   date: Date
   artifacts: { enabled: boolean; allowCdn: boolean }
+  /** Whether web_search/web_fetch are offered (and if not, why). */
+  web: WebStatus
   project: { name: string; instructions: string } | null
   knowledge: Array<{ name: string; text: string }>
   skillIndex: Skill[]
@@ -53,7 +57,8 @@ const IMAGE_TOKENS = 1600
 const DEFAULT_CONTEXT = 128_000
 
 export function buildSystemPrompt(input: AssembleInput): string {
-  const parts = [basePrompt({ userName: input.userName, model: input.model, date: input.date })]
+  const parts = [basePrompt({ userName: input.userName, model: input.model, date: input.date, web: input.web })]
+  if (input.web === 'on') parts.push(webPrompt())
   if (input.preferences.trim()) parts.push(preferencesPrompt(input.preferences))
   if (input.project) parts.push(projectPrompt(input.project))
   if (input.knowledge.length)

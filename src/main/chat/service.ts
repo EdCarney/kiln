@@ -31,6 +31,7 @@ import { getProject, projectKnowledge, touchProject } from '../db/projects'
 import { imageForModel, removeFiles } from '../files/ingest'
 import { type ChatBody, type ChatChunk, chatOnce, chatStream, type ToolCall } from '../ollama/client'
 import { getModelInfo, isCloudName } from '../ollama/models'
+import { webAvailable } from '../ollama/web'
 import { paths } from '../paths'
 import { getSettings } from '../settings'
 import { getSkill, listSkills } from '../skills/library'
@@ -39,9 +40,11 @@ import { requestCost } from '../usage/pricing'
 import { errorMessage, estimateTokens } from '../util'
 import { assemble, type HistoryTurn } from './assemble'
 import { TITLE_PROMPT } from './prompts'
-import { runTool, SKILL_TOOLS } from './tools'
+import { pendingEvent, runTool, type ToolContext, toolsFor } from './tools'
+import type { WebStatus } from './prompts'
 
-const MAX_TOOL_ROUNDS = 5
+// Room for a search, a few page reads and a skill load; the last round is always tool-free.
+const MAX_TOOL_ROUNDS = 6
 const active = new Map<string, AbortController>()
 
 function emit(event: ChatEvent): void {
@@ -168,8 +171,9 @@ async function generate(
     const model = await getModelInfo(modelName)
     const profile = resolveThinkProfile(modelName, model.capabilities, model.overrides.think)
     const vision = model.capabilities.includes('vision')
-    const autoSkills =
-      settings.skills.autoLoad && model.capabilities.includes('tools') && model.overrides.autoSkills !== false
+    const toolsCapable = model.capabilities.includes('tools')
+    const autoSkills = settings.skills.autoLoad && toolsCapable && model.overrides.autoSkills !== false
+    const web: WebStatus = !settings.web.enabled ? 'off' : !toolsCapable ? 'unsupported' : webAvailable() ? 'on' : 'no-key'
 
     const selectedIds = conversation.skills
     let loadedIds = conversation.autoSkills.filter((id) => !selectedIds.includes(id))
@@ -195,6 +199,7 @@ async function generate(
       preferences: settings.preferences,
       date: new Date(),
       artifacts: { enabled: settings.artifacts.enabled && model.overrides.artifacts !== false, allowCdn: settings.artifacts.allowCdn },
+      web,
       project: project ? { name: project.name, instructions: project.instructions } : null,
       knowledge: project ? projectKnowledge(project.id) : [],
       skillIndex,
@@ -203,12 +208,13 @@ async function generate(
       history
     })
     if (assembled.droppedTurns) stats.truncatedHistory = assembled.droppedTurns
+    const toolContext: ToolContext = { skills: skillIndex.length > 0, web: web === 'on' }
 
     const body: ChatBody = {
       model: modelName,
       messages: assembled.messages,
       think: toOllamaThink(profile, think),
-      tools: skillIndex.length ? SKILL_TOOLS : undefined,
+      tools: toolsFor(toolContext),
       // Cloud models manage their own context; local ones default to a small window unless told otherwise.
       options: isCloudName(modelName)
         ? undefined
@@ -251,11 +257,15 @@ async function generate(
       body.messages.push({ role: 'assistant', content: roundContent, thinking: roundThinking || undefined, tool_calls: calls })
       let onlyUnknown = true
       for (const call of calls) {
-        const result = await runTool(call)
+        const index = toolEvents.length
+        const pending = pendingEvent(call, toolContext)
+        toolEvents.push(pending)
+        emit({ type: 'tool', conversationId, messageId, index, event: pending })
+        const result = await runTool(call, toolContext)
         if (result.unknown) triedUnknown.push(call.function.name)
         else onlyUnknown = false
-        toolEvents.push(result.event)
-        emit({ type: 'tool', conversationId, messageId, event: result.event })
+        toolEvents[index] = result.event
+        emit({ type: 'tool', conversationId, messageId, index, event: result.event })
         if (result.loadedSkillId && !loadedIds.includes(result.loadedSkillId)) {
           // Remember it for later turns so it doesn't have to be reloaded.
           loadedIds = [...loadedIds, result.loadedSkillId]

@@ -17,6 +17,7 @@ const base: AssembleInput = {
   preferences: '',
   date: new Date('2026-09-23'),
   artifacts: { enabled: true, allowCdn: false },
+  web: 'off',
   project: null,
   knowledge: [],
   skillIndex: [],
@@ -40,6 +41,16 @@ describe('assemble', () => {
     expect(order.every((i) => i >= 0)).toBe(true)
     expect([...order].sort((a, b) => a - b)).toEqual(order)
     expect(sys).toContain('Lisbon in May')
+  })
+
+  it('describes web access honestly', () => {
+    const on = assemble({ ...base, web: 'on' }).messages[0].content
+    expect(on).toContain('<web>')
+    expect(on).toContain('web_search')
+    const noKey = assemble({ ...base, web: 'no-key' }).messages[0].content
+    expect(noKey).not.toContain('<web>')
+    expect(noKey).toContain('no internet access')
+    expect(noKey).toContain('Settings → Usage & cost')
   })
 
   it('omits artifact instructions when disabled', () => {

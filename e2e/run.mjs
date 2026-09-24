@@ -234,9 +234,9 @@ check('theme and dark mode persist after restart', dark && canvas.toLowerCase() 
 await second.win.screenshot({ path: join(SHOTS, 'home-nord-dark.png') })
 await second.app.close()
 
-// 10. A model that keeps calling tools Kiln doesn't have (as gpt-oss does with web.run, browser.open…)
-// must get one clear explanation, lose its tools, and still end with an answer. A mock Ollama makes
-// this deterministic.
+// 10–11. Tools against a mock Ollama (deterministic): a model that invents tools must get one
+// explanation, lose its tools and still answer; with an API key, web_search/web_fetch work end to
+// end, including gpt-oss-style aliases like browser.open.
 const mockChats = []
 const fakeOllama = createServer(async (req, res) => {
   let raw = ''
@@ -247,20 +247,46 @@ const fakeOllama = createServer(async (req, res) => {
   if (req.url === '/api/show') return json({ capabilities: ['completion', 'tools'], model_info: { 'mock.context_length': 32768 }, details: {} })
   if (req.url !== '/api/chat') return res.writeHead(404).end()
   if (!body.stream) return json({ message: { role: 'assistant', content: 'Mock title' }, done: true, prompt_eval_count: 10, eval_count: 2 })
-  mockChats.push({ tools: Array.isArray(body.tools), toolResults: body.messages.filter((m) => m.role === 'tool').map((m) => m.content) })
+  const toolNames = (body.tools ?? []).map((t) => t.function.name)
+  const toolResults = body.messages.filter((m) => m.role === 'tool').map((m) => m.content)
+  mockChats.push({ toolNames, toolResults, system: body.messages[0].content })
+  let message
+  if (toolNames.includes('web_search')) {
+    message =
+      toolResults.length === 0
+        ? { role: 'assistant', content: '', tool_calls: [{ function: { name: 'web_search', arguments: { query: 'top headlines today' } } }] }
+        : toolResults.length === 1
+          ? { role: 'assistant', content: '', tool_calls: [{ function: { name: 'browser.open', arguments: { id: 'https://news.example.com/story' } } }] }
+          : { role: 'assistant', content: 'The lead story is KILN-WEB-OK, per [Example News](https://news.example.com/story).' }
+  } else if (toolNames.length) {
+    message = { role: 'assistant', content: '', tool_calls: [{ function: { name: 'web.run', arguments: { url: 'https://news.google.com' } } }] }
+  } else {
+    message = { role: 'assistant', content: "I can't browse the web from Kiln, so I can't fetch today's headlines." }
+  }
   res.writeHead(200, { 'content-type': 'application/x-ndjson' })
-  const message = body.tools
-    ? { role: 'assistant', content: '', tool_calls: [{ function: { name: 'web.run', arguments: { url: 'https://news.google.com' } } }] }
-    : { role: 'assistant', content: "I can't browse the web from Kiln, so I can't fetch today's headlines." }
   res.write(JSON.stringify({ message, done: false }) + '\n')
   res.end(JSON.stringify({ done: true, prompt_eval_count: 100, eval_count: 12, eval_duration: 1e8 }) + '\n')
 })
+const webCalls = []
+const fakeWeb = createServer(async (req, res) => {
+  let raw = ''
+  for await (const chunk of req) raw += chunk
+  webCalls.push({ path: req.url, auth: req.headers.authorization, body: raw ? JSON.parse(raw) : {} })
+  res.writeHead(200, { 'content-type': 'application/json' })
+  if (req.url === '/api/web_search')
+    return res.end(JSON.stringify({ results: [{ title: 'Example News', url: 'https://news.example.com/story', content: 'Top story snippet' }] }))
+  res.end(JSON.stringify({ title: 'Example story', content: 'Full article text KILN-WEB-MARKER', links: ['https://news.example.com/other'] }))
+})
 await new Promise((r) => fakeOllama.listen(0, '127.0.0.1', r))
+await new Promise((r) => fakeWeb.listen(0, '127.0.0.1', r))
 const mockUserData = mkdtempSync(join(tmpdir(), 'kiln-e2e-tools-'))
 mkdirSync(join(mockUserData, 'skills', 'news-helper'), { recursive: true })
 writeFileSync(join(mockUserData, 'skills', 'news-helper', 'SKILL.md'), '---\nname: news-helper\ndescription: Summarise news.\n---\n\nSummarise.\n')
 {
-  const app = await electron.launch({ args: [ROOT], env: { ...process.env, KILN_USER_DATA: mockUserData } })
+  const app = await electron.launch({
+    args: [ROOT],
+    env: { ...process.env, KILN_USER_DATA: mockUserData, KILN_WEB_URL: `http://127.0.0.1:${fakeWeb.address().port}` }
+  })
   const win = await app.firstWindow()
   await win.waitForSelector('textarea', { timeout: 20000 })
   await win.evaluate((host) => window.kiln.settings.update({ connection: { mode: 'local', host }, showCloudCatalog: false }), `http://127.0.0.1:${fakeOllama.address().port}`)
@@ -268,18 +294,38 @@ writeFileSync(join(mockUserData, 'skills', 'news-helper', 'SKILL.md'), '---\nnam
   await win.waitForSelector('textarea')
   await win.waitForTimeout(1500)
   try {
+    // Without an API key: no web tools, and the model is told why.
     const reply = await send(win, "Get me today's top headlines.")
-    check('an invented tool gets one explanation, then tools are withdrawn', mockChats.length === 2 && mockChats[0].tools && !mockChats[1].tools, `${mockChats.length} requests, tools offered: ${mockChats.map((c) => c.tools).join(', ')}`)
+    check('without a key, web tools are not offered', !mockChats[0].toolNames.includes('web_search') && /Settings → Usage & cost/.test(mockChats[0].system), mockChats[0].toolNames.join(', '))
+    check('an invented tool gets one explanation, then tools are withdrawn', mockChats.length === 2 && mockChats[0].toolNames.length > 0 && !mockChats[1].toolNames.length, `${mockChats.length} requests`)
     check('the explanation says Kiln has no internet access', /no internet access/.test(mockChats[1]?.toolResults[0] ?? ''))
     check('the turn still ends with an answer', /can't browse the web/.test(reply), reply.slice(0, 60))
     const note = await win.locator('text=Tried unavailable').innerText().catch(() => '')
     check('the UI labels it as an unavailable tool, not a file error', /web\.run/.test(note) && (await win.locator("text=Couldn't read file").count()) === 0, note)
     await win.screenshot({ path: join(SHOTS, 'unknown-tool.png') })
+
+    // With a key: search, an aliased page read, and a cited answer.
+    await win.evaluate(() => window.kiln.settings.setApiKey('mock-web-key'))
+    mockChats.length = 0
+    await win.getByRole('button', { name: 'New chat' }).first().click()
+    await win.waitForSelector('textarea[placeholder="How can I help you today?"]')
+    const webReply = await send(win, "What's the top news today?")
+    check('with a key, web tools are offered and the prompt explains them', mockChats[0].toolNames.includes('web_fetch') && /<web>/.test(mockChats[0].system))
+    check('web requests carry the API key as a bearer token', webCalls.length === 2 && webCalls.every((c) => c.auth === 'Bearer mock-web-key'), `${webCalls.length} calls`)
+    check('gpt-oss-style browser.open is routed to web_fetch', webCalls[1]?.path === '/api/web_fetch' && webCalls[1]?.body.url === 'https://news.example.com/story')
+    const pageResult = mockChats[2]?.toolResults[1] ?? ''
+    check('page content reaches the model framed as untrusted', /KILN-WEB-MARKER/.test(pageResult) && /untrusted data/.test(pageResult))
+    check('the answer cites the page', /KILN-WEB-OK/.test(webReply), webReply.slice(0, 70))
+    const badges = await win.locator('.mb-3.flex.flex-wrap').last().innerText()
+    check('badges show the search and the page read', /Searched the web:\s+top headlines today\s+· 1 result\b/.test(badges) && /Read\s*Example story/.test(badges), badges.replace(/\s+/g, ' '))
+    await win.screenshot({ path: join(SHOTS, 'web-tools.png') })
   } catch (err) {
-    check('unknown-tool run completed without errors', false, err.message.split('\n')[0])
+    check('tool runs completed without errors', false, err.message.split('\n')[0])
+    await win.screenshot({ path: join(SHOTS, 'tools-failure.png') }).catch(() => {})
   } finally {
     await app.close()
     fakeOllama.close()
+    fakeWeb.close()
   }
 }
 

@@ -1,4 +1,4 @@
-import { Ban, Check, Copy, FileText, Pencil, RotateCcw, Sparkles, TriangleAlert } from 'lucide-react'
+import { Ban, Check, Copy, FileText, Globe, LoaderCircle, Pencil, RotateCcw, Search, Sparkles, TriangleAlert } from 'lucide-react'
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { parseMessage, type Segment, typeForCodeLanguage } from '@shared/artifactParser'
 import type { Artifact, Message, ToolEvent } from '@shared/types'
@@ -100,14 +100,62 @@ export const UserMessage = memo(function UserMessage({ message, onEdit, disabled
 // ---- Assistant ------------------------------------------------------------
 
 const SKILL_TOOL_NAMES = new Set(['load_skill', 'read_skill_file'])
+const WEB_TOOL_NAMES = new Set(['web_search', 'web_fetch'])
+
+const pill = 'flex max-w-full items-center gap-1.5 rounded-lg border px-2 py-1 font-ui text-xs'
+
+function WebEvent({ e }: { e: ToolEvent }) {
+  const Icon = e.pending ? LoaderCircle : e.tool === 'web_search' ? Search : Globe
+  const url = typeof e.args.url === 'string' ? e.args.url : null
+  const label = e.pending
+    ? e.tool === 'web_search'
+      ? 'Searching the web:'
+      : 'Reading'
+    : !e.ok
+      ? e.tool === 'web_search'
+        ? 'Search failed:'
+        : "Couldn't read page:"
+      : e.tool === 'web_search'
+        ? 'Searched the web:'
+        : 'Read'
+  const content = (
+    <>
+      <Icon className={cn('size-3.5 shrink-0', e.pending && 'animate-spin')} />
+      <span className="shrink-0">{label}</span>
+      <span className="truncate font-medium text-fg">{e.summary}</span>
+      {e.ok && !e.pending && e.tool === 'web_search' && typeof e.args.results === 'number' && (
+        <span className="shrink-0 text-subtle">
+          · {e.args.results} {e.args.results === 1 ? 'result' : 'results'}
+        </span>
+      )}
+    </>
+  )
+  const cls = cn(pill, e.ok ? 'border-line text-muted' : 'border-danger/40 text-danger')
+  // Pages open in the browser, so you can check what the model read.
+  return url && e.ok && !e.pending ? (
+    <Tooltip content={url}>
+      <button onClick={() => void api.app.openExternal(url)} className={cn(cls, 'hover:border-line-strong hover:text-fg')}>
+        {content}
+      </button>
+    </Tooltip>
+  ) : (
+    <span className={cls}>{content}</span>
+  )
+}
 
 function ToolEvents({ events }: { events: ToolEvent[] }) {
   if (!events.length) return null
   const skillEvents = events.filter((e) => SKILL_TOOL_NAMES.has(e.tool))
-  // Tools the model invented (web.run, browser.open…) collapse into one note instead of a row of errors.
-  const unavailable = [...new Set(events.filter((e) => !SKILL_TOOL_NAMES.has(e.tool)).map((e) => e.tool))]
+  const webEvents = events.filter((e) => WEB_TOOL_NAMES.has(e.tool))
+  // Tools the model invented (web.run, python…) collapse into one note instead of a row of errors.
+  const unavailable = [
+    ...new Set(events.filter((e) => !SKILL_TOOL_NAMES.has(e.tool) && !WEB_TOOL_NAMES.has(e.tool) && !e.pending).map((e) => e.tool))
+  ]
   return (
     <div className="mb-3 flex flex-wrap gap-1.5">
+      {webEvents.map((e, i) => (
+        <WebEvent key={`w${i}`} e={e} />
+      ))}
       {skillEvents.map((e, i) => (
         <span
           key={i}
@@ -116,8 +164,18 @@ function ToolEvents({ events }: { events: ToolEvent[] }) {
             e.ok ? 'border-line text-muted' : 'border-danger/40 text-danger'
           )}
         >
-          <Sparkles className="size-3.5" />
-          {e.tool === 'load_skill' ? (e.ok ? <>Using skill <b className="font-medium text-fg">{e.summary}</b></> : `Skill failed: ${e.summary}`) : e.ok ? `Read ${e.summary}` : `Couldn't read file: ${e.summary}`}
+          {e.pending ? <LoaderCircle className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
+          {e.pending
+            ? e.tool === 'load_skill'
+              ? `Loading skill ${e.summary}…`
+              : 'Reading skill file…'
+            : e.tool === 'load_skill'
+              ? e.ok
+                ? <>Using skill <b className="font-medium text-fg">{e.summary}</b></>
+                : `Skill failed: ${e.summary}`
+              : e.ok
+                ? `Read ${e.summary}`
+                : `Couldn't read file: ${e.summary}`}
         </span>
       ))}
       {unavailable.length > 0 && (

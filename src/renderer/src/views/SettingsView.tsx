@@ -17,7 +17,7 @@ const TABS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'appearance', label: 'Appearance' },
   { id: 'models', label: 'Models' },
   { id: 'usage', label: 'Usage & cost' },
-  { id: 'features', label: 'Artifacts & skills' },
+  { id: 'features', label: 'Web, artifacts & skills' },
   { id: 'data', label: 'Data' }
 ]
 
@@ -763,6 +763,28 @@ function FeaturesTab({ settings }: { settings: Settings }) {
           hint="Allows scripts from cdnjs, jsDelivr and unpkg. Pages still can't make network requests or reach your files."
         >
           <Switch checked={settings.artifacts.allowCdn} onChange={(allowCdn) => update({ artifacts: { allowCdn } })} />
+        </Row>
+      </Section>
+      <Section
+        title="Web search"
+        description="Models that support tools can search the web and read pages through Ollama's web API. Pages are fetched by ollama.com, not this Mac, and searches count toward your Ollama usage."
+      >
+        <Row
+          label="Let models search the web and read pages"
+          hint={
+            settings.connection.hasApiKey ? (
+              'Uses your saved ollama.com API key.'
+            ) : (
+              <>
+                Needs an ollama.com API key.{' '}
+                <button className="text-accent hover:underline" onClick={() => useApp.getState().navigate({ name: 'settings', tab: 'usage' })}>
+                  Add one in Usage & cost
+                </button>
+              </>
+            )
+          }
+        >
+          <Switch checked={settings.web.enabled} onChange={(enabled) => update({ web: { enabled } })} />
         </Row>
       </Section>
       <Section title="Skills">

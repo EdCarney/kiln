@@ -2,7 +2,7 @@
 
 A desktop chat app in the style of the Claude desktop app, running on your Ollama models (cloud and local).
 
-Features: projects (instructions + knowledge files), pinned chats and projects, searchable history, attachments (images, PDF, DOCX, XLSX, text/code), a model picker that adapts to each model's capabilities, thinking/effort controls, skills (`SKILL.md`), artifacts in a side panel, live token/cost and quota tracking, and fully customisable themes.
+Features: projects (instructions + knowledge files), pinned chats and projects, searchable history, attachments (images, PDF, DOCX, XLSX, text/code), a model picker that adapts to each model's capabilities, thinking/effort controls, skills (`SKILL.md`), artifacts in a side panel, live token/cost and quota tracking, web search, and fully customisable themes.
 
 ## Run it
 
@@ -45,6 +45,12 @@ tests/           Vitest unit tests      e2e/   live Playwright run against real 
   - `~/.claude/skills`, read-only. These start off, because many rely on Claude-only tools.
 
   A skill you pick with `/` or the + menu applies to every reply. Models that support tools can also call `load_skill` on their own; a skill loaded that way stays loaded for the rest of the chat.
+- **Web search.** When an ollama.com API key is saved (Settings → Usage & cost), models that support tools get `web_search` and `web_fetch`. These call Ollama's web API, so pages are fetched by ollama.com and not your Mac. Searches count toward your Ollama usage.
+  - The key stays in the main process and never enters a prompt.
+  - Web content is marked as untrusted data, so the model is told not to follow instructions found in pages.
+  - Every search and page read shows as a badge in the chat. Click a page badge to open it in your browser.
+  - gpt-oss-style names (`browser.open`, `web.run`, …) are routed to the real tools.
+  - Tools a model invents get one explanation, then they're withdrawn so the turn still ends with an answer.
 - **Usage & cost.** The title bar shows two chips.
   - **This chat:** tokens and estimated cost so far, including retries and title generation. Click it for a per-model breakdown and how full the context window is.
   - **Your Ollama quota:** % used, and time left until the next reset. Its mini bar also marks how much of the period has passed.
@@ -75,6 +81,8 @@ Screenshots go to `e2e/shots/`. Set `KILN_DEBUG=1` to log every request Kiln sen
 
 ## Known limits (deliberately deferred)
 
+- **Web pages go through ollama.com.** Kiln can't browse local-network pages or sites behind a login.
+- **Web content can try prompt injection.** It's marked as untrusted and every fetch is visible, but a determined page could still steer a model's answer. Treat web-sourced answers with the usual care.
 - **Skills can't run scripts.** Skills like docx/pptx/xlsx/pdf get their instructions only. The model is told to produce results directly. Running scripts needs a sandboxed code runner.
 - **Automatic skill loading depends on the model.** In testing, gpt-oss loaded a clearly matching skill 80–100% of the time. Picking a skill with `/` always works.
 - **React artifacts aren't rendered.** They're shown as JSX source.

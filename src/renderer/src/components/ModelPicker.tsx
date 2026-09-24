@@ -9,7 +9,7 @@ function CapabilityIcons({ model }: { model: ModelInfo }) {
   const caps = [
     { key: 'vision', icon: Eye, label: 'Sees images' },
     { key: 'thinking', icon: Brain, label: 'Can think' },
-    { key: 'tools', icon: Wrench, label: 'Uses tools (auto skills)' }
+    { key: 'tools', icon: Wrench, label: 'Uses tools (skills, web search)' }
   ].filter((c) => model.capabilities.includes(c.key))
   return (
     <span className="flex items-center gap-1 text-subtle">

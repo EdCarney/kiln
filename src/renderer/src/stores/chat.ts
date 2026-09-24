@@ -156,7 +156,9 @@ function handle(e: ChatEvent): void {
       flush()
       useChat.setState((s) => {
         const prev = s.streams[e.conversationId] ?? emptyStream(e.messageId)
-        return { streams: { ...s.streams, [e.conversationId]: { ...prev, toolEvents: [...prev.toolEvents, e.event] } } }
+        const toolEvents = [...prev.toolEvents]
+        toolEvents[e.index] = e.event
+        return { streams: { ...s.streams, [e.conversationId]: { ...prev, toolEvents } } }
       })
       break
     case 'done': {
