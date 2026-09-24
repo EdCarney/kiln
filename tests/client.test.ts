@@ -7,7 +7,7 @@ vi.mock('../src/main/settings', () => ({
   getApiKey: () => null
 }))
 
-const { chatOnce, chatStream, OllamaError } = await import('../src/main/ollama/client')
+const { chatOnce, chatStream, OllamaError, STREAM_TIMEOUTS, streamTimeoutsFor } = await import('../src/main/ollama/client')
 
 let ollama: MockOllama
 beforeAll(async () => {
@@ -125,5 +125,13 @@ describe('chatOnce', () => {
   it('times out instead of hanging', async () => {
     ollama.handler = () => undefined
     await expect(chatOnce(body, { timeoutMs: 150 })).rejects.toThrow(/took too long/)
+  })
+})
+
+describe('streamTimeoutsFor', () => {
+  it('gives only local models the long quiet allowance for tool calls', () => {
+    expect(streamTimeoutsFor('local').toolIdleMs).toBe(STREAM_TIMEOUTS.toolIdleMs)
+    expect(streamTimeoutsFor('cloud').toolIdleMs).toBe(STREAM_TIMEOUTS.idleMs)
+    expect(STREAM_TIMEOUTS.toolIdleMs).toBeGreaterThan(STREAM_TIMEOUTS.idleMs)
   })
 })

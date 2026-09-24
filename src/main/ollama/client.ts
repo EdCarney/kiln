@@ -120,6 +120,14 @@ export interface StreamTimeouts {
 // Generous on purpose: these catch a dead connection, not a slow model.
 export const STREAM_TIMEOUTS: StreamTimeouts = { firstByteMs: 10 * 60_000, idleMs: 3 * 60_000, toolIdleMs: 30 * 60_000 }
 
+/**
+ * The long tool-call allowance is only for local models: cloud models finish a tool call's arguments in
+ * seconds, so a long silence there is always a dead connection.
+ */
+export function streamTimeoutsFor(location: 'cloud' | 'local'): StreamTimeouts {
+  return location === 'local' ? STREAM_TIMEOUTS : { ...STREAM_TIMEOUTS, toolIdleMs: STREAM_TIMEOUTS.idleMs }
+}
+
 function parseChunk(line: string): ChatChunk {
   try {
     return JSON.parse(line) as ChatChunk

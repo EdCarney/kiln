@@ -33,7 +33,7 @@ import {
 } from '../db/conversations'
 import { getProject, projectKnowledge, touchProject } from '../db/projects'
 import { imageForModel, removeFiles } from '../files/ingest'
-import { type ChatBody, type ChatChunk, chatOnce, chatStream, endpointFor, type ToolCall } from '../ollama/client'
+import { type ChatBody, type ChatChunk, chatOnce, chatStream, endpointFor, streamTimeoutsFor, type ToolCall } from '../ollama/client'
 import { getModelInfo } from '../ollama/models'
 import { webAvailable, webEndpoint } from '../ollama/web'
 import { startTrace, type Trace } from '../debug/traces'
@@ -53,8 +53,16 @@ const MAX_TOOL_ROUNDS = 6
 // How often a streaming reply is saved, so a quit or crash loses at most this much.
 const CHECKPOINT_MS = 1500
 
-/** Replies in progress, by conversation. `settled` resolves once the reply has been saved. */
-const active = new Map<string, { controller: AbortController; settled: Promise<void> }>()
+/**
+ * Replies in progress, by conversation. `settled` resolves once the reply has been saved. `quiet` marks a
+ * stop made for a delete or a quit, where the chat won't be seen again, so no title is generated.
+ */
+interface Run {
+  controller: AbortController
+  flags: { quiet: boolean }
+  settled: Promise<void>
+}
+const active = new Map<string, Run>()
 
 function emit(event: ChatEvent): void {
   for (const win of BrowserWindow.getAllWindows()) win.webContents.send(EVENT_CHANNELS.chat, event)
@@ -103,10 +111,14 @@ export async function edit(messageId: string, content: string, opts: { model: st
   return startAssistant(conversation, user, opts.model, opts.think)
 }
 
-/** Stop a reply and wait until what it produced has been saved. */
-export function stop(conversationId: string): Promise<void> {
+/**
+ * Stop a reply and wait until what it produced has been saved. Pass `quiet` when stopping for a delete or
+ * a quit; a plain Stop still lets a new chat get its title.
+ */
+export function stop(conversationId: string, opts: { quiet?: boolean } = {}): Promise<void> {
   const run = active.get(conversationId)
   if (!run) return Promise.resolve()
+  if (opts.quiet) run.flags.quiet = true
   run.controller.abort()
   return run.settled
 }
@@ -131,9 +143,12 @@ export function markInterruptedReplies(): number {
   return ids.length
 }
 
-/** Stop every reply in progress (or those in chats matching `which`) and wait for each to save. */
+/**
+ * Quietly stop every reply in progress (or those in chats matching `which`) and wait for each to save.
+ * Used before quitting and deleting a project.
+ */
 export async function stopAll(which: (conversationId: string) => boolean = () => true): Promise<void> {
-  await Promise.all([...active.keys()].filter(which).map(stop))
+  await Promise.all([...active.keys()].filter(which).map((id) => stop(id, { quiet: true })))
 }
 
 async function dropAfter(conversationId: string, messages: Message[], index: number): Promise<void> {
@@ -146,13 +161,14 @@ async function dropAfter(conversationId: string, messages: Message[], index: num
 function startAssistant(conversation: Conversation, parent: Message, model: string, think: ThinkSetting | null): SendResult {
   const assistant = insertMessage({ conversationId: conversation.id, parentId: parent.id, role: 'assistant', content: '', model })
   const controller = new AbortController()
-  const settled = generate(conversation.id, assistant.id, model, think, controller)
+  const flags = { quiet: false }
+  const settled = generate(conversation.id, assistant.id, model, think, controller, flags)
     .catch((err) => console.error('Kiln: a reply failed to finish', err))
     .finally(() => {
       // Only remove our own entry: a reply that overlapped this one must stay stoppable.
       if (active.get(conversation.id)?.controller === controller) active.delete(conversation.id)
     })
-  active.set(conversation.id, { controller, settled })
+  active.set(conversation.id, { controller, flags, settled })
   return { conversation, userMessage: parent, assistantMessageId: assistant.id }
 }
 
@@ -178,7 +194,8 @@ async function generate(
   messageId: string,
   modelName: string,
   think: ThinkSetting | null,
-  controller: AbortController
+  controller: AbortController,
+  flags: Run['flags']
 ): Promise<void> {
   let content = ''
   let thinking = ''
@@ -294,7 +311,7 @@ async function generate(
         summary: 'Streaming…'
       })
       let chunks = 0
-      for await (const chunk of chatStream(body, controller.signal)) {
+      for await (const chunk of chatStream(body, controller.signal, streamTimeoutsFor(model.location))) {
         chunks++
         roundTrace.firstByte()
         const m = chunk.message
@@ -431,9 +448,8 @@ async function generate(
     usage: conversationUsage(conversationId)
   })
 
-  // A stopped reply gets no title call: the stop may be for a delete or a quit, and the next finished
-  // reply still titles the chat.
-  if (!error && !controller.signal.aborted && message.content && getConversation(conversationId)?.title === 'New chat')
+  // A plain Stop still titles a new chat; a stop for a delete or a quit doesn't start a title request.
+  if (!error && !flags.quiet && message.content && getConversation(conversationId)?.title === 'New chat')
     void generateTitle(conversationId, modelName)
 }
 

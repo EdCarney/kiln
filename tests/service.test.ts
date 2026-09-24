@@ -132,7 +132,7 @@ describe('reply loop', () => {
     chat = (_b, res) => streamChunks(res, [line({ message: { role: 'assistant', content: 'partial' }, done: false })]) // then hangs
     const r = start()
     await waitFor(() => events.some((e) => e.type === 'delta' && e.conversationId === r.conversation.id))
-    await service.stop(r.conversation.id)
+    await service.stop(r.conversation.id, { quiet: true }) // as deleting the chat does
     const saved = getMessage(r.assistantMessageId)!
     expect(saved.content).toBe('partial')
     expect(saved.error).toBeNull()
@@ -140,9 +140,18 @@ describe('reply loop', () => {
     // The chat can now be deleted without the reply writing to it afterwards.
     deleteConversation(r.conversation.id)
     expect(service.isReplying()).toBe(false)
-    // A stop (often for a delete or a quit) doesn't start a title request.
+    // A stop for a delete (or a quit) doesn't start a title request.
     await new Promise((r) => setTimeout(r, 50))
     expect(titleCalls).toHaveLength(0)
+  })
+
+  it('still titles a new chat whose first reply was stopped with Stop', async () => {
+    chat = (_b, res) => streamChunks(res, [line({ message: { role: 'assistant', content: 'partial' }, done: false })])
+    const r = start()
+    await waitFor(() => events.some((e) => e.type === 'delta' && e.conversationId === r.conversation.id))
+    await service.stop(r.conversation.id)
+    await waitFor(() => events.some((e) => e.type === 'title' && e.conversationId === r.conversation.id))
+    expect(titleCalls).toHaveLength(1)
   })
 
   it('keeps an overlapping reply stoppable after the earlier one finishes', async () => {

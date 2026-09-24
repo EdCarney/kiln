@@ -147,7 +147,7 @@ const impl: Impl = {
     update: async (id, patch) => updateConversation(id, patch),
     delete: async (id) => {
       // Wait for a reply in progress to stop and save, so it never writes to a deleted chat.
-      await stop(id)
+      await stop(id, { quiet: true })
       await removeFiles(deleteConversation(id))
     },
     search: async (q) => search(q)
