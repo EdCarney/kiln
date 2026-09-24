@@ -274,7 +274,8 @@ const impl: Impl = {
         light: { ...base.light, ...parsed.light },
         dark: { ...base.dark, ...parsed.dark },
         fonts: { ...base.fonts, ...parsed.fonts },
-        radius: typeof parsed.radius === 'number' ? parsed.radius : base.radius
+        radius: typeof parsed.radius === 'number' ? parsed.radius : base.radius,
+        ...(parsed.only === 'light' || parsed.only === 'dark' ? { only: parsed.only } : {})
       }
       saveCustomTheme(theme)
       return theme

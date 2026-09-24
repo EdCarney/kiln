@@ -361,6 +361,8 @@ export interface ThemeDef {
   dark: Palette
   fonts: { ui: string; reading: string; mono: string }
   radius: number
+  /** A theme with a single palette (e.g. a green-on-black terminal) ignores the light/dark mode. */
+  only?: 'light' | 'dark'
 }
 
 // ---- Settings -----------------------------------------------------------

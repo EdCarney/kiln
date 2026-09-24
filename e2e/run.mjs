@@ -232,6 +232,42 @@ const dark = await second.win.evaluate(() => document.documentElement.classList.
 const canvas = await second.win.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--k-canvas').trim())
 check('theme and dark mode persist after restart', dark && canvas.toLowerCase() === '#2e3440', canvas)
 await second.win.screenshot({ path: join(SHOTS, 'home-nord-dark.png') })
+
+// 9b. A dark-only theme overrides Light mode (and says so); popular themes apply both palettes.
+{
+  const w = second.win
+  const themeState = () =>
+    w.evaluate(async () => {
+      const cs = getComputedStyle(document.documentElement)
+      await document.fonts.ready
+      return {
+        dark: document.documentElement.classList.contains('dark'),
+        canvas: cs.getPropertyValue('--k-canvas').trim().toLowerCase(),
+        dangerFg: cs.getPropertyValue('--k-dangerFg').trim().toLowerCase(),
+        font: getComputedStyle(document.body).fontFamily,
+        hackLoaded: [...document.fonts].some((f) => f.family.replace(/"/g, '') === 'Hack' && f.status === 'loaded')
+      }
+    })
+  await w.getByRole('button', { name: /Set your name|Settings/ }).last().click()
+  await w.getByRole('button', { name: 'Appearance' }).click()
+  await w.getByRole('button', { name: 'Light', exact: true }).click()
+  await w.getByRole('button', { name: 'Use Hack theme' }).click()
+  await w.waitForTimeout(500)
+  const hack = await themeState()
+  check('a dark-only theme stays dark in Light mode', hack.dark && hack.canvas === '#0d140f', hack.canvas)
+  check('the Hack theme uses the bundled Hack typeface', /^Hack\b/.test(hack.font) && hack.hackLoaded, hack.font.slice(0, 30))
+  check('settings explain why the mode is ignored', await w.getByText('Hack has only a dark palette').isVisible())
+  await w.screenshot({ path: join(SHOTS, 'settings-hack.png') })
+  await w.getByRole('button', { name: 'Use Catppuccin theme' }).click()
+  await w.waitForTimeout(300)
+  const latte = await themeState()
+  await w.getByRole('button', { name: 'Dark', exact: true }).click()
+  await w.waitForTimeout(300)
+  const mocha = await themeState()
+  check('Catppuccin follows the mode (Latte / Mocha)', !latte.dark && latte.canvas === '#eff1f5' && mocha.dark && mocha.canvas === '#1e1e2e', `${latte.canvas} / ${mocha.canvas}`)
+  // Mocha's red is light, so text on a Delete button switches to the theme's dark ink.
+  check('danger buttons pick readable text per theme', latte.dangerFg === '#ffffff' && mocha.dangerFg === '#1e1e2e', `${latte.dangerFg} / ${mocha.dangerFg}`)
+}
 await second.app.close()
 
 // 10–11. Tools against a mock Ollama (deterministic): a model that invents tools must get one
