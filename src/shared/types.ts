@@ -71,6 +71,8 @@ export interface MessageStats {
   tokensPerSecond?: number
   thinkingMs?: number
   truncatedHistory?: number
+  /** Ollama's done_reason for the reply's last request: "length" means it hit a token limit and was cut off. */
+  doneReason?: string
   /** Estimated USD for the requests behind this reply; null when the model's price is unknown. */
   costUsd?: number | null
   /** Token counts were estimated (e.g. the reply was stopped). */

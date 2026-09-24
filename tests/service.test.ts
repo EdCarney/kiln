@@ -96,11 +96,22 @@ describe('reply loop', () => {
     const r = start()
     const done = await doneEvent(r.conversation.id)
     expect(done.message.content).toBe('Hi there')
-    expect(done.message.stats).toMatchObject({ promptTokens: 10, completionTokens: 3 })
+    expect(done.message.stats).toMatchObject({ promptTokens: 10, completionTokens: 3, doneReason: 'stop' })
     expect(chatCalls[0]).toMatchObject({ model: 'llama3.2', options: { num_ctx: 8192 } })
     // The title request uses the same num_ctx, so Ollama doesn't reload the local model for it.
     await waitFor(() => titleCalls.length > 0)
     expect(titleCalls[0]).toMatchObject({ options: { num_ctx: 8192 } })
+  })
+
+  it('records when a reply was cut off by the length limit', async () => {
+    chat = (_b, res) =>
+      streamChunks(res, [line({ message: { role: 'assistant', content: 'The list goes on: one, two, thr' }, done: false }), line({ done: true, done_reason: 'length', eval_count: 4096 })]).then(() =>
+        res.end()
+      )
+    const r = start()
+    const done = await doneEvent(r.conversation.id)
+    expect(done.message.stats?.doneReason).toBe('length')
+    expect(done.message.error).toBeNull()
   })
 
   it('saves a failed stream with its partial text and an error', async () => {
