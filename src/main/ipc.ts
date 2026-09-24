@@ -38,6 +38,7 @@ import { currentBackground } from './background'
 import { replayRequest } from './debug/replay'
 import { clearTraces, getTrace, listTraces, tracesForExport } from './debug/traces'
 import { openDebugWindow } from './debug/window'
+import { linkPreview } from './links/preview'
 import { connectionMode, endpointFor } from './ollama/client'
 import { getPriceTable, refreshPrices } from './usage/pricing'
 import {
@@ -219,6 +220,10 @@ const impl: Impl = {
     raw: async () => lastRawUsage(),
     prices: async () => getPriceTable(),
     refreshPrices: () => refreshPrices(true)
+  },
+
+  links: {
+    preview: (url) => linkPreview(url)
   },
 
   debug: {

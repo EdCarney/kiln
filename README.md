@@ -52,6 +52,9 @@ tests/           Vitest unit tests      e2e/   live Playwright run against real 
   - Every search and page read shows as a badge in the chat. Click a page badge to open it in your browser.
   - gpt-oss-style names (`browser.open`, `web.run`, …) are routed to the real tools.
   - Tools a model invents get one explanation, then they're withdrawn so the turn still ends with an answer.
+- **Links.** Hovering a link in a reply shows a card with its destination: site, full URL, and whether it opens in your browser. It warns when the link text names a different domain than the real destination.
+  - An opt-in setting (Settings → Web, artifacts & skills) adds the page's title, description and image, fetched from your Mac.
+  - Local-network and loopback addresses are never fetched, including after redirects.
 - **Debugger.** The bug icon in a chat's header, or ⌘⇧D, opens a separate **Kiln Debugger** window. It shows every request the chat made (each chat round, tool call and title) live, grouped by turn. For each request:
   - **Overview:** timings (first byte, first token, total, plus Ollama's own load/prompt/generation times when reported), prompt tokens counted by Ollama vs Kiln's estimate, cost, `done_reason`, and stream chunk count.
   - **Prompt anatomy:** where the tokens go (system sections, history, this turn, tool definitions, images), a context-window meter, and every message readable.

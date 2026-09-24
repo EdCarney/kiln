@@ -786,6 +786,12 @@ function FeaturesTab({ settings }: { settings: Settings }) {
         >
           <Switch checked={settings.web.enabled} onChange={(enabled) => update({ web: { enabled } })} />
         </Row>
+        <Row
+          label="Show page previews when hovering links"
+          hint="Hovering a link always shows where it goes. With this on, Kiln also fetches the page's title and image from this Mac, which lets the site know you looked. Local-network addresses are never fetched."
+        >
+          <Switch checked={settings.links.previews} onChange={(previews) => update({ links: { previews } })} />
+        </Row>
       </Section>
       <Section title="Skills">
         <Row label="Load skills automatically" hint="Models that support tools can load a matching skill on their own. You can still add skills with / or the + menu.">

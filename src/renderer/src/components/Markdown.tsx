@@ -5,9 +5,9 @@ import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import { normalizeCitations } from '@shared/citations'
 import { normalizeSpaces } from '@shared/text'
-import { api } from '@/lib/api'
 import { cn } from '@/lib/format'
 import { CodeBlock } from './CodeBlock'
+import { LinkCard } from './LinkCard'
 
 interface Props {
   text: string
@@ -38,17 +38,14 @@ export const Markdown = memo(function Markdown({ text, className, onOpenAsArtifa
       if (!match && !code.includes('\n')) return <code>{children}</code>
       return <CodeBlock code={code} lang={match?.[1] ?? null} onOpenAsArtifact={onOpenAsArtifact} />
     },
-    a: ({ href, children }) => (
-      <a
-        href={href}
-        onClick={(e) => {
-          e.preventDefault()
-          if (href) void api.app.openExternal(href)
-        }}
-      >
-        {children}
-      </a>
-    ),
+    a: ({ href, children }) =>
+      href ? (
+        <LinkCard href={href} text={textOf(children)}>
+          {children}
+        </LinkCard>
+      ) : (
+        <span>{children}</span>
+      ),
     table: ({ children }) => (
       <div className="my-3 overflow-x-auto">
         <table>{children}</table>

@@ -28,6 +28,16 @@ import type {
   UsageSummary
 } from './types'
 
+/** A link's page preview; image and icon are data: URLs. */
+export interface LinkPreview {
+  url: string
+  title: string | null
+  description: string | null
+  siteName: string | null
+  image: string | null
+  icon: string | null
+}
+
 export type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? (T[K] extends unknown[] ? T[K] : DeepPartial<T[K]>) : T[K] }
 
 export interface ConversationPatch {
@@ -137,6 +147,10 @@ export interface KilnApi {
     prices(): Promise<PriceTable>
     refreshPrices(): Promise<PriceTable>
   }
+  links: {
+    /** Title, description, image and icon for a link (null when previews are off or unavailable). */
+    preview(url: string): Promise<LinkPreview | null>
+  }
   debug: {
     /** Open (or focus) the debugger window, showing this conversation. */
     open(conversationId: ID | null): Promise<void>
@@ -176,7 +190,8 @@ export const INVOKE_CHANNELS = {
   skills: ['list', 'get', 'save', 'delete', 'duplicate', 'setEnabled', 'reveal'],
   themes: ['list', 'save', 'delete', 'exportTheme', 'importTheme'],
   usage: ['account', 'summary', 'raw', 'prices', 'refreshPrices'],
-  debug: ['open', 'list', 'get', 'clear', 'exportTraces', 'replay', 'target', 'inspectApp']
+  debug: ['open', 'list', 'get', 'clear', 'exportTraces', 'replay', 'target', 'inspectApp'],
+  links: ['preview']
 } as const satisfies { [G in Exclude<keyof KilnApi, 'events' | 'files'>]: ReadonlyArray<keyof KilnApi[G]> }
 
 export const EVENT_CHANNELS = {

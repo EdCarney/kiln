@@ -264,7 +264,10 @@ const fakeOllama = createServer(async (req, res) => {
         ? { role: 'assistant', content: '', tool_calls: [{ function: { name: 'web_search', arguments: { query: 'top headlines today' } } }] }
         : toolResults.length === 1
           ? { role: 'assistant', content: '', tool_calls: [{ function: { name: 'browser.open', arguments: { id: 'https://news.example.com/story' } } }] }
-          : { role: 'assistant', content: 'The lead story is KILN-WEB-OK on Sept\u202F23, per [Example News](https://news.example.com/story).' }
+          : {
+              role: 'assistant',
+              content: `The lead story is KILN-WEB-OK on Sept\u202F23, per [Example News](https://news.example.com/story).\n\nMore: [preview test](${pageUrl}) and [paypal.com](https://evil.example/login).`
+            }
   } else if (toolNames.length) {
     message = { role: 'assistant', content: '', tool_calls: [{ function: { name: 'web.run', arguments: { url: 'https://news.google.com' } } }] }
   } else {
@@ -274,6 +277,23 @@ const fakeOllama = createServer(async (req, res) => {
   res.write(JSON.stringify({ message, done: false }) + '\n')
   res.end(JSON.stringify({ done: true, prompt_eval_count: 100, eval_count: 12, eval_duration: 1e8 }) + '\n')
 })
+// A page with OpenGraph metadata for link hover previews (served locally; previews normally refuse
+// local addresses, so the app is launched with KILN_ALLOW_PRIVATE_PREVIEWS for this test).
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
+const fakePages = createServer((req, res) => {
+  if (req.url === '/article') {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+    return res.end(`<html><head><title>fallback</title>
+      <meta property="og:title" content="Preview Title KILN"><meta property="og:description" content="A page used to test hover previews.">
+      <meta property="og:site_name" content="Kiln Test Site"><meta property="og:image" content="/cover.png"><link rel="icon" href="/icon.png">
+      </head><body>article</body></html>`)
+  }
+  if (req.url === '/cover.png' || req.url === '/icon.png') return res.writeHead(200, { 'content-type': 'image/png' }).end(PNG)
+  res.writeHead(404).end()
+})
+await new Promise((r) => fakePages.listen(0, '127.0.0.1', r))
+const pageUrl = `http://127.0.0.1:${fakePages.address().port}/article`
+
 const webCalls = []
 const fakeWeb = createServer(async (req, res) => {
   let raw = ''
@@ -292,7 +312,7 @@ writeFileSync(join(mockUserData, 'skills', 'news-helper', 'SKILL.md'), '---\nnam
 {
   const app = await electron.launch({
     args: [ROOT],
-    env: { ...process.env, KILN_USER_DATA: mockUserData, KILN_WEB_URL: `http://127.0.0.1:${fakeWeb.address().port}` }
+    env: { ...process.env, KILN_USER_DATA: mockUserData, KILN_WEB_URL: `http://127.0.0.1:${fakeWeb.address().port}`, KILN_ALLOW_PRIVATE_PREVIEWS: '1' }
   })
   const win = await app.firstWindow()
   await win.waitForSelector('textarea', { timeout: 20000 })
@@ -366,6 +386,60 @@ writeFileSync(join(mockUserData, 'skills', 'news-helper', 'SKILL.md'), '---\nnam
     await dbg.waitForSelector('text=Tool calls', { timeout: 10000 })
     check('replay re-sends the request without streaming', mockChats.length === before + 1)
     await dbg.screenshot({ path: join(SHOTS, 'debugger-replay.png') })
+    await dbg.close()
+
+    // 13. Links (issue #1): hand cursor only on the link, a hover card showing the destination, and
+    // an opt-in page preview.
+    const newsLink = win.locator('.prose-kiln a[href="https://news.example.com/story"]').last()
+    const cursors = await newsLink.evaluate((a) => ({ link: getComputedStyle(a).cursor, text: getComputedStyle(a.closest('p')).cursor }))
+    check('links get the hand cursor; surrounding text keeps the text cursor', cursors.link === 'pointer' && cursors.text === 'auto', JSON.stringify(cursors))
+    await newsLink.hover()
+    const card = win.locator('[data-testid="link-card"]')
+    await card.waitFor({ timeout: 5000 })
+    const cardText = await card.innerText()
+    check('hovering a link shows where it goes', /news\.example\.com/.test(cardText) && /https:\/\/news\.example\.com\/story/.test(cardText) && /Opens in your browser/.test(cardText), cardText.replace(/\s+/g, ' '))
+    check('no page is fetched while previews are off', (await card.locator('img').count()) === 0)
+    await win.mouse.move(5, 5)
+    await card.waitFor({ state: 'detached', timeout: 5000 })
+    await win.locator('.prose-kiln a[href="https://evil.example/login"]').last().hover()
+    await card.waitFor({ timeout: 5000 })
+    check('a link whose text names another domain gets a warning', /The link text says paypal\.com, but it opens evil\.example/.test(await card.innerText()))
+    await win.mouse.move(5, 5)
+    await card.waitFor({ state: 'detached', timeout: 5000 })
+
+    await win.evaluate(() => window.kiln.settings.update({ links: { previews: true } }))
+    await win.reload()
+    await win.waitForSelector('textarea')
+    await win.locator('aside [role="button"]').first().click()
+    await win.waitForSelector(`.prose-kiln a[href="${pageUrl}"]`)
+    await win.locator(`.prose-kiln a[href="${pageUrl}"]`).last().hover()
+    await card.waitFor({ timeout: 5000 })
+    await win.waitForFunction(() => /Preview Title KILN/.test(document.querySelector('[data-testid="link-card"]')?.textContent ?? ''), null, { timeout: 8000 })
+    const imgs = await card.locator('img').evaluateAll((els) => els.map((e) => e.getAttribute('src')?.slice(0, 15)))
+    check('with previews on, the card shows the page title and image', imgs.length === 2 && imgs.every((s) => s === 'data:image/png;'), imgs.join(', '))
+    await win.screenshot({ path: join(SHOTS, 'link-preview.png') })
+
+    // The card's title and URL act as the link; the excerpt doesn't. Record opens instead of launching a browser.
+    await app.evaluate(({ shell }) => {
+      globalThis.__opened = []
+      shell.openExternal = async (url) => void globalThis.__opened.push(url)
+    })
+    const opened = () => app.evaluate(() => globalThis.__opened)
+    const reopenCard = async () => {
+      await win.mouse.move(5, 5)
+      await card.waitFor({ state: 'detached', timeout: 5000 }).catch(() => {})
+      await win.locator(`.prose-kiln a[href="${pageUrl}"]`).last().hover()
+      await card.waitFor({ timeout: 5000 })
+    }
+    await card.getByText('A page used to test hover previews.').click()
+    check('clicking the excerpt does not open the link', (await opened()).length === 0)
+    await card.getByText('Preview Title KILN').click()
+    await card.waitFor({ state: 'detached', timeout: 5000 }).catch(() => {})
+    const closedAfterClick = (await card.count()) === 0
+    await reopenCard()
+    await card.getByText(pageUrl).click()
+    const urls = await opened()
+    check('clicking the card title or URL opens the link, then the card closes', urls.length === 2 && urls.every((u) => u === pageUrl) && closedAfterClick, `${urls.length} opens, closed=${closedAfterClick}`)
   } catch (err) {
     check('tool runs completed without errors', false, err.message.split('\n')[0])
     await win.screenshot({ path: join(SHOTS, 'tools-failure.png') }).catch(() => {})
@@ -373,6 +447,7 @@ writeFileSync(join(mockUserData, 'skills', 'news-helper', 'SKILL.md'), '---\nnam
     await app.close()
     fakeOllama.close()
     fakeWeb.close()
+    fakePages.close()
   }
 }
 

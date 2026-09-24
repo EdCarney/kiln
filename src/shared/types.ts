@@ -387,6 +387,8 @@ export interface Settings {
   web: { enabled: boolean }
   /** Record every request for the debugger window. */
   debug: { record: boolean }
+  /** Hover cards on links; `previews` fetches page title/image from this Mac (off by default for privacy). */
+  links: { previews: boolean }
   usage: {
     /** Show quota and chat cost in the title bar. */
     showInHeader: boolean
