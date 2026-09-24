@@ -1,3 +1,4 @@
+import { parseMessage } from '@shared/artifactParser'
 import type { Skill } from '@shared/types'
 import type { OllamaMessage } from '../ollama/client'
 import { estimateTokens } from '../util'
@@ -92,8 +93,46 @@ function turnTokens(turn: HistoryTurn): number {
   )
 }
 
+const attr = (v: string) => v.replace(/"/g, "'")
+
+/**
+ * The model rewrites an artifact in full each time, so replaying every version wastes context (and money on
+ * cloud models). Keep the newest version of each artifact whole and replace earlier ones with a short note.
+ * The note sits outside any artifact tag, so it can't teach the model to put placeholders inside one.
+ * Turns without a superseded artifact are passed through untouched.
+ */
+export function collapseSupersededArtifacts(history: HistoryTurn[]): HistoryTurn[] {
+  const parsed = history.map((t) => (t.role === 'assistant' && /<(artifact|antArtifact)\b/i.test(t.content) ? parseMessage(t.content) : null))
+  const latest = new Map<string, { turn: number; segment: number }>()
+  parsed.forEach((segments, turn) =>
+    segments?.forEach((s, segment) => {
+      if (s.kind === 'artifact' && s.complete) latest.set(s.identifier, { turn, segment })
+    })
+  )
+  return history.map((t, turn) => {
+    const segments = parsed[turn]
+    const superseded = (i: number) => {
+      const s = segments![i]
+      if (s.kind !== 'artifact' || !s.complete) return false
+      const last = latest.get(s.identifier)!
+      return last.turn !== turn || last.segment !== i
+    }
+    if (!segments || !segments.some((_, i) => superseded(i))) return t
+    const content = segments
+      .map((s, i) => {
+        if (s.kind === 'text') return s.text
+        if (superseded(i)) return `\n[Earlier version of the artifact "${attr(s.title)}" (identifier ${s.identifier}), omitted: a later version appears further on in this conversation.]\n`
+        const language = s.language ? ` language="${attr(s.language)}"` : ''
+        return `<artifact identifier="${attr(s.identifier)}" type="${s.type}" title="${attr(s.title)}"${language}>\n${s.content}\n</artifact>`
+      })
+      .join('')
+    return { ...t, content }
+  })
+}
+
 export function assemble(input: AssembleInput): Assembled {
   const system = buildSystemPrompt(input)
+  const history = collapseSupersededArtifacts(input.history)
   const context = input.contextLength ?? DEFAULT_CONTEXT
   const reserve = Math.min(16_000, Math.floor(context / 4))
   const budget = context - reserve - estimateTokens(system)
@@ -101,10 +140,10 @@ export function assemble(input: AssembleInput): Assembled {
   // Walk backwards so the newest turns always survive; always keep the final user turn.
   const kept: HistoryTurn[] = []
   let used = 0
-  for (let i = input.history.length - 1; i >= 0; i--) {
-    const cost = turnTokens(input.history[i])
+  for (let i = history.length - 1; i >= 0; i--) {
+    const cost = turnTokens(history[i])
     if (kept.length > 0 && used + cost > budget) break
-    kept.unshift(input.history[i])
+    kept.unshift(history[i])
     used += cost
   }
   // Never start the replay on an assistant turn.
@@ -115,7 +154,7 @@ export function assemble(input: AssembleInput): Assembled {
 
   return {
     messages: [{ role: 'system', content: system }, ...kept.map(turnToMessage)],
-    droppedTurns: input.history.length - kept.length,
+    droppedTurns: history.length - kept.length,
     estimatedTokens: used + estimateTokens(system)
   }
 }
