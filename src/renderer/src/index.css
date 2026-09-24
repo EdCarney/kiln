@@ -1,0 +1,288 @@
+@import 'tailwindcss';
+
+/*
+ * Every colour, font and radius comes from CSS variables that applyTheme() writes on <html>.
+ * `@theme inline` maps them to Tailwind utilities (bg-canvas, text-muted, rounded-kiln…),
+ * so a theme switch is a handful of style.setProperty calls — no re-render.
+ */
+@theme inline {
+  --color-canvas: var(--k-canvas);
+  --color-sidebar: var(--k-sidebar);
+  --color-panel: var(--k-panel);
+  --color-hover: var(--k-hover);
+  --color-bubble: var(--k-bubble);
+  --color-code: var(--k-code);
+  --color-fg: var(--k-fg);
+  --color-muted: var(--k-muted);
+  --color-subtle: var(--k-subtle);
+  --color-line: var(--k-line);
+  --color-line-strong: var(--k-lineStrong);
+  --color-accent: var(--k-accent);
+  --color-accent-fg: var(--k-accentFg);
+  --color-accent-soft: var(--k-accentSoft);
+  --color-danger: var(--k-danger);
+
+  --font-ui: var(--k-font-ui);
+  --font-reading: var(--k-font-reading);
+  --font-mono: var(--k-font-mono);
+
+  --radius-kiln: var(--k-radius);
+  --radius-kiln-lg: calc(var(--k-radius) * 1.5);
+}
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  /* Fallbacks until the theme loads (Clay light). */
+  --k-canvas: #faf9f5;
+  --k-fg: #141413;
+  --k-font-ui: 'Inter Variable', system-ui, sans-serif;
+  --k-font-reading: 'Source Serif 4 Variable', Georgia, serif;
+  --k-font-mono: 'JetBrains Mono Variable', ui-monospace, monospace;
+  --k-radius: 12px;
+  --k-font-size: 16px;
+  --k-chat-width: 768px;
+  --k-response-font: var(--k-font-reading);
+
+  --shiki-foreground: var(--k-fg);
+  --shiki-background: transparent;
+  --shiki-token-keyword: var(--k-synKeyword);
+  --shiki-token-string: var(--k-synString);
+  --shiki-token-string-expression: var(--k-synString);
+  --shiki-token-comment: var(--k-synComment);
+  --shiki-token-function: var(--k-synFunction);
+  --shiki-token-constant: var(--k-synConstant);
+  --shiki-token-parameter: var(--k-fg);
+  --shiki-token-punctuation: var(--k-synPunctuation);
+  --shiki-token-link: var(--k-synFunction);
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--k-canvas);
+    color: var(--k-fg);
+    font-family: var(--k-font-ui);
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+    cursor: default;
+    overflow: hidden;
+  }
+
+  /* Only content is selectable, like a native app. */
+  .selectable,
+  .selectable *,
+  input,
+  textarea,
+  [contenteditable] {
+    user-select: text;
+    cursor: auto;
+  }
+
+  button,
+  [role='button'],
+  a {
+    cursor: pointer;
+  }
+
+  .drag {
+    -webkit-app-region: drag;
+  }
+  .no-drag,
+  .drag button,
+  .drag input,
+  .drag a {
+    -webkit-app-region: no-drag;
+  }
+
+  ::selection {
+    background: var(--k-accentSoft);
+  }
+
+  /* Quiet scrollbars that match the theme. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--k-lineStrong) transparent;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--k-accent);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  /* ---- Reading typography for assistant replies and markdown artifacts ---- */
+
+  .prose-kiln {
+    font-family: var(--k-response-font);
+    font-size: var(--k-font-size);
+    line-height: 1.65;
+    color: var(--k-fg);
+    overflow-wrap: anywhere;
+  }
+  .prose-kiln > :first-child {
+    margin-top: 0;
+  }
+  .prose-kiln > :last-child {
+    margin-bottom: 0;
+  }
+  .prose-kiln p {
+    margin: 0 0 0.9em;
+  }
+  .prose-kiln h1,
+  .prose-kiln h2,
+  .prose-kiln h3,
+  .prose-kiln h4 {
+    font-weight: 600;
+    line-height: 1.3;
+    margin: 1.4em 0 0.5em;
+  }
+  .prose-kiln h1 {
+    font-size: 1.5em;
+  }
+  .prose-kiln h2 {
+    font-size: 1.25em;
+  }
+  .prose-kiln h3 {
+    font-size: 1.1em;
+  }
+  .prose-kiln ul,
+  .prose-kiln ol {
+    margin: 0 0 0.9em;
+    padding-left: 1.5em;
+  }
+  .prose-kiln ul {
+    list-style: disc;
+  }
+  .prose-kiln ol {
+    list-style: decimal;
+  }
+  .prose-kiln li {
+    margin: 0.25em 0;
+  }
+  .prose-kiln li > p {
+    margin: 0.25em 0;
+  }
+  .prose-kiln a {
+    color: var(--k-accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .prose-kiln blockquote {
+    border-left: 3px solid var(--k-lineStrong);
+    padding-left: 1em;
+    color: var(--k-muted);
+    margin: 0 0 0.9em;
+  }
+  .prose-kiln hr {
+    border: 0;
+    border-top: 1px solid var(--k-line);
+    margin: 1.5em 0;
+  }
+  .prose-kiln :not(pre) > code {
+    font-family: var(--k-font-mono);
+    font-size: 0.85em;
+    background: var(--k-code);
+    border: 1px solid var(--k-line);
+    border-radius: 5px;
+    padding: 0.1em 0.35em;
+  }
+  .prose-kiln table {
+    border-collapse: collapse;
+    font-family: var(--k-font-ui);
+    font-size: 0.9em;
+    width: max-content;
+    max-width: 100%;
+  }
+  .prose-kiln th,
+  .prose-kiln td {
+    border: 1px solid var(--k-line);
+    padding: 0.45em 0.75em;
+    text-align: left;
+    vertical-align: top;
+  }
+  .prose-kiln th {
+    background: var(--k-code);
+    font-weight: 600;
+  }
+  .prose-kiln .katex-display {
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0.25em 0;
+  }
+  .prose-kiln img {
+    max-width: 100%;
+    border-radius: var(--k-radius);
+  }
+
+  .code-body pre {
+    margin: 0;
+    padding: 14px 16px;
+    overflow-x: auto;
+    font-family: var(--k-font-mono);
+    font-size: 13px;
+    line-height: 1.6;
+    background: transparent !important;
+  }
+}
+
+/* Blinking caret shown at the end of a streaming reply. */
+.stream-caret::after {
+  content: '';
+  display: inline-block;
+  width: 0.55em;
+  height: 0.55em;
+  margin-left: 0.25em;
+  border-radius: 999px;
+  background: var(--k-accent);
+  vertical-align: middle;
+  animation: kiln-pulse 1s ease-in-out infinite;
+}
+
+@keyframes kiln-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.shimmer-text {
+  background: linear-gradient(90deg, var(--k-subtle) 0%, var(--k-fg) 50%, var(--k-subtle) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: kiln-shimmer 2s linear infinite;
+}
+
+@keyframes kiln-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stream-caret::after,
+  .shimmer-text {
+    animation: none;
+  }
+  .shimmer-text {
+    color: var(--k-muted);
+  }
+}

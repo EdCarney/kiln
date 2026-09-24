@@ -1,0 +1,442 @@
+import { ArrowUp, FileText, Paperclip, Plus, Sparkles, Square, TriangleAlert, X } from 'lucide-react'
+import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { normalizeThinkSetting } from '@shared/thinking'
+import type { Attachment, Conversation, FileSource, Skill, ThinkSetting } from '@shared/types'
+import { api } from '@/lib/api'
+import { cn, formatTokens } from '@/lib/format'
+import { findModel, reportError, thinkProfileFor, useApp } from '@/stores/app'
+import { useChat } from '@/stores/chat'
+import { ModelPicker } from './ModelPicker'
+import { ThinkingControl } from './ThinkingControl'
+import { Menu, MenuCheckItem, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuSub, MenuTrigger, Spinner, Tooltip } from './ui'
+
+export interface ComposerSubmit {
+  content: string
+  attachmentIds: string[]
+  model: string
+  think: ThinkSetting | null
+  skills: string[]
+}
+
+interface Pending {
+  key: string
+  name: string
+  attachment: Attachment | null
+}
+
+/** Model/think/skills for this composer: persisted on the chat once it exists, drafted otherwise. */
+function useComposerSettings(conversation: Conversation | null) {
+  const { models, draftModel, draftThink, setDraftModel, setDraftThink } = useApp()
+  const [draftSkills, setDraftSkills] = useState<string[]>([])
+
+  const persist = useCallback(
+    async (patch: Partial<Pick<Conversation, 'model' | 'think' | 'skills'>>) => {
+      if (!conversation) return
+      try {
+        useChat.getState().setConversation(await api.conversations.update(conversation.id, patch))
+      } catch (err) {
+        reportError(err)
+      }
+    },
+    [conversation]
+  )
+
+  if (conversation) {
+    const model = conversation.model ?? draftModel
+    return {
+      model,
+      think: conversation.think,
+      skills: conversation.skills,
+      setModel: (name: string) => persist({ model: name, think: normalizeThinkSetting(thinkProfileFor(models, name), conversation.think) }),
+      setThink: (think: ThinkSetting) => persist({ think }),
+      setSkills: (skills: string[]) => persist({ skills }),
+      resetDraft: () => {}
+    }
+  }
+  return {
+    model: draftModel,
+    think: draftThink,
+    skills: draftSkills,
+    setModel: setDraftModel,
+    setThink: setDraftThink,
+    setSkills: setDraftSkills,
+    resetDraft: () => setDraftSkills([])
+  }
+}
+
+async function toSources(files: File[]): Promise<FileSource[]> {
+  return Promise.all(
+    files.map(async (file) => {
+      const path = api.files.pathFor(file)
+      return path ? { path } : { name: file.name || 'pasted-image.png', mime: file.type, data: await file.arrayBuffer() }
+    })
+  )
+}
+
+const SLASH_RE = /(^|\s)\/([a-z0-9-]*)$/i
+
+interface Props {
+  conversation: Conversation | null
+  streaming: boolean
+  onSubmit: (input: ComposerSubmit) => Promise<boolean>
+  onStop?: () => void
+  placeholder?: string
+  autoFocus?: boolean
+  large?: boolean
+}
+
+export function Composer({ conversation, streaming, onSubmit, onStop, placeholder, autoFocus, large }: Props) {
+  const { models, skills: allSkills, navigate } = useApp()
+  const settings = useComposerSettings(conversation)
+  const [text, setText] = useState('')
+  const [pending, setPending] = useState<Pending[]>([])
+  const [dragging, setDragging] = useState(false)
+  const [slash, setSlash] = useState<{ query: string; index: number } | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+  const textRef = useRef<HTMLTextAreaElement>(null)
+
+  const model = findModel(models, settings.model)
+  const profile = thinkProfileFor(models, settings.model)
+  const enabledSkills = allSkills.filter((s) => s.enabled)
+  const activeSkills = settings.skills
+    .map((id) => allSkills.find((s) => s.id === id))
+    .filter((s): s is Skill => !!s)
+
+  const uploading = pending.some((p) => !p.attachment)
+  const hasImages = pending.some((p) => p.attachment?.kind === 'image')
+  const visionMissing = hasImages && model && !model.capabilities.includes('vision')
+  const canSend = !!settings.model && !uploading && !submitting && (text.trim().length > 0 || pending.length > 0)
+
+  // ---- attachments ----
+  const addFiles = useCallback(async (sources: FileSource[], names: string[]) => {
+    if (!sources.length) return
+    const keys = names.map((n, i) => ({ key: `${Date.now()}-${i}-${n}`, name: n }))
+    setPending((p) => [...p, ...keys.map((k) => ({ ...k, attachment: null }))])
+    try {
+      const { added, errors } = await api.attachments.ingest(sources)
+      errors.forEach((e) => reportError(e))
+      setPending((p) => {
+        const rest = p.filter((x) => !keys.some((k) => k.key === x.key))
+        return [...rest, ...added.map((a) => ({ key: a.id, name: a.name, attachment: a }))]
+      })
+    } catch (err) {
+      reportError(err)
+      setPending((p) => p.filter((x) => !keys.some((k) => k.key === x.key)))
+    }
+  }, [])
+
+  const addFileObjects = useCallback(
+    async (files: File[]) => addFiles(await toSources(files), files.map((f) => f.name || 'Pasted image')),
+    [addFiles]
+  )
+
+  const pickFiles = async () => {
+    const sources = await api.attachments.pick()
+    await addFiles(sources, sources.map((s) => ('path' in s ? s.path.split('/').pop()! : s.name)))
+  }
+
+  const removePending = (p: Pending) => {
+    setPending((list) => list.filter((x) => x.key !== p.key))
+    if (p.attachment) void api.attachments.remove(p.attachment.id)
+  }
+
+  // Drop files anywhere in the window.
+  useEffect(() => {
+    let depth = 0
+    const hasFiles = (e: DragEvent) => e.dataTransfer?.types.includes('Files')
+    const enter = (e: DragEvent) => {
+      if (!hasFiles(e)) return
+      depth++
+      setDragging(true)
+    }
+    const leave = (e: DragEvent) => {
+      if (!hasFiles(e)) return
+      depth = Math.max(0, depth - 1)
+      if (!depth) setDragging(false)
+    }
+    const over = (e: DragEvent) => hasFiles(e) && e.preventDefault()
+    const drop = (e: DragEvent) => {
+      if (!hasFiles(e)) return
+      e.preventDefault()
+      depth = 0
+      setDragging(false)
+      void addFileObjects([...(e.dataTransfer?.files ?? [])])
+    }
+    window.addEventListener('dragenter', enter)
+    window.addEventListener('dragleave', leave)
+    window.addEventListener('dragover', over)
+    window.addEventListener('drop', drop)
+    return () => {
+      window.removeEventListener('dragenter', enter)
+      window.removeEventListener('dragleave', leave)
+      window.removeEventListener('dragover', over)
+      window.removeEventListener('drop', drop)
+    }
+  }, [addFileObjects])
+
+  // ---- textarea ----
+  useEffect(() => {
+    const el = textRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, window.innerHeight * 0.4)}px`
+  }, [text])
+
+  useEffect(() => {
+    if (autoFocus) textRef.current?.focus()
+  }, [autoFocus, conversation?.id])
+
+  const slashMatches = useMemo(() => {
+    if (!slash) return []
+    const q = slash.query.toLowerCase()
+    return enabledSkills.filter((s) => s.name.toLowerCase().includes(q) && !settings.skills.includes(s.id)).slice(0, 8)
+  }, [slash, enabledSkills, settings.skills])
+
+  const updateSlash = (value: string, caret: number) => {
+    const m = SLASH_RE.exec(value.slice(0, caret))
+    setSlash(m && enabledSkills.length ? { query: m[2], index: 0 } : null)
+  }
+
+  const chooseSkill = (skill: Skill) => {
+    const el = textRef.current!
+    const caret = el.selectionStart
+    const before = text.slice(0, caret).replace(SLASH_RE, (_m, lead: string) => lead)
+    setText(before + text.slice(caret))
+    settings.setSkills([...settings.skills, skill.id])
+    setSlash(null)
+    requestAnimationFrame(() => {
+      el.focus()
+      el.setSelectionRange(before.length, before.length)
+    })
+  }
+
+  const submit = async () => {
+    if (!canSend || !settings.model) return
+    setSubmitting(true)
+    try {
+      const ok = await onSubmit({
+        content: text.trim(),
+        attachmentIds: pending.flatMap((p) => (p.attachment ? [p.attachment.id] : [])),
+        model: settings.model,
+        think: normalizeThinkSetting(profile, settings.think),
+        skills: settings.skills
+      })
+      if (ok) {
+        setText('')
+        setPending([])
+        settings.resetDraft()
+      }
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (slash && slashMatches.length) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault()
+        const dir = e.key === 'ArrowDown' ? 1 : -1
+        setSlash({ ...slash, index: (slash.index + dir + slashMatches.length) % slashMatches.length })
+        return
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault()
+        chooseSkill(slashMatches[slash.index])
+        return
+      }
+      if (e.key === 'Escape') {
+        setSlash(null)
+        return
+      }
+    }
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+      e.preventDefault()
+      if (!streaming) void submit()
+    }
+  }
+
+  return (
+    <div className="relative">
+      {slash && slashMatches.length > 0 && (
+        <div className="absolute bottom-full left-0 z-30 mb-2 w-[360px] rounded-kiln border border-line bg-panel p-1 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
+          <div className="px-2 pb-1 pt-1.5 text-xs font-medium text-subtle">Skills</div>
+          {slashMatches.map((s, i) => (
+            <button
+              key={s.id}
+              onMouseDown={(e) => {
+                e.preventDefault()
+                chooseSkill(s)
+              }}
+              className={cn('flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left', i === slash.index && 'bg-hover')}
+            >
+              <Sparkles className="mt-0.5 size-4 shrink-0 text-accent" />
+              <span className="min-w-0">
+                <span className="block text-sm">/{s.name}</span>
+                <span className="block truncate text-xs text-subtle">{s.description}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div
+        className={cn(
+          'relative rounded-[calc(var(--k-radius)*1.6)] border bg-panel shadow-[0_2px_12px_rgba(0,0,0,0.05)] transition-colors',
+          dragging ? 'border-accent ring-4 ring-accent-soft' : 'border-line focus-within:border-line-strong'
+        )}
+      >
+        {dragging && (
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-[inherit] bg-accent-soft text-sm font-medium text-accent">
+            Drop files to attach
+          </div>
+        )}
+
+        {(pending.length > 0 || activeSkills.length > 0) && (
+          <div className="flex flex-wrap gap-2 px-3 pt-3">
+            {activeSkills.map((s) => (
+              <span key={s.id} className="flex h-7 items-center gap-1.5 rounded-lg bg-accent-soft pl-2 pr-1 text-xs font-medium text-accent">
+                <Sparkles className="size-3.5" /> {s.name}
+                <button
+                  aria-label={`Remove skill ${s.name}`}
+                  onClick={() => settings.setSkills(settings.skills.filter((id) => id !== s.id))}
+                  className="rounded p-0.5 hover:bg-accent-soft"
+                >
+                  <X className="size-3" />
+                </button>
+              </span>
+            ))}
+            {pending.map((p) => (
+              <AttachmentChip key={p.key} pending={p} onRemove={() => removePending(p)} />
+            ))}
+          </div>
+        )}
+
+        <textarea
+          ref={textRef}
+          value={text}
+          rows={large ? 3 : 1}
+          placeholder={placeholder ?? 'Reply…'}
+          onChange={(e) => {
+            setText(e.target.value)
+            updateSlash(e.target.value, e.target.selectionStart)
+          }}
+          onKeyDown={onKeyDown}
+          onPaste={(e) => {
+            const files = [...e.clipboardData.files]
+            if (files.length) {
+              e.preventDefault()
+              void addFileObjects(files)
+            }
+          }}
+          className={cn(
+            'block w-full resize-none bg-transparent px-4 text-[15px] leading-relaxed text-fg outline-none placeholder:text-subtle',
+            large ? 'min-h-[88px] pt-4' : 'min-h-[52px] pt-3.5'
+          )}
+        />
+
+        <div className="flex items-center gap-1 px-2.5 pb-2.5">
+          <Menu>
+            <MenuTrigger asChild>
+              <button aria-label="Add" className="flex size-8 items-center justify-center rounded-lg border border-line text-muted hover:bg-hover hover:text-fg">
+                <Plus className="size-4" />
+              </button>
+            </MenuTrigger>
+            <MenuContent side="top">
+              <MenuItem icon={<Paperclip className="size-4" />} onSelect={() => void pickFiles()}>
+                Add files or photos
+              </MenuItem>
+              <MenuSub label="Skills" icon={<Sparkles className="size-4" />}>
+                {enabledSkills.length === 0 && <MenuLabel>No skills yet</MenuLabel>}
+                {enabledSkills.map((s) => (
+                  <MenuCheckItem
+                    key={s.id}
+                    checked={settings.skills.includes(s.id)}
+                    description={s.description}
+                    onCheckedChange={(on) =>
+                      settings.setSkills(on ? [...settings.skills, s.id] : settings.skills.filter((id) => id !== s.id))
+                    }
+                  >
+                    {s.name}
+                  </MenuCheckItem>
+                ))}
+                <MenuSeparator />
+                <MenuItem onSelect={() => navigate({ name: 'skills' })}>Manage skills…</MenuItem>
+              </MenuSub>
+            </MenuContent>
+          </Menu>
+
+          <ThinkingControl profile={profile} value={settings.think} onChange={settings.setThink} />
+
+          <div className="flex-1" />
+
+          <ModelPicker value={settings.model} onChange={settings.setModel} />
+
+          {streaming ? (
+            <Tooltip content="Stop">
+              <button
+                onClick={onStop}
+                aria-label="Stop"
+                className="flex size-8 items-center justify-center rounded-lg bg-fg text-canvas hover:opacity-85"
+              >
+                <Square className="size-3.5 fill-current" />
+              </button>
+            </Tooltip>
+          ) : (
+            <button
+              onClick={() => void submit()}
+              disabled={!canSend}
+              aria-label="Send"
+              className="flex size-8 items-center justify-center rounded-lg bg-accent text-accent-fg transition-opacity hover:brightness-110 disabled:opacity-35"
+            >
+              {submitting || uploading ? <Spinner className="text-accent-fg" /> : <ArrowUp className="size-4" strokeWidth={2.5} />}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {visionMissing && (
+        <p className="mt-2 flex items-center gap-1.5 px-2 text-xs text-muted">
+          <TriangleAlert className="size-3.5 text-danger" />
+          {model ? `${model.name.replace(/(:|-)cloud$/, '')} can't see images.` : ''} Only the file name will be sent. Pick a model with the eye icon to include them.
+        </p>
+      )}
+    </div>
+  )
+}
+
+function AttachmentChip({ pending, onRemove }: { pending: Pending; onRemove: () => void }) {
+  const a = pending.attachment
+  if (a?.kind === 'image')
+    return (
+      <div className="group relative size-14 overflow-hidden rounded-lg border border-line">
+        <img src={`kiln://attachment/${a.id}`} alt={a.name} className="size-full object-cover" />
+        <RemoveButton onRemove={onRemove} />
+      </div>
+    )
+  return (
+    <div className="group relative flex h-14 w-48 items-center gap-2 rounded-lg border border-line bg-canvas px-2.5">
+      <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-hover text-muted">
+        {a ? <FileText className="size-4" /> : <Spinner />}
+      </div>
+      <div className="min-w-0">
+        <div className="truncate text-xs font-medium">{pending.name}</div>
+        <div className="text-[11px] text-subtle">
+          {!a ? 'Reading…' : a.textless ? 'No text found' : `${formatTokens(a.tokenEstimate)} tokens`}
+        </div>
+      </div>
+      <RemoveButton onRemove={onRemove} />
+    </div>
+  )
+}
+
+function RemoveButton({ onRemove }: { onRemove: () => void }) {
+  return (
+    <button
+      aria-label="Remove attachment"
+      onClick={onRemove}
+      className="absolute right-1 top-1 hidden size-5 items-center justify-center rounded-full bg-fg text-canvas group-hover:flex"
+    >
+      <X className="size-3" />
+    </button>
+  )
+}

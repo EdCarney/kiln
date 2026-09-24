@@ -1,0 +1,13 @@
+appId: local.kiln.app
+productName: Kiln
+directories:
+  buildResources: resources
+files:
+  - out/**
+  - package.json
+  - '!**/*.map'
+asarUnpack:
+  - resources/**
+mac:
+  category: public.app-category.productivity
+  target: [dmg]

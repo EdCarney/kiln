@@ -1,0 +1,510 @@
+import { Cloud, Download, HardDrive, Monitor, Moon, Palette, Pencil, RefreshCw, Sun, Trash2, Upload } from 'lucide-react'
+import { type ReactNode, useEffect, useState } from 'react'
+import { resolveThinkProfile } from '@shared/thinking'
+import type { ModelInfo, ModelOverrides, Settings, ThemeDef } from '@shared/types'
+import { ThemeEditor } from '@/components/ThemeEditor'
+import { TopBar } from '@/components/TopBar'
+import { Badge, Button, Field, Spinner, Switch, TextArea, TextField } from '@/components/ui'
+import { api } from '@/lib/api'
+import { cn, displayModelName, formatContext } from '@/lib/format'
+import { reportError, type SettingsTab, useApp } from '@/stores/app'
+import { isDark } from '@/theme/applyTheme'
+
+const TABS: Array<{ id: SettingsTab; label: string }> = [
+  { id: 'general', label: 'General' },
+  { id: 'appearance', label: 'Appearance' },
+  { id: 'models', label: 'Models' },
+  { id: 'features', label: 'Artifacts & skills' },
+  { id: 'data', label: 'Data' }
+]
+
+function Section({ title, description, children }: { title: string; description?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="border-b border-line py-6 first:pt-0 last:border-0">
+      <h2 className="text-[15px] font-medium">{title}</h2>
+      {description && <p className="mt-1 text-sm text-muted">{description}</p>}
+      <div className="mt-4 space-y-4">{children}</div>
+    </section>
+  )
+}
+
+function Row({ label, hint, children }: { label: string; hint?: ReactNode; children: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-6">
+      <div className="min-w-0">
+        <div className="text-sm">{label}</div>
+        {hint && <div className="mt-0.5 text-xs text-subtle">{hint}</div>}
+      </div>
+      <div className="shrink-0">{children}</div>
+    </div>
+  )
+}
+
+function Segmented<T extends string>({ value, options, onChange }: { value: T; options: Array<{ value: T; label: string; icon?: ReactNode }>; onChange: (v: T) => void }) {
+  return (
+    <div className="inline-flex rounded-lg bg-hover p-0.5 text-[13px]">
+      {options.map((o) => (
+        <button
+          key={o.value}
+          onClick={() => onChange(o.value)}
+          className={cn('flex items-center gap-1.5 rounded-md px-3 py-1', value === o.value ? 'bg-panel text-fg shadow-sm' : 'text-muted hover:text-fg')}
+        >
+          {o.icon}
+          {o.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** Text input that saves on blur, so typing doesn't write settings on every keystroke. */
+function BlurField({ value, onSave, multiline, ...rest }: { value: string; onSave: (v: string) => void; multiline?: boolean; placeholder?: string; type?: string; rows?: number }) {
+  const [local, setLocal] = useState(value)
+  useEffect(() => setLocal(value), [value])
+  const commit = () => local !== value && onSave(local)
+  return multiline ? (
+    <TextArea value={local} onChange={(e) => setLocal(e.target.value)} onBlur={commit} {...rest} />
+  ) : (
+    <TextField value={local} onChange={(e) => setLocal(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === 'Enter' && commit()} {...rest} />
+  )
+}
+
+export function SettingsView({ tab = 'general' }: { tab?: SettingsTab }) {
+  const { settings, navigate } = useApp()
+  if (!settings)
+    return (
+      <div className="flex h-full items-center justify-center">
+        <Spinner />
+      </div>
+    )
+  return (
+    <div className="flex h-full flex-col">
+      <TopBar />
+      <div className="flex min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto flex w-full max-w-4xl gap-10 px-8 pb-16 pt-4">
+          <nav className="w-44 shrink-0">
+            <h1 className="mb-4 px-2 font-reading text-2xl font-medium tracking-tight">Settings</h1>
+            {TABS.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => navigate({ name: 'settings', tab: t.id })}
+                className={cn('flex h-8 w-full items-center rounded-lg px-2 text-left text-[13px]', tab === t.id ? 'bg-hover font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg')}
+              >
+                {t.label}
+              </button>
+            ))}
+          </nav>
+          <div className="min-w-0 flex-1 pt-12">
+            {tab === 'general' && <GeneralTab settings={settings} />}
+            {tab === 'appearance' && <AppearanceTab settings={settings} />}
+            {tab === 'models' && <ModelsTab settings={settings} />}
+            {tab === 'features' && <FeaturesTab settings={settings} />}
+            {tab === 'data' && <DataTab />}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function GeneralTab({ settings }: { settings: Settings }) {
+  const update = useApp((s) => s.updateSettings)
+  return (
+    <>
+      <Section title="Profile">
+        <Field label="What should Kiln call you?">
+          <BlurField value={settings.userName} onSave={(userName) => update({ userName })} placeholder="Your name" />
+        </Field>
+        <Field label="Personal preferences" hint="Included in every chat. Describe your background and how you like responses.">
+          <BlurField
+            multiline
+            rows={6}
+            value={settings.preferences}
+            onSave={(preferences) => update({ preferences })}
+            placeholder="e.g. I'm a data engineer. Prefer concise answers with code in Python. Use British spelling."
+          />
+        </Field>
+      </Section>
+    </>
+  )
+}
+
+function ThemeSwatch({ theme, dark, selected, onSelect, onEdit, onDelete }: { theme: ThemeDef; dark: boolean; selected: boolean; onSelect: () => void; onEdit: () => void; onDelete?: () => void }) {
+  const p = dark ? theme.dark : theme.light
+  return (
+    <div className={cn('group overflow-hidden rounded-kiln-lg border-2 transition-colors', selected ? 'border-accent' : 'border-line hover:border-line-strong')}>
+      <button onClick={onSelect} className="block w-full text-left" aria-label={`Use ${theme.name} theme`}>
+        <div className="flex h-20" style={{ background: p.canvas }}>
+          <div className="w-1/4 border-r" style={{ background: p.sidebar, borderColor: p.line }} />
+          <div className="flex flex-1 flex-col justify-center gap-1.5 px-3">
+            <div className="h-2 w-3/4 rounded-full" style={{ background: p.fg, opacity: 0.8 }} />
+            <div className="h-2 w-1/2 rounded-full" style={{ background: p.muted, opacity: 0.6 }} />
+            <div className="ml-auto mt-1 h-4 w-8 rounded" style={{ background: p.accent }} />
+          </div>
+        </div>
+      </button>
+      <div className="flex items-center justify-between bg-panel px-3 py-2">
+        <span className="truncate text-[13px] font-medium">{theme.name}</span>
+        <span className="flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+          <button onClick={onEdit} aria-label="Customize" className="rounded p-1 text-subtle hover:bg-hover hover:text-fg">
+            <Pencil className="size-3.5" />
+          </button>
+          {onDelete && (
+            <button onClick={onDelete} aria-label="Delete theme" className="rounded p-1 text-subtle hover:bg-hover hover:text-danger">
+              <Trash2 className="size-3.5" />
+            </button>
+          )}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function AppearanceTab({ settings }: { settings: Settings }) {
+  const { themes, updateSettings, loadThemes, toast } = useApp()
+  const [editing, setEditing] = useState<ThemeDef | null>(null)
+  const a = settings.appearance
+  const dark = isDark(a.mode)
+  const setAppearance = (patch: Partial<Settings['appearance']>) => updateSettings({ appearance: patch })
+  const current = themes.find((t) => t.id === a.themeId) ?? themes[0]
+
+  return (
+    <>
+      <Section title="Mode">
+        <Segmented
+          value={a.mode}
+          onChange={(mode) => setAppearance({ mode })}
+          options={[
+            { value: 'system', label: 'System', icon: <Monitor className="size-3.5" /> },
+            { value: 'light', label: 'Light', icon: <Sun className="size-3.5" /> },
+            { value: 'dark', label: 'Dark', icon: <Moon className="size-3.5" /> }
+          ]}
+        />
+      </Section>
+
+      <Section
+        title="Theme"
+        description="Pick a theme, or customize any of them: colours, fonts and corner radius."
+      >
+        <div className="grid grid-cols-3 gap-3">
+          {themes.map((t) => (
+            <ThemeSwatch
+              key={t.id}
+              theme={t}
+              dark={dark}
+              selected={t.id === a.themeId}
+              onSelect={() => setAppearance({ themeId: t.id })}
+              onEdit={() => setEditing(t)}
+              onDelete={
+                t.builtin
+                  ? undefined
+                  : async () => {
+                      await api.themes.delete(t.id)
+                      if (a.themeId === t.id) await setAppearance({ themeId: 'claude' })
+                      await loadThemes()
+                    }
+              }
+            />
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <Button size="sm" onClick={() => current && setEditing(current)}>
+            <Palette className="size-3.5" /> Customize current
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={async () => {
+              try {
+                const t = await api.themes.importTheme()
+                if (t) {
+                  await loadThemes()
+                  await setAppearance({ themeId: t.id })
+                  toast(`Imported “${t.name}”`)
+                }
+              } catch (err) {
+                reportError(err)
+              }
+            }}
+          >
+            <Upload className="size-3.5" /> Import
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => current && api.themes.exportTheme(current).catch(reportError)}>
+            <Download className="size-3.5" /> Export current
+          </Button>
+        </div>
+      </Section>
+
+      <Section title="Reading">
+        <Row label="Reply font">
+          <Segmented
+            value={a.responseFont}
+            onChange={(responseFont) => setAppearance({ responseFont })}
+            options={[
+              { value: 'reading', label: 'Serif' },
+              { value: 'ui', label: 'Sans' }
+            ]}
+          />
+        </Row>
+        <Row label={`Text size: ${a.fontSize}px`}>
+          <input type="range" min={13} max={20} value={a.fontSize} onChange={(e) => setAppearance({ fontSize: Number(e.target.value) })} className="w-48 accent-[var(--k-accent)]" />
+        </Row>
+        <Row label={`Chat width: ${a.chatWidth}px`}>
+          <input type="range" min={600} max={1100} step={20} value={a.chatWidth} onChange={(e) => setAppearance({ chatWidth: Number(e.target.value) })} className="w-48 accent-[var(--k-accent)]" />
+        </Row>
+      </Section>
+
+      {editing && <ThemeEditor base={editing} open={!!editing} onClose={() => setEditing(null)} />}
+    </>
+  )
+}
+
+const THINK_OPTIONS: Array<{ value: ModelOverrides['think'] | 'auto'; label: string }> = [
+  { value: 'auto', label: 'Automatic' },
+  { value: 'toggle', label: 'On / off' },
+  { value: 'levels', label: 'Effort levels' },
+  { value: 'always', label: 'Always on' },
+  { value: 'none', label: 'Hidden' }
+]
+
+function ModelRow({ model, onChange }: { model: ModelInfo; onChange: (m: ModelInfo) => void }) {
+  const auto = resolveThinkProfile(model.name, model.capabilities)
+  const set = async (patch: ModelOverrides) => {
+    try {
+      onChange(await api.models.setOverrides(model.name, { ...model.overrides, ...patch }))
+    } catch (err) {
+      reportError(err)
+    }
+  }
+  return (
+    <tr className="border-t border-line align-middle">
+      <td className="py-2.5 pr-3">
+        <div className="flex items-center gap-1.5 text-[13px] font-medium">
+          {model.location === 'cloud' ? <Cloud className="size-3.5 text-subtle" /> : <HardDrive className="size-3.5 text-subtle" />}
+          {displayModelName(model.name)}
+        </div>
+        <div className="mt-0.5 flex gap-1">
+          {model.capabilities
+            .filter((c) => c !== 'completion')
+            .map((c) => (
+              <Badge key={c}>{c}</Badge>
+            ))}
+          {model.contextLength && <Badge>{formatContext(model.contextLength)}</Badge>}
+        </div>
+      </td>
+      <td className="py-2.5 pr-3">
+        {model.capabilities.includes('thinking') ? (
+          <select
+            value={model.overrides.think ?? 'auto'}
+            onChange={(e) => set({ think: e.target.value === 'auto' ? undefined : (e.target.value as ModelOverrides['think']) })}
+            className="h-8 rounded-md border border-line bg-canvas px-1.5 text-xs outline-none"
+          >
+            {THINK_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.value === 'auto' ? `Automatic (${THINK_OPTIONS.find((x) => x.value === auto.kind)?.label ?? auto.kind})` : o.label}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className="text-xs text-subtle">n/a</span>
+        )}
+      </td>
+      <td className="py-2.5 pr-3 text-center">
+        <Switch label="Artifacts" checked={model.overrides.artifacts !== false} onChange={(v) => set({ artifacts: v })} />
+      </td>
+      <td className="py-2.5 text-center">
+        {model.capabilities.includes('tools') ? (
+          <Switch label="Auto skills" checked={model.overrides.autoSkills !== false} onChange={(v) => set({ autoSkills: v })} />
+        ) : (
+          <span className="text-xs text-subtle">n/a</span>
+        )}
+      </td>
+    </tr>
+  )
+}
+
+function ModelsTab({ settings }: { settings: Settings }) {
+  const { models, modelsLoading, modelsError, loadModels, updateSettings } = useApp()
+  const [apiKey, setApiKey] = useState('')
+  const [list, setList] = useState(models)
+  useEffect(() => setList(models), [models])
+  const conn = settings.connection
+
+  const saveConnection = async (patch: Partial<Settings['connection']>) => {
+    await updateSettings({ connection: { mode: conn.mode, host: conn.host, ...patch } })
+    await loadModels(true)
+  }
+
+  const modelSelect = (value: string | null, onChange: (v: string | null) => void, emptyLabel: string) => (
+    <select value={value ?? ''} onChange={(e) => onChange(e.target.value || null)} className="h-9 w-64 rounded-kiln border border-line bg-canvas px-2 text-sm outline-none">
+      <option value="">{emptyLabel}</option>
+      {models.map((m) => (
+        <option key={m.name} value={m.name}>
+          {displayModelName(m.name)}
+          {m.location === 'cloud' ? ' (cloud)' : ''}
+        </option>
+      ))}
+    </select>
+  )
+
+  return (
+    <>
+      <Section title="Connection" description="Kiln talks to Ollama. Cloud models work through the Ollama app once you've run `ollama signin`.">
+        <Segmented
+          value={conn.mode}
+          onChange={(mode) => saveConnection({ mode })}
+          options={[
+            { value: 'local', label: 'Ollama app', icon: <HardDrive className="size-3.5" /> },
+            { value: 'direct', label: 'Ollama cloud API', icon: <Cloud className="size-3.5" /> }
+          ]}
+        />
+        {conn.mode === 'local' ? (
+          <Field label="Ollama address">
+            <BlurField value={conn.host} onSave={(host) => saveConnection({ host })} placeholder="http://127.0.0.1:11434" />
+          </Field>
+        ) : (
+          <Field
+            label="API key"
+            hint={conn.hasApiKey ? 'A key is saved, encrypted with your macOS keychain.' : 'Create one at ollama.com/settings/keys. It is stored encrypted and never leaves this Mac except to call ollama.com.'}
+          >
+            <div className="flex gap-2">
+              <TextField type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={conn.hasApiKey ? '••••••••••••' : 'Paste your API key'} />
+              <Button
+                disabled={!apiKey.trim()}
+                onClick={async () => {
+                  try {
+                    await api.settings.setApiKey(apiKey.trim())
+                    setApiKey('')
+                    await useApp.getState().loadSettings()
+                    await loadModels(true)
+                  } catch (err) {
+                    reportError(err)
+                  }
+                }}
+              >
+                Save
+              </Button>
+              {conn.hasApiKey && (
+                <Button
+                  variant="ghost"
+                  onClick={async () => {
+                    await api.settings.setApiKey(null)
+                    await useApp.getState().loadSettings()
+                  }}
+                >
+                  Remove
+                </Button>
+              )}
+            </div>
+          </Field>
+        )}
+        {conn.mode === 'local' && (
+          <Row label="Show the Ollama cloud catalog" hint="List every cloud model, not only ones you've pulled.">
+            <Switch checked={settings.showCloudCatalog} onChange={async (v) => { await updateSettings({ showCloudCatalog: v }); await loadModels(true) }} />
+          </Row>
+        )}
+      </Section>
+
+      <Section title="Defaults">
+        <Row label="Default model" hint="Used for new chats.">
+          {modelSelect(settings.defaultModel, (defaultModel) => updateSettings({ defaultModel }), 'Last used')}
+        </Row>
+        <Row label="Title model" hint="Names new chats. A small, fast model works well.">
+          {modelSelect(settings.titleModel, (titleModel) => updateSettings({ titleModel }), 'Same as the chat')}
+        </Row>
+        <Row label="Context window for local models" hint="Ollama's num_ctx. Bigger remembers more but uses more memory.">
+          <select value={settings.localNumCtx} onChange={(e) => updateSettings({ localNumCtx: Number(e.target.value) })} className="h-9 rounded-kiln border border-line bg-canvas px-2 text-sm outline-none">
+            {[8192, 16384, 32768, 65536, 131072].map((n) => (
+              <option key={n} value={n}>
+                {formatContext(n)}
+              </option>
+            ))}
+          </select>
+        </Row>
+      </Section>
+
+      <Section
+        title="Per-model behaviour"
+        description="Thinking controls adapt to each model. Turn off artifacts or automatic skills for models that handle them poorly."
+      >
+        <div className="flex items-center gap-2">
+          <Button size="sm" onClick={() => loadModels(true)} loading={modelsLoading}>
+            {!modelsLoading && <RefreshCw className="size-3.5" />} Refresh models
+          </Button>
+          {modelsError && <span className="text-xs text-danger">{modelsError}</span>}
+        </div>
+        <table className="w-full text-left">
+          <thead>
+            <tr className="text-xs text-subtle">
+              <th className="pb-2 font-medium">Model</th>
+              <th className="pb-2 font-medium">Thinking</th>
+              <th className="pb-2 text-center font-medium">Artifacts</th>
+              <th className="pb-2 text-center font-medium">Auto skills</th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.map((m) => (
+              <ModelRow
+                key={m.name}
+                model={m}
+                onChange={(updated) => {
+                  setList((l) => l.map((x) => (x.name === updated.name ? { ...updated, installed: x.installed } : x)))
+                  useApp.setState((s) => ({ models: s.models.map((x) => (x.name === updated.name ? { ...updated, installed: x.installed } : x)) }))
+                }}
+              />
+            ))}
+          </tbody>
+        </table>
+      </Section>
+    </>
+  )
+}
+
+function FeaturesTab({ settings }: { settings: Settings }) {
+  const update = useApp((s) => s.updateSettings)
+  return (
+    <>
+      <Section title="Artifacts" description="Documents, code, web pages, SVGs and diagrams open in a side panel next to the chat.">
+        <Row label="Create artifacts" hint="Adds artifact instructions to the system prompt.">
+          <Switch checked={settings.artifacts.enabled} onChange={(enabled) => update({ artifacts: { enabled } })} />
+        </Row>
+        <Row
+          label="Let web pages load libraries from CDNs"
+          hint="Allows scripts from cdnjs, jsDelivr and unpkg. Pages still can't make network requests or reach your files."
+        >
+          <Switch checked={settings.artifacts.allowCdn} onChange={(allowCdn) => update({ artifacts: { allowCdn } })} />
+        </Row>
+      </Section>
+      <Section title="Skills">
+        <Row label="Load skills automatically" hint="Models that support tools can load a matching skill on their own. You can still add skills with / or the + menu.">
+          <Switch checked={settings.skills.autoLoad} onChange={(autoLoad) => update({ skills: { autoLoad } })} />
+        </Row>
+        <Row label="Include Ollama skills" hint="Read-only, from ~/.ollama/skills">
+          <Switch checked={settings.skills.sources.ollama} onChange={(ollama) => update({ skills: { sources: { ...settings.skills.sources, ollama } } })} />
+        </Row>
+        <Row label="Include Claude skills" hint="Read-only, from ~/.claude/skills. Each starts switched off, since many rely on tools only Claude has. Turn on the ones you want on the Skills page.">
+          <Switch checked={settings.skills.sources.claude} onChange={(claude) => update({ skills: { sources: { ...settings.skills.sources, claude } } })} />
+        </Row>
+      </Section>
+    </>
+  )
+}
+
+function DataTab() {
+  const [info, setInfo] = useState<{ version: string; dataDir: string } | null>(null)
+  useEffect(() => {
+    void api.app.info().then(setInfo)
+  }, [])
+  return (
+    <Section title="Your data" description="Everything stays on this Mac: chats, projects and files live in a local SQLite database.">
+      <Row label="Data folder" hint={<span className="font-mono">{info?.dataDir}</span>}>
+        <Button size="sm" onClick={() => api.app.openDataFolder()}>
+          Open
+        </Button>
+      </Row>
+      <Row label="Version">
+        <span className="text-sm text-muted">{info?.version}</span>
+      </Row>
+    </Section>
+  )
+}

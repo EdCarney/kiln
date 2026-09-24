@@ -1,0 +1,75 @@
+# Kiln
+
+A desktop chat app in the style of the Claude desktop app, running on your Ollama models (cloud and local).
+
+Features: projects (instructions + knowledge files), pinned chats and projects, searchable history, attachments (images, PDF, DOCX, XLSX, text/code), a model picker that adapts to each model's capabilities, thinking/effort controls, skills (`SKILL.md`), artifacts in a side panel, and fully customisable themes.
+
+## Run it
+
+Requirements: macOS, Node 22+, and the [Ollama app](https://ollama.com) running. For cloud models, run `ollama signin` once.
+
+```sh
+npm install
+npm run dev        # development, with hot reload
+npm run build      # production bundle in out/
+npm run dist       # Kiln.dmg in dist/  (or: npx electron-builder --mac --dir  for just the .app)
+```
+
+Your data lives in `~/Library/Application Support/Kiln/`: a SQLite database (`kiln.db`), uploaded files, and your own skills (`skills/`).
+
+## How it works
+
+```
+src/main/        Electron main process: SQLite (node:sqlite), Ollama client, prompt assembly,
+                 streaming + tool loop, file extraction, skills library, artifact:// and kiln:// protocols
+src/preload/     typed contextBridge exposing window.kiln (contract in src/shared/ipc.ts)
+src/shared/      types, artifact parser, thinking profiles, built-in themes (used by both sides)
+src/renderer/    React UI: views/, components/, stores/ (zustand), theme/
+tests/           Vitest unit tests      e2e/   live Playwright run against real models
+```
+
+- **Models.** The local daemon's `/api/tags` is merged with the ollama.com catalog. Cloud models are addressed as `name:cloud` / `name:tag-cloud`, so nothing needs pulling. `/api/show` capabilities drive the UI: the image warning, the thinking control, and automatic skills.
+- **Thinking.** `src/shared/thinking.ts` maps each model family to a profile, based on probing the models:
+  - gpt-oss: effort levels only; it can't be turned off.
+  - glm: always on, because `think:false` leaks its reasoning into the reply.
+  - Other models: an on/off toggle.
+
+  You can override the profile per model in Settings → Models.
+- **Artifacts.** The model writes `<artifact identifier type title language>` tags; `src/shared/artifactParser.ts` turns them into cards and panel content.
+  - HTML and SVG render in a sandboxed iframe (`artifact://`) with no same-origin access and `connect-src 'none'`. Scripts from cdnjs, jsDelivr and unpkg are allowed; you can turn that off in Settings.
+  - An updated artifact is saved as a new version, since the model rewrites it in full each time.
+  - Any code block of 15+ lines can be promoted with "Open as artifact".
+- **Skills.** Kiln reads `SKILL.md` folders from three places:
+  - Its own `skills/` folder, which you can edit.
+  - `~/.ollama/skills`, read-only.
+  - `~/.claude/skills`, read-only. These start off, because many rely on Claude-only tools.
+
+  A skill you pick with `/` or the + menu applies to every reply. Models that support tools can also call `load_skill` on their own; a skill loaded that way stays loaded for the rest of the chat.
+- **Theming.** Every colour, font and radius is a CSS variable (`src/renderer/src/index.css`). Themes are JSON with a light and a dark palette; you can edit, import and export them from Settings → Appearance.
+
+## Tests
+
+```sh
+npm test                    # unit: artifact parser, thinking profiles, prompt assembly, file extraction
+npm run typecheck
+npm run build && npm run e2e   # live: needs Ollama running; uses a throwaway data folder
+```
+
+The e2e run checks:
+- streaming and auto-titles
+- the artifact sandbox, which blocks network requests and access to the app
+- manual and automatic skills
+- vision attachments
+- project knowledge
+- theme persistence
+
+Screenshots go to `e2e/shots/`. Set `KILN_DEBUG=1` to log every request Kiln sends to Ollama to `debug.log` in the data folder.
+
+## Known limits (deliberately deferred)
+
+- **Skills can't run scripts.** Skills like docx/pptx/xlsx/pdf get their instructions only. The model is told to produce results directly. Running scripts needs a sandboxed code runner.
+- **Automatic skill loading depends on the model.** In testing, gpt-oss loaded a clearly matching skill 80–100% of the time. Picking a skill with `/` always works.
+- **React artifacts aren't rendered.** They're shown as JSX source.
+- **Scanned PDFs have no text layer.** They're flagged, but there's no OCR.
+- **Large projects aren't searched.** Project knowledge goes straight into the context window, with a capacity meter. There's no retrieval for oversized projects.
+- **Edits don't keep branches.** Editing a message replaces everything after it; the database has room for branch navigation later.

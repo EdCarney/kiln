@@ -1,0 +1,121 @@
+// Each entry runs once, in order, tracked by PRAGMA user_version. Never edit a shipped entry — append.
+export const MIGRATIONS: string[] = [
+  /* sql */ `
+  CREATE TABLE projects (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    instructions TEXT NOT NULL DEFAULT '',
+    pinned INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE project_files (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    mime TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    path TEXT NOT NULL,
+    text TEXT,
+    token_est INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE conversations (
+    id TEXT PRIMARY KEY,
+    project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+    title TEXT NOT NULL DEFAULT 'New chat',
+    model TEXT,
+    think TEXT,
+    skills TEXT NOT NULL DEFAULT '[]',
+    pinned INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  CREATE INDEX conversations_updated ON conversations(updated_at DESC);
+  CREATE INDEX conversations_project ON conversations(project_id, updated_at DESC);
+
+  CREATE TABLE messages (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    parent_id TEXT,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL DEFAULT '',
+    thinking TEXT,
+    model TEXT,
+    tool_events TEXT NOT NULL DEFAULT '[]',
+    stats TEXT,
+    error TEXT,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX messages_conversation ON messages(conversation_id, created_at);
+
+  CREATE TABLE attachments (
+    id TEXT PRIMARY KEY,
+    message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    name TEXT NOT NULL,
+    mime TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    path TEXT NOT NULL,
+    text TEXT,
+    token_est INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX attachments_message ON attachments(message_id);
+
+  CREATE TABLE artifacts (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    identifier TEXT NOT NULL,
+    type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    language TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    UNIQUE (conversation_id, identifier)
+  );
+
+  CREATE TABLE artifact_versions (
+    id TEXT PRIMARY KEY,
+    artifact_id TEXT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
+    message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX artifact_versions_artifact ON artifact_versions(artifact_id, version);
+
+  CREATE TABLE model_profiles (
+    model TEXT PRIMARY KEY,
+    info TEXT,
+    fetched_at INTEGER,
+    overrides TEXT NOT NULL DEFAULT '{}'
+  );
+
+  CREATE TABLE settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+
+  CREATE TABLE themes (
+    id TEXT PRIMARY KEY,
+    def TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+
+  -- One row per message (message_id set) plus one per conversation title (message_id NULL).
+  CREATE VIRTUAL TABLE search_index USING fts5(
+    conversation_id UNINDEXED,
+    message_id UNINDEXED,
+    body,
+    tokenize = 'porter unicode61'
+  );
+  `,
+  /* sql */ `
+  -- Skills the model loaded itself (via load_skill), kept apart from ones the user picked.
+  ALTER TABLE conversations ADD COLUMN auto_skills TEXT NOT NULL DEFAULT '[]';
+  `
+]
