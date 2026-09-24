@@ -1,6 +1,6 @@
 import type { Project, ProjectFile } from '@shared/types'
 import { now, uid } from '../util'
-import { all, get, run } from './index'
+import { all, get, run, transaction } from './index'
 
 interface ProjectRow {
   id: string
@@ -104,11 +104,10 @@ export function deleteProject(id: string): string[] {
     id,
     id
   ).map((r) => r.path)
-  run(
-    `DELETE FROM search_index WHERE conversation_id IN (SELECT id FROM conversations WHERE project_id = ?)`,
-    id
-  )
-  run('DELETE FROM projects WHERE id = ?', id)
+  transaction(() => {
+    run(`DELETE FROM search_index WHERE conversation_id IN (SELECT id FROM conversations WHERE project_id = ?)`, id)
+    run('DELETE FROM projects WHERE id = ?', id)
+  })
   return paths
 }
 

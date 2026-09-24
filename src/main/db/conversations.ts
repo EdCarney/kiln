@@ -1,7 +1,7 @@
 import type { ConversationPatch } from '@shared/ipc'
 import type { Attachment, Conversation, Message, MessageStats, Role, SearchHit, ThinkSetting, ToolEvent } from '@shared/types'
 import { now, parseJson, uid } from '../util'
-import { all, get, run } from './index'
+import { all, get, run, transaction } from './index'
 
 // ---- Conversations ------------------------------------------------------
 
@@ -114,8 +114,10 @@ export function deleteConversation(id: string): string[] {
     'SELECT a.path FROM attachments a JOIN messages m ON m.id = a.message_id WHERE m.conversation_id = ?',
     id
   ).map((r) => r.path)
-  run('DELETE FROM search_index WHERE conversation_id = ?', id)
-  run('DELETE FROM conversations WHERE id = ?', id)
+  transaction(() => {
+    run('DELETE FROM search_index WHERE conversation_id = ?', id)
+    run('DELETE FROM conversations WHERE id = ?', id)
+  })
   return paths
 }
 
@@ -244,18 +246,16 @@ export function unfinishedReplyIds(): string[] {
 
 /** Delete messages created at or after `fromCreatedAt` (used by retry and edit). */
 export function deleteMessagesFrom(conversationId: string, fromCreatedAt: number): string[] {
-  const ids = all<{ id: string }>(
-    'SELECT id FROM messages WHERE conversation_id = ? AND created_at >= ?',
-    conversationId,
-    fromCreatedAt
-  ).map((r) => r.id)
-  const paths: string[] = []
-  for (const id of ids) {
-    for (const a of all<{ path: string }>('SELECT path FROM attachments WHERE message_id = ?', id)) paths.push(a.path)
-    run('DELETE FROM search_index WHERE message_id = ?', id)
-    run('DELETE FROM messages WHERE id = ?', id)
-  }
-  return paths
+  const doomed = 'SELECT id FROM messages WHERE conversation_id = ? AND created_at >= ?'
+  return transaction(() => {
+    const paths = all<{ path: string }>(`SELECT path FROM attachments WHERE message_id IN (${doomed})`, conversationId, fromCreatedAt).map(
+      (r) => r.path
+    )
+    // One pass over the search index (message_id is an unindexed FTS column), not one per message.
+    run(`DELETE FROM search_index WHERE message_id IN (${doomed})`, conversationId, fromCreatedAt)
+    run('DELETE FROM messages WHERE conversation_id = ? AND created_at >= ?', conversationId, fromCreatedAt)
+    return paths
+  })
 }
 
 // ---- Attachments --------------------------------------------------------
@@ -326,20 +326,27 @@ export function staleAttachmentPaths(olderThan: number): string[] {
     'SELECT id, path FROM attachments WHERE message_id IS NULL AND created_at < ?',
     olderThan
   )
-  for (const r of rows) run('DELETE FROM attachments WHERE id = ?', r.id)
+  transaction(() => {
+    for (const r of rows) run('DELETE FROM attachments WHERE id = ?', r.id)
+  })
   return rows.map((r) => r.path)
 }
 
 // ---- Search -------------------------------------------------------------
 
+// Replace-in-place: without a transaction a failed insert would leave the message unsearchable.
 function indexMessage(conversationId: string, messageId: string, body: string): void {
-  run('DELETE FROM search_index WHERE message_id = ?', messageId)
-  run('INSERT INTO search_index (conversation_id, message_id, body) VALUES (?, ?, ?)', conversationId, messageId, body)
+  transaction(() => {
+    run('DELETE FROM search_index WHERE message_id = ?', messageId)
+    run('INSERT INTO search_index (conversation_id, message_id, body) VALUES (?, ?, ?)', conversationId, messageId, body)
+  })
 }
 
 function indexTitle(conversationId: string, title: string): void {
-  run('DELETE FROM search_index WHERE conversation_id = ? AND message_id IS NULL', conversationId)
-  run('INSERT INTO search_index (conversation_id, message_id, body) VALUES (?, NULL, ?)', conversationId, title)
+  transaction(() => {
+    run('DELETE FROM search_index WHERE conversation_id = ? AND message_id IS NULL', conversationId)
+    run('INSERT INTO search_index (conversation_id, message_id, body) VALUES (?, NULL, ?)', conversationId, title)
+  })
 }
 
 /** Snippets mark matches with \u0001…\u0002 so the renderer can highlight without HTML. */

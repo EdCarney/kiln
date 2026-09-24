@@ -25,8 +25,16 @@ function migrate(d: DatabaseSync): void {
   }
 }
 
+let depth = 0
+
+/**
+ * Run `fn` atomically. A call inside another transaction joins it, so helpers can use this whether or not
+ * their caller already opened one. `fn` must be synchronous.
+ */
 export function transaction<T>(fn: () => T, d: DatabaseSync = getDb()): T {
+  if (depth > 0) return fn()
   d.exec('BEGIN')
+  depth++
   try {
     const result = fn()
     d.exec('COMMIT')
@@ -34,6 +42,8 @@ export function transaction<T>(fn: () => T, d: DatabaseSync = getDb()): T {
   } catch (err) {
     d.exec('ROLLBACK')
     throw err
+  } finally {
+    depth--
   }
 }
 
