@@ -215,7 +215,10 @@ async function generate(
         : { num_ctx: Math.min(model.contextLength ?? settings.localNumCtx, settings.localNumCtx) }
     }
 
+    const triedUnknown: string[] = []
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+      // The last round never offers tools, so every turn ends with an answer in words.
+      if (round === MAX_TOOL_ROUNDS - 1) body.tools = undefined
       debugLog(body)
       const calls: ToolCall[] = []
       let roundContent = ''
@@ -246,8 +249,11 @@ async function generate(
       if (!calls.length) break
 
       body.messages.push({ role: 'assistant', content: roundContent, thinking: roundThinking || undefined, tool_calls: calls })
+      let onlyUnknown = true
       for (const call of calls) {
         const result = await runTool(call)
+        if (result.unknown) triedUnknown.push(call.function.name)
+        else onlyUnknown = false
         toolEvents.push(result.event)
         emit({ type: 'tool', conversationId, messageId, event: result.event })
         if (result.loadedSkillId && !loadedIds.includes(result.loadedSkillId)) {
@@ -257,11 +263,16 @@ async function generate(
         }
         body.messages.push({ role: 'tool', content: result.content, tool_name: call.function.name })
       }
+      // A model reaching for tools Kiln lacks keeps guessing names; after one explanation, take the
+      // tools away so the next request has to be answered in words.
+      if (onlyUnknown) body.tools = undefined
       if (content && !content.endsWith('\n')) {
         content += '\n\n'
         delta({ content: '\n\n' })
       }
     }
+    if (!content.trim() && triedUnknown.length)
+      error = `The model tried to use tools Kiln doesn't have (${[...new Set(triedUnknown)].join(', ')}) and gave no answer. Kiln can't browse the web or run code.`
   } catch (err) {
     if (!controller.signal.aborted) error = errorMessage(err)
     // A stopped or failed stream still spent tokens; record an estimate for the partial round.

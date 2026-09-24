@@ -80,10 +80,15 @@ async function pickModel(win, name) {
 }
 
 async function send(win, text) {
+  const before = await win.locator('.prose-kiln').count()
   await win.fill('textarea', text)
   await win.click('button[aria-label="Send"]')
-  await win.waitForSelector('button[aria-label="Stop"]', { timeout: 15000 })
-  await win.waitForSelector('button[aria-label="Stop"]', { state: 'detached', timeout: 240000 })
+  // Wait for a new reply and for streaming to end. (A fast model can finish before a Stop button is ever seen.)
+  await win.waitForFunction(
+    (n) => document.querySelectorAll('.prose-kiln').length > n && !document.querySelector('button[aria-label="Stop"]'),
+    before,
+    { timeout: 240000 }
+  )
   await win.waitForTimeout(600)
   return win.locator('.prose-kiln').last().innerText()
 }
@@ -228,6 +233,55 @@ const canvas = await second.win.evaluate(() => getComputedStyle(document.documen
 check('theme and dark mode persist after restart', dark && canvas.toLowerCase() === '#2e3440', canvas)
 await second.win.screenshot({ path: join(SHOTS, 'home-nord-dark.png') })
 await second.app.close()
+
+// 10. A model that keeps calling tools Kiln doesn't have (as gpt-oss does with web.run, browser.open…)
+// must get one clear explanation, lose its tools, and still end with an answer. A mock Ollama makes
+// this deterministic.
+const mockChats = []
+const fakeOllama = createServer(async (req, res) => {
+  let raw = ''
+  for await (const chunk of req) raw += chunk
+  const body = raw ? JSON.parse(raw) : {}
+  const json = (obj) => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(obj))
+  if (req.url === '/api/tags') return json({ models: [{ name: 'mock-tools:latest' }] })
+  if (req.url === '/api/show') return json({ capabilities: ['completion', 'tools'], model_info: { 'mock.context_length': 32768 }, details: {} })
+  if (req.url !== '/api/chat') return res.writeHead(404).end()
+  if (!body.stream) return json({ message: { role: 'assistant', content: 'Mock title' }, done: true, prompt_eval_count: 10, eval_count: 2 })
+  mockChats.push({ tools: Array.isArray(body.tools), toolResults: body.messages.filter((m) => m.role === 'tool').map((m) => m.content) })
+  res.writeHead(200, { 'content-type': 'application/x-ndjson' })
+  const message = body.tools
+    ? { role: 'assistant', content: '', tool_calls: [{ function: { name: 'web.run', arguments: { url: 'https://news.google.com' } } }] }
+    : { role: 'assistant', content: "I can't browse the web from Kiln, so I can't fetch today's headlines." }
+  res.write(JSON.stringify({ message, done: false }) + '\n')
+  res.end(JSON.stringify({ done: true, prompt_eval_count: 100, eval_count: 12, eval_duration: 1e8 }) + '\n')
+})
+await new Promise((r) => fakeOllama.listen(0, '127.0.0.1', r))
+const mockUserData = mkdtempSync(join(tmpdir(), 'kiln-e2e-tools-'))
+mkdirSync(join(mockUserData, 'skills', 'news-helper'), { recursive: true })
+writeFileSync(join(mockUserData, 'skills', 'news-helper', 'SKILL.md'), '---\nname: news-helper\ndescription: Summarise news.\n---\n\nSummarise.\n')
+{
+  const app = await electron.launch({ args: [ROOT], env: { ...process.env, KILN_USER_DATA: mockUserData } })
+  const win = await app.firstWindow()
+  await win.waitForSelector('textarea', { timeout: 20000 })
+  await win.evaluate((host) => window.kiln.settings.update({ connection: { mode: 'local', host }, showCloudCatalog: false }), `http://127.0.0.1:${fakeOllama.address().port}`)
+  await win.reload()
+  await win.waitForSelector('textarea')
+  await win.waitForTimeout(1500)
+  try {
+    const reply = await send(win, "Get me today's top headlines.")
+    check('an invented tool gets one explanation, then tools are withdrawn', mockChats.length === 2 && mockChats[0].tools && !mockChats[1].tools, `${mockChats.length} requests, tools offered: ${mockChats.map((c) => c.tools).join(', ')}`)
+    check('the explanation says Kiln has no internet access', /no internet access/.test(mockChats[1]?.toolResults[0] ?? ''))
+    check('the turn still ends with an answer', /can't browse the web/.test(reply), reply.slice(0, 60))
+    const note = await win.locator('text=Tried unavailable').innerText().catch(() => '')
+    check('the UI labels it as an unavailable tool, not a file error', /web\.run/.test(note) && (await win.locator("text=Couldn't read file").count()) === 0, note)
+    await win.screenshot({ path: join(SHOTS, 'unknown-tool.png') })
+  } catch (err) {
+    check('unknown-tool run completed without errors', false, err.message.split('\n')[0])
+  } finally {
+    await app.close()
+    fakeOllama.close()
+  }
+}
 
 const failed = results.filter((r) => !r.ok).length
 console.log(`\n${results.length - failed}/${results.length} checks passed. Screenshots in e2e/shots/, data in ${userData}`)

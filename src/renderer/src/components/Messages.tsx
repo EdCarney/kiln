@@ -1,4 +1,4 @@
-import { Check, Copy, FileText, Pencil, RotateCcw, Sparkles, TriangleAlert } from 'lucide-react'
+import { Ban, Check, Copy, FileText, Pencil, RotateCcw, Sparkles, TriangleAlert } from 'lucide-react'
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { parseMessage, type Segment, typeForCodeLanguage } from '@shared/artifactParser'
 import type { Artifact, Message, ToolEvent } from '@shared/types'
@@ -99,11 +99,16 @@ export const UserMessage = memo(function UserMessage({ message, onEdit, disabled
 
 // ---- Assistant ------------------------------------------------------------
 
+const SKILL_TOOL_NAMES = new Set(['load_skill', 'read_skill_file'])
+
 function ToolEvents({ events }: { events: ToolEvent[] }) {
   if (!events.length) return null
+  const skillEvents = events.filter((e) => SKILL_TOOL_NAMES.has(e.tool))
+  // Tools the model invented (web.run, browser.open…) collapse into one note instead of a row of errors.
+  const unavailable = [...new Set(events.filter((e) => !SKILL_TOOL_NAMES.has(e.tool)).map((e) => e.tool))]
   return (
     <div className="mb-3 flex flex-wrap gap-1.5">
-      {events.map((e, i) => (
+      {skillEvents.map((e, i) => (
         <span
           key={i}
           className={cn(
@@ -115,6 +120,14 @@ function ToolEvents({ events }: { events: ToolEvent[] }) {
           {e.tool === 'load_skill' ? (e.ok ? <>Using skill <b className="font-medium text-fg">{e.summary}</b></> : `Skill failed: ${e.summary}`) : e.ok ? `Read ${e.summary}` : `Couldn't read file: ${e.summary}`}
         </span>
       ))}
+      {unavailable.length > 0 && (
+        <Tooltip content="The model tried tools Kiln doesn't provide. Kiln can't browse the web or run code.">
+          <span className="flex items-center gap-1.5 rounded-lg border border-line px-2 py-1 font-ui text-xs text-muted">
+            <Ban className="size-3.5 text-warn" />
+            Tried unavailable {unavailable.length === 1 ? 'tool' : 'tools'}: <span className="font-mono text-fg">{unavailable.join(', ')}</span>
+          </span>
+        </Tooltip>
+      )}
     </div>
   )
 }

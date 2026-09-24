@@ -34,11 +34,24 @@ export const SKILL_TOOLS: OllamaTool[] = [
   }
 ]
 
+export const KNOWN_TOOLS = new Set(SKILL_TOOLS.map((t) => t.function.name))
+
 export interface ToolResult {
   content: string
   event: ToolEvent
   /** Skill id to add to the conversation's active skills, so later turns keep it. */
   loadedSkillId?: string
+  /** The model called a tool Kiln doesn't provide (often a web or code tool it saw in training). */
+  unknown?: boolean
+}
+
+/**
+ * gpt-oss and others are trained with built-in browser/python tools and will guess at names like
+ * "web.run" or "browser.open". A bare "unknown tool" makes them try the next name, so say plainly
+ * what exists and what can't be done.
+ */
+function unknownToolMessage(name: string): string {
+  return `Error: there is no tool named "${name}". The only tools available are ${[...KNOWN_TOOLS].join(' and ')}, for skills. Kiln has no internet access, browser, web search or code execution, so don't try other tool names. Answer the user directly and tell them plainly what you can't do.`
 }
 
 function argsOf(call: ToolCall): Record<string, unknown> {
@@ -56,6 +69,8 @@ function argsOf(call: ToolCall): Record<string, unknown> {
 export async function runTool(call: ToolCall): Promise<ToolResult> {
   const name = call.function.name
   const args = argsOf(call)
+  if (!KNOWN_TOOLS.has(name))
+    return { content: unknownToolMessage(name), event: { tool: name, args, ok: false, summary: name }, unknown: true }
   const skillName = String(args.name ?? '')
   try {
     if (name === 'load_skill') {
@@ -81,7 +96,7 @@ export async function runTool(call: ToolCall): Promise<ToolResult> {
         event: { tool: name, args, ok: true, summary: `${skill.name}/${path}` }
       }
     }
-    throw new Error(`Unknown tool "${name}"`)
+    throw new Error(`Unhandled tool "${name}"`)
   } catch (err) {
     const message = errorMessage(err)
     return { content: `Error: ${message}`, event: { tool: name, args, ok: false, summary: message } }
