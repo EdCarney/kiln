@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 import { app, BrowserWindow, Menu, type MenuItemConstructorOptions, nativeTheme, shell } from 'electron'
 import { EVENT_CHANNELS } from '@shared/ipc'
-import { currentBackground } from './background'
+import { currentBackground, currentThemeSource } from './background'
 import { isReplying, markInterruptedReplies, stopAll } from './chat/service'
 import { openDatabase } from './db/index'
 import { settleStaleTraces } from './debug/traces'
@@ -10,7 +10,6 @@ import { removeFiles } from './files/ingest'
 import { registerIpc } from './ipc'
 import { initPaths, paths } from './paths'
 import { handleProtocols, registerSchemes } from './protocols'
-import { getSettings } from './settings'
 import { refreshPrices } from './usage/pricing'
 
 app.setName('Kiln')
@@ -127,7 +126,7 @@ app.whenReady().then(async () => {
   await removeFiles(staleAttachmentPaths(Date.now() - 24 * 60 * 60 * 1000))
   handleProtocols()
   registerIpc()
-  nativeTheme.themeSource = getSettings().appearance.mode
+  nativeTheme.themeSource = currentThemeSource()
   buildMenu()
   createWindow()
   // Keep per-token prices current (at most daily); the bundled snapshot covers offline starts.

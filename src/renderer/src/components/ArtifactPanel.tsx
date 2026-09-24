@@ -1,13 +1,14 @@
 import { Check, ChevronDown, Copy, Download, X } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { parseMessage } from '@shared/artifactParser'
-import type { ArtifactType } from '@shared/types'
+import { flatten } from '@shared/color'
+import type { ArtifactType, Palette, ThemeDef } from '@shared/types'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/format'
-import { reportError, useApp } from '@/stores/app'
+import { reportError } from '@/stores/app'
 import { useArtifactPanel } from '@/stores/artifactPanel'
 import { useChat } from '@/stores/chat'
-import { isDark } from '@/theme/applyTheme'
+import { useActiveTheme } from '@/theme/useTheme'
 import { ARTIFACT_META } from './ArtifactCard'
 import { CodeBlock, useCopy } from './CodeBlock'
 import { Markdown } from './Markdown'
@@ -76,18 +77,73 @@ function SandboxFrame({ type, content }: { type: ArtifactType; content: string }
 
 let mermaidLoader: Promise<typeof import('mermaid').default> | null = null
 
+/**
+ * Mermaid's `base` theme coloured from the app palette, so diagrams match the theme instead of
+ * Mermaid's own grey. Mermaid derives shades with colour maths, so translucent tokens are flattened.
+ */
+function mermaidTheme(p: Palette, dark: boolean, theme: ThemeDef) {
+  const solid = (c: string) => flatten(c, p.canvas)
+  return {
+    darkMode: dark,
+    fontFamily: theme.fonts.ui,
+    background: p.canvas,
+    primaryColor: solid(p.panel),
+    primaryTextColor: p.fg,
+    primaryBorderColor: solid(p.lineStrong),
+    secondaryColor: solid(p.accentSoft),
+    secondaryTextColor: p.fg,
+    secondaryBorderColor: p.accent,
+    tertiaryColor: solid(p.code),
+    tertiaryTextColor: p.fg,
+    tertiaryBorderColor: solid(p.line),
+    lineColor: p.muted,
+    textColor: p.fg,
+    mainBkg: solid(p.panel),
+    nodeBorder: solid(p.lineStrong),
+    clusterBkg: solid(p.code),
+    clusterBorder: solid(p.line),
+    titleColor: p.fg,
+    edgeLabelBackground: p.canvas,
+    noteBkgColor: solid(p.accentSoft),
+    noteTextColor: p.fg,
+    noteBorderColor: p.accent,
+    actorBkg: solid(p.panel),
+    actorBorder: solid(p.lineStrong),
+    actorTextColor: p.fg,
+    actorLineColor: p.muted,
+    signalColor: p.fg,
+    signalTextColor: p.fg,
+    labelBoxBkgColor: solid(p.panel),
+    labelTextColor: p.fg,
+    activationBkgColor: solid(p.accentSoft),
+    activationBorderColor: p.accent,
+    pie1: p.accent,
+    pie2: p.synFunction,
+    pie3: p.synString,
+    pie4: p.synConstant,
+    pie5: p.synKeyword,
+    pie6: p.muted,
+    pieStrokeColor: p.canvas,
+    pieTitleTextColor: p.fg,
+    pieSectionTextColor: p.canvas,
+    pieLegendTextColor: p.fg,
+    errorBkgColor: p.danger,
+    errorTextColor: p.canvas
+  }
+}
+
 function MermaidView({ source }: { source: string }) {
   const id = useId().replace(/:/g, '')
   const ref = useRef<HTMLDivElement>(null)
   const [error, setError] = useState<string | null>(null)
-  const mode = useApp((s) => s.settings?.appearance.mode ?? 'system')
+  const { theme, dark, palette } = useActiveTheme()
 
   useEffect(() => {
     let cancelled = false
     mermaidLoader ??= import('mermaid').then((m) => m.default)
     mermaidLoader
       .then(async (mermaid) => {
-        mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: isDark(mode) ? 'dark' : 'neutral', fontFamily: 'inherit' })
+        mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'base', themeVariables: mermaidTheme(palette, dark, theme) })
         const { svg } = await mermaid.render(`m${id}${Date.now()}`, source)
         if (!cancelled && ref.current) {
           ref.current.innerHTML = svg
@@ -98,7 +154,7 @@ function MermaidView({ source }: { source: string }) {
     return () => {
       cancelled = true
     }
-  }, [source, id, mode])
+  }, [source, id, palette, dark, theme])
 
   return (
     <div className="flex h-full flex-col">

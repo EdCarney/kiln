@@ -70,7 +70,8 @@ tests/           Vitest unit tests      e2e/   live Playwright run against real 
   - Costs use Ollama's published per-token prices. Kiln re-reads them daily from ollama.com/pricing and falls back to a bundled snapshot. Each request is also logged locally (`usage_events`) for Settings → Usage & cost.
   - Quota comes from `ollama.com/api/usage`, which is undocumented and **needs an ollama.com API key** (Settings → Usage & cost). The Ollama app's sign-in doesn't cover it.
   - That endpoint doesn't say when limits reset. Kiln dates a reset itself when it sees usage drop, or you can enter the time shown on ollama.com/settings.
-- **Theming.** Every colour, font and radius is a CSS variable (`src/renderer/src/index.css`). Themes are JSON with a light and a dark palette; you can edit, import and export them from Settings → Appearance.
+- **Theming.** Every colour, font and radius is a CSS variable (`src/renderer/src/index.css`), and code highlighting, Mermaid diagrams and the debugger window all take their colours from the active theme. Themes are JSON with a light and a dark palette (or a single palette, marked `only`); you can edit, import and export them from Settings → Appearance. Built in: Clay, Nord, Solarized, Gruvbox, High contrast, Catppuccin (Latte/Mocha), GitHub, Dracula (with Alucard), Rosé Pine (with Dawn) and Hack (dark only, in the Hack typeface).
+- **Theme legibility.** `tests/themes.test.ts` checks every built-in palette against WCAG contrast floors: 7:1 for body text on the canvas, 4.5:1 for other text, 3:1 for hints, links, status colours, button labels and syntax colours. Where a theme's published colour falls short (usually an accent on a pale light-mode background), only its lightness is adjusted, and the theme's comment in `src/shared/themes.ts` says which colours moved.
 
 ## Tests
 

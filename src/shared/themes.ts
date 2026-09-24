@@ -1,22 +1,26 @@
-import type { Palette, ThemeDef } from './types'
+import { readableOn } from './color'
+import type { Palette, Settings, ThemeDef } from './types'
 
 export const FONT_CHOICES = {
   ui: [
     { label: 'Inter', value: "'Inter Variable', system-ui, sans-serif" },
     { label: 'System (SF Pro)', value: "system-ui, -apple-system, 'Helvetica Neue', sans-serif" },
     { label: 'Source Serif', value: "'Source Serif 4 Variable', Georgia, serif" },
-    { label: 'JetBrains Mono', value: "'JetBrains Mono Variable', ui-monospace, monospace" }
+    { label: 'JetBrains Mono', value: "'JetBrains Mono Variable', ui-monospace, monospace" },
+    { label: 'Hack', value: "Hack, 'JetBrains Mono Variable', ui-monospace, monospace" }
   ],
   reading: [
     { label: 'Source Serif', value: "'Source Serif 4 Variable', Georgia, serif" },
     { label: 'New York (system serif)', value: "ui-serif, 'New York', Georgia, serif" },
     { label: 'Charter', value: "Charter, 'Bitstream Charter', Georgia, serif" },
     { label: 'Inter', value: "'Inter Variable', system-ui, sans-serif" },
-    { label: 'System (SF Pro)', value: "system-ui, -apple-system, sans-serif" }
+    { label: 'System (SF Pro)', value: "system-ui, -apple-system, sans-serif" },
+    { label: 'Hack', value: "Hack, 'JetBrains Mono Variable', ui-monospace, monospace" }
   ],
   mono: [
     { label: 'JetBrains Mono', value: "'JetBrains Mono Variable', ui-monospace, monospace" },
-    { label: 'SF Mono / Menlo', value: "ui-monospace, SFMono-Regular, Menlo, monospace" }
+    { label: 'SF Mono / Menlo', value: "ui-monospace, SFMono-Regular, Menlo, monospace" },
+    { label: 'Hack', value: "Hack, 'JetBrains Mono Variable', ui-monospace, monospace" }
   ]
 } as const
 
@@ -36,7 +40,7 @@ const claudeLight: Palette = {
   code: '#F3F1EA',
   fg: '#141413',
   muted: '#5E5D59',
-  subtle: '#8F8D86',
+  subtle: '#8C8A83',
   line: 'rgba(31, 30, 29, 0.12)',
   lineStrong: 'rgba(31, 30, 29, 0.24)',
   accent: '#C96442',
@@ -79,9 +83,41 @@ const claudeDark: Palette = {
   synPunctuation: '#C2C0B6'
 }
 
+const hack: Palette = {
+  canvas: '#0D140F',
+  sidebar: '#060907',
+  panel: '#111A14',
+  hover: 'rgba(61, 245, 125, 0.07)',
+  bubble: '#0F2216',
+  code: '#060907',
+  fg: '#3DF57D',
+  muted: '#2BB35B',
+  subtle: '#1F8A45',
+  line: 'rgba(61, 245, 125, 0.18)',
+  lineStrong: 'rgba(61, 245, 125, 0.34)',
+  accent: '#3DF57D',
+  accentFg: '#041008',
+  accentSoft: 'rgba(61, 245, 125, 0.14)',
+  danger: '#FF4D4D',
+  success: '#3DF57D',
+  warn: '#FFC23D',
+  synKeyword: '#B8FFCC',
+  synString: '#7DFF4D',
+  synComment: '#1F8A45',
+  synFunction: '#5CE1E6',
+  synConstant: '#FFC23D',
+  synPunctuation: '#2BB35B'
+}
+
+/*
+ * Built-in themes use each theme's published colours. Where one misses the legibility floor in
+ * tests/themes.test.ts (mostly accent hues on pale light-mode backgrounds), only its lightness is
+ * nudged, keeping the hue, and the comment on that theme says which colours moved.
+ */
 export const BUILTIN_THEMES: ThemeDef[] = [
   { id: 'claude', name: 'Clay', builtin: true, light: claudeLight, dark: claudeDark, fonts: DEFAULT_FONTS, radius: 12 },
   {
+    // Dark: Aurora red is lightened to read on Polar Night panels.
     id: 'nord',
     name: 'Nord',
     builtin: true,
@@ -127,7 +163,7 @@ export const BUILTIN_THEMES: ThemeDef[] = [
       accent: '#88C0D0',
       accentFg: '#2E3440',
       accentSoft: 'rgba(136, 192, 208, 0.16)',
-      danger: '#BF616A',
+      danger: '#D2727A',
       success: '#A3BE8C',
       warn: '#EBCB8B',
       synKeyword: '#81A1C1',
@@ -139,6 +175,7 @@ export const BUILTIN_THEMES: ThemeDef[] = [
     }
   },
   {
+    // Light: the accent hues are darkened slightly to read on base2 code blocks. Dark: orange and red lightened for base02.
     id: 'solarized',
     name: 'Solarized',
     builtin: true,
@@ -152,21 +189,21 @@ export const BUILTIN_THEMES: ThemeDef[] = [
       bubble: '#EEE8D5',
       code: '#EEE8D5',
       fg: '#073642',
-      muted: '#586E75',
-      subtle: '#839496',
+      muted: '#556B72',
+      subtle: '#7A8A8C',
       line: 'rgba(7, 54, 66, 0.12)',
       lineStrong: 'rgba(7, 54, 66, 0.24)',
       accent: '#CB4B16',
       accentFg: '#FDF6E3',
       accentSoft: 'rgba(203, 75, 22, 0.12)',
       danger: '#DC322F',
-      success: '#859900',
-      warn: '#B58900',
-      synKeyword: '#859900',
-      synString: '#2AA198',
-      synComment: '#93A1A1',
+      success: '#7A8C02',
+      warn: '#A67E08',
+      synKeyword: '#7A8C02',
+      synString: '#10938B',
+      synComment: '#869494',
       synFunction: '#268BD2',
-      synConstant: '#B58900',
+      synConstant: '#A67E08',
       synPunctuation: '#586E75'
     },
     dark: {
@@ -181,10 +218,10 @@ export const BUILTIN_THEMES: ThemeDef[] = [
       subtle: '#6F8589',
       line: 'rgba(147, 161, 161, 0.16)',
       lineStrong: 'rgba(147, 161, 161, 0.3)',
-      accent: '#CB4B16',
+      accent: '#D2521F',
       accentFg: '#FDF6E3',
       accentSoft: 'rgba(203, 75, 22, 0.18)',
-      danger: '#DC322F',
+      danger: '#E43B36',
       success: '#859900',
       warn: '#B58900',
       synKeyword: '#859900',
@@ -308,7 +345,265 @@ export const BUILTIN_THEMES: ThemeDef[] = [
       synConstant: '#FFB86C',
       synPunctuation: '#FFFFFF'
     }
+  },
+  {
+    // Catppuccin Latte / Mocha (catppuccin/palette), mauve accent as on catppuccin.com. Latte's green,
+    // yellow and peach are darkened to read on its pale base; raised surfaces lift base toward white.
+    id: 'catppuccin',
+    name: 'Catppuccin',
+    builtin: true,
+    fonts: DEFAULT_FONTS,
+    radius: 10,
+    light: {
+      canvas: '#EFF1F5',
+      sidebar: '#E6E9EF',
+      panel: '#F8F9FB',
+      hover: 'rgba(76, 79, 105, 0.08)',
+      bubble: '#DCE0E8',
+      code: '#E6E9EF',
+      fg: '#4C4F69',
+      muted: '#5C5F77',
+      subtle: '#7C7F93',
+      line: 'rgba(76, 79, 105, 0.16)',
+      lineStrong: 'rgba(76, 79, 105, 0.3)',
+      accent: '#8839EF',
+      accentFg: '#EFF1F5',
+      accentSoft: 'rgba(136, 57, 239, 0.12)',
+      danger: '#D20F39',
+      success: '#369720',
+      warn: '#C37905',
+      synKeyword: '#8839EF',
+      synString: '#369720',
+      synComment: '#7C7F93',
+      synFunction: '#1E66F5',
+      synConstant: '#E25703',
+      synPunctuation: '#7C7F93'
+    },
+    dark: {
+      canvas: '#1E1E2E',
+      sidebar: '#181825',
+      panel: '#313244',
+      hover: 'rgba(205, 214, 244, 0.06)',
+      bubble: '#11111B',
+      code: '#181825',
+      fg: '#CDD6F4',
+      muted: '#A6ADC8',
+      subtle: '#7F849C',
+      line: 'rgba(205, 214, 244, 0.12)',
+      lineStrong: 'rgba(205, 214, 244, 0.24)',
+      accent: '#CBA6F7',
+      accentFg: '#1E1E2E',
+      accentSoft: 'rgba(203, 166, 247, 0.16)',
+      danger: '#F38BA8',
+      success: '#A6E3A1',
+      warn: '#F9E2AF',
+      synKeyword: '#CBA6F7',
+      synString: '#A6E3A1',
+      synComment: '#9399B2',
+      synFunction: '#89B4FA',
+      synConstant: '#FAB387',
+      synPunctuation: '#9399B2'
+    }
+  },
+  {
+    // GitHub Light / Dark from Primer's functional tokens (borders: muted and default), with GitHub's
+    // system fonts and 6px corners.
+    id: 'github',
+    name: 'GitHub',
+    builtin: true,
+    fonts: { ui: FONT_CHOICES.ui[1].value, reading: FONT_CHOICES.reading[4].value, mono: FONT_CHOICES.mono[1].value },
+    radius: 6,
+    light: {
+      canvas: '#FFFFFF',
+      sidebar: '#F6F8FA',
+      panel: '#FFFFFF',
+      hover: 'rgba(129, 139, 152, 0.12)',
+      bubble: '#F6F8FA',
+      code: '#F6F8FA',
+      fg: '#1F2328',
+      muted: '#59636E',
+      subtle: '#818B98',
+      line: 'rgba(209, 217, 224, 0.7)',
+      lineStrong: '#D1D9E0',
+      accent: '#0969DA',
+      accentFg: '#FFFFFF',
+      accentSoft: '#DDF4FF',
+      danger: '#D1242F',
+      success: '#1A7F37',
+      warn: '#9A6700',
+      synKeyword: '#CF222E',
+      synString: '#0A3069',
+      synComment: '#59636E',
+      synFunction: '#6639BA',
+      synConstant: '#0550AE',
+      synPunctuation: '#1F2328'
+    },
+    dark: {
+      canvas: '#0D1117',
+      sidebar: '#010409',
+      panel: '#151B23',
+      hover: 'rgba(101, 108, 118, 0.2)',
+      bubble: '#1F232A',
+      code: '#151B23',
+      fg: '#F0F6FC',
+      muted: '#9198A1',
+      subtle: '#656C76',
+      line: 'rgba(61, 68, 77, 0.7)',
+      lineStrong: '#3D444D',
+      accent: '#2F81F7',
+      accentFg: '#FFFFFF',
+      accentSoft: 'rgba(56, 139, 253, 0.15)',
+      danger: '#F85149',
+      success: '#3FB950',
+      warn: '#D29922',
+      synKeyword: '#FF7B72',
+      synString: '#A5D6FF',
+      synComment: '#9198A1',
+      synFunction: '#D2A8FF',
+      synConstant: '#79C0FF',
+      synPunctuation: '#F0F6FC'
+    }
+  },
+  {
+    // Dracula and its official light variant Alucard (draculatheme.com/spec). Dracula has no secondary
+    // text colour, so dark `muted` blends Foreground into Comment, and `subtle` is a lighter Comment.
+    id: 'dracula',
+    name: 'Dracula',
+    builtin: true,
+    fonts: DEFAULT_FONTS,
+    radius: 8,
+    light: {
+      canvas: '#FFFBEB',
+      sidebar: '#ECE9DF',
+      panel: '#EFEDDC',
+      hover: 'rgba(108, 102, 75, 0.08)',
+      bubble: '#ECE9DF',
+      code: '#ECE9DF',
+      fg: '#1F1F1F',
+      muted: '#6C664B',
+      subtle: '#8A846A',
+      line: 'rgba(108, 102, 75, 0.22)',
+      lineStrong: 'rgba(108, 102, 75, 0.4)',
+      accent: '#644AC9',
+      accentFg: '#FFFBEB',
+      accentSoft: 'rgba(100, 74, 201, 0.12)',
+      danger: '#CB3A2A',
+      success: '#14710A',
+      warn: '#A34D14',
+      synKeyword: '#A3144D',
+      synString: '#846E15',
+      synComment: '#6C664B',
+      synFunction: '#14710A',
+      synConstant: '#644AC9',
+      synPunctuation: '#1F1F1F'
+    },
+    dark: {
+      canvas: '#282A36',
+      sidebar: '#21222C',
+      panel: '#343746',
+      hover: 'rgba(248, 248, 242, 0.06)',
+      bubble: '#44475A',
+      code: '#21222C',
+      fg: '#F8F8F2',
+      muted: '#AFB7CD',
+      subtle: '#7081B4',
+      line: 'rgba(98, 114, 164, 0.35)',
+      lineStrong: 'rgba(98, 114, 164, 0.6)',
+      accent: '#BD93F9',
+      accentFg: '#282A36',
+      accentSoft: 'rgba(189, 147, 249, 0.16)',
+      danger: '#FF5555',
+      success: '#50FA7B',
+      warn: '#FFB86C',
+      synKeyword: '#FF79C6',
+      synString: '#F1FA8C',
+      synComment: '#6272A4',
+      synFunction: '#50FA7B',
+      synConstant: '#BD93F9',
+      synPunctuation: '#F8F8F2'
+    }
+  },
+  {
+    // Rosé Pine main / Dawn (rose-pine/palette), with the rose accent the theme is named for. Dawn is
+    // deliberately soft, so its rose, gold, subtle and muted are darkened to be readable.
+    id: 'rose-pine',
+    name: 'Rosé Pine',
+    builtin: true,
+    fonts: DEFAULT_FONTS,
+    radius: 12,
+    light: {
+      canvas: '#FAF4ED',
+      sidebar: '#FFFAF3',
+      panel: '#FFFAF3',
+      hover: 'rgba(121, 117, 147, 0.08)',
+      bubble: '#F2E9E1',
+      code: '#F2E9E1',
+      fg: '#464261',
+      muted: '#6A6683',
+      subtle: '#8F8A9C',
+      line: 'rgba(121, 117, 147, 0.2)',
+      lineStrong: 'rgba(121, 117, 147, 0.4)',
+      accent: '#BF6C69',
+      accentFg: '#FAF4ED',
+      accentSoft: 'rgba(215, 130, 126, 0.14)',
+      danger: '#B4637A',
+      success: '#56949F',
+      warn: '#BA7707',
+      synKeyword: '#286983',
+      synString: '#BA7707',
+      synComment: '#8F8A9C',
+      synFunction: '#BF6C69',
+      synConstant: '#907AA9',
+      synPunctuation: '#6A6683'
+    },
+    dark: {
+      canvas: '#191724',
+      sidebar: '#1F1D2E',
+      panel: '#1F1D2E',
+      hover: 'rgba(110, 106, 134, 0.14)',
+      bubble: '#26233A',
+      code: '#1F1D2E',
+      fg: '#E0DEF4',
+      muted: '#908CAA',
+      subtle: '#6E6A86',
+      line: 'rgba(110, 106, 134, 0.32)',
+      lineStrong: 'rgba(110, 106, 134, 0.55)',
+      accent: '#EBBCBA',
+      accentFg: '#191724',
+      accentSoft: 'rgba(235, 188, 186, 0.14)',
+      danger: '#EB6F92',
+      success: '#9CCFD8',
+      warn: '#F6C177',
+      synKeyword: '#31748F',
+      synString: '#F6C177',
+      synComment: '#6E6A86',
+      synFunction: '#EBBCBA',
+      synConstant: '#C4A7E7',
+      synPunctuation: '#908CAA'
+    }
+  },
+  {
+    // A green-phosphor terminal set in the Hack typeface. Dark only: there's no such thing as a light CRT.
+    id: 'hack',
+    name: 'Hack',
+    builtin: true,
+    only: 'dark',
+    fonts: { ui: FONT_CHOICES.ui[4].value, reading: FONT_CHOICES.reading[5].value, mono: FONT_CHOICES.mono[2].value },
+    radius: 2,
+    light: hack,
+    dark: hack
   }
 ]
 
 export const DEFAULT_THEME_ID = 'claude'
+
+/** Whether a theme shows its dark palette in this mode. Single-palette themes ignore the mode. */
+export function usesDark(theme: Pick<ThemeDef, 'only'>, mode: Settings['appearance']['mode'], systemDark: boolean): boolean {
+  if (theme.only) return theme.only === 'dark'
+  return mode === 'dark' || (mode === 'system' && systemDark)
+}
+
+/** Text colour for a filled status colour (e.g. a Delete button): white, or the theme's own dark ink. */
+export function textOn(fill: string, palette: Palette, dark: boolean): string {
+  return readableOn(fill, ['#FFFFFF', dark ? palette.canvas : palette.fg])
+}

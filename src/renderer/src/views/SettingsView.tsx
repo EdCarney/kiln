@@ -1,5 +1,6 @@
 import { Cloud, Download, HardDrive, Monitor, Moon, Palette, Pencil, RefreshCw, Sun, Trash2, Upload } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
+import { usesDark } from '@shared/themes'
 import { resolveThinkProfile } from '@shared/thinking'
 import type { ModelInfo, ModelOverrides, PriceTable, Settings, ThemeDef, UsageSummary } from '@shared/types'
 import { creditPool, formatDollars, formatPercent } from '@shared/usage'
@@ -10,7 +11,7 @@ import { api } from '@/lib/api'
 import { cn, displayModelName, formatContext, formatTokens } from '@/lib/format'
 import { reportError, type SettingsTab, useApp } from '@/stores/app'
 import { useUsage } from '@/stores/usage'
-import { isDark } from '@/theme/applyTheme'
+import { useSystemDark } from '@/theme/useTheme'
 
 const TABS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'general', label: 'General' },
@@ -135,6 +136,7 @@ function GeneralTab({ settings }: { settings: Settings }) {
 
 function ThemeSwatch({ theme, dark, selected, onSelect, onEdit, onDelete }: { theme: ThemeDef; dark: boolean; selected: boolean; onSelect: () => void; onEdit: () => void; onDelete?: () => void }) {
   const p = dark ? theme.dark : theme.light
+  const font = theme.fonts.ui
   return (
     <div className={cn('group overflow-hidden rounded-kiln-lg border-2 transition-colors', selected ? 'border-accent' : 'border-line hover:border-line-strong')}>
       <button onClick={onSelect} className="block w-full text-left" aria-label={`Use ${theme.name} theme`}>
@@ -148,7 +150,12 @@ function ThemeSwatch({ theme, dark, selected, onSelect, onEdit, onDelete }: { th
         </div>
       </button>
       <div className="flex items-center justify-between bg-panel px-3 py-2">
-        <span className="truncate text-[13px] font-medium">{theme.name}</span>
+        <span className="flex min-w-0 items-baseline gap-1.5">
+          <span className="truncate text-[13px] font-medium" style={{ fontFamily: font }}>
+            {theme.name}
+          </span>
+          {theme.only && <span className="shrink-0 text-[11px] text-subtle">{theme.only} only</span>}
+        </span>
         <span className="flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
           <button onClick={onEdit} aria-label="Customize" className="rounded p-1 text-subtle hover:bg-hover hover:text-fg">
             <Pencil className="size-3.5" />
@@ -168,7 +175,7 @@ function AppearanceTab({ settings }: { settings: Settings }) {
   const { themes, updateSettings, loadThemes, toast } = useApp()
   const [editing, setEditing] = useState<ThemeDef | null>(null)
   const a = settings.appearance
-  const dark = isDark(a.mode)
+  const systemDark = useSystemDark()
   const setAppearance = (patch: Partial<Settings['appearance']>) => updateSettings({ appearance: patch })
   const current = themes.find((t) => t.id === a.themeId) ?? themes[0]
 
@@ -184,6 +191,11 @@ function AppearanceTab({ settings }: { settings: Settings }) {
             { value: 'dark', label: 'Dark', icon: <Moon className="size-3.5" /> }
           ]}
         />
+        {current?.only && (
+          <p className="text-xs text-subtle">
+            {current.name} has only a {current.only} palette, so it stays {current.only} whatever the mode. Other themes follow this setting.
+          </p>
+        )}
       </Section>
 
       <Section
@@ -195,7 +207,7 @@ function AppearanceTab({ settings }: { settings: Settings }) {
             <ThemeSwatch
               key={t.id}
               theme={t}
-              dark={dark}
+              dark={usesDark(t, a.mode, systemDark)}
               selected={t.id === a.themeId}
               onSelect={() => setAppearance({ themeId: t.id })}
               onEdit={() => setEditing(t)}

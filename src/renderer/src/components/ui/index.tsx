@@ -14,7 +14,7 @@ const VARIANTS: Record<Variant, string> = {
   primary: 'bg-accent text-accent-fg hover:brightness-110 disabled:opacity-40',
   secondary: 'bg-panel text-fg border border-line hover:bg-hover disabled:opacity-50',
   ghost: 'text-muted hover:text-fg hover:bg-hover disabled:opacity-40',
-  danger: 'bg-danger text-white hover:brightness-110 disabled:opacity-50'
+  danger: 'bg-danger text-danger-fg hover:brightness-110 disabled:opacity-50'
 }
 
 export const Button = forwardRef<
@@ -239,7 +239,8 @@ export function Switch({ checked, onChange, label, disabled }: { checked: boolea
         checked ? 'bg-accent' : 'bg-line-strong'
       )}
     >
-      <span className={cn('inline-block size-4 rounded-full bg-white shadow transition-transform', checked ? 'translate-x-[18px]' : 'translate-x-0.5')} />
+      {/* On, the knob takes the accent's text colour so it stays visible on light accents (Mocha, Dracula). */}
+      <span className={cn('inline-block size-4 rounded-full shadow transition-transform', checked ? 'translate-x-[18px] bg-accent-fg' : 'translate-x-0.5 bg-white')} />
     </button>
   )
 }

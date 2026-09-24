@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
-import { BUILTIN_THEMES, FONT_CHOICES } from '@shared/themes'
+import { BUILTIN_THEMES, FONT_CHOICES, usesDark } from '@shared/themes'
 import type { Palette, PaletteKey, ThemeDef } from '@shared/types'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/format'
 import { reportError, useApp } from '@/stores/app'
-import { isDark } from '@/theme/applyTheme'
+import { useSystemDark } from '@/theme/useTheme'
 import { Button, Field, Modal, TextField } from './ui'
 
 const GROUPS: Array<{ label: string; keys: Array<[PaletteKey, string]> }> = [
@@ -83,8 +83,10 @@ function ColorField({ label, value, onChange }: { label: string; value: string; 
 
 export function ThemeEditor({ base, open, onClose }: { base: ThemeDef; open: boolean; onClose: () => void }) {
   const { settings, setPreviewTheme, loadThemes, updateSettings } = useApp()
+  const mode = settings?.appearance.mode ?? 'system'
+  const systemDark = useSystemDark()
   const [draft, setDraft] = useState<ThemeDef>(base)
-  const [variant, setVariant] = useState<'light' | 'dark'>(isDark(settings?.appearance.mode ?? 'system') ? 'dark' : 'light')
+  const [variant, setVariant] = useState<'light' | 'dark'>(usesDark(base, mode, systemDark) ? 'dark' : 'light')
 
   useEffect(() => {
     if (!open) return
@@ -99,7 +101,12 @@ export function ThemeEditor({ base, open, onClose }: { base: ThemeDef; open: boo
     return () => setPreviewTheme(null)
   }, [open, draft, setPreviewTheme])
 
-  const setColor = (key: PaletteKey, value: string) => setDraft((d) => ({ ...d, [variant]: { ...d[variant], [key]: value } as Palette }))
+  // A single-palette theme keeps both copies identical, so it looks the same wherever it's read.
+  const setColor = (key: PaletteKey, value: string) =>
+    setDraft((d) => {
+      const palette = { ...d[variant], [key]: value } as Palette
+      return d.only ? { ...d, light: palette, dark: palette } : { ...d, [variant]: palette }
+    })
 
   const save = async () => {
     try {
@@ -112,14 +119,15 @@ export function ThemeEditor({ base, open, onClose }: { base: ThemeDef; open: boo
     }
   }
 
-  const mismatch = isDark(settings?.appearance.mode ?? 'system') !== (variant === 'dark')
+  const mismatch = usesDark(draft, mode, systemDark) !== (variant === 'dark')
+  const variants = draft.only ? [draft.only] : (['light', 'dark'] as const)
 
   return (
     <Modal
       open={open}
       onOpenChange={(o) => !o && onClose()}
       title="Customize theme"
-      description="Changes preview live. Each theme has a light and a dark palette."
+      description={draft.only ? `Changes preview live. This theme has a single ${draft.only} palette.` : 'Changes preview live. Each theme has a light and a dark palette.'}
       wide
       footer={
         <>
@@ -163,7 +171,7 @@ export function ThemeEditor({ base, open, onClose }: { base: ThemeDef; open: boo
         <div>
           <div className="mb-3 flex items-center gap-3">
             <div className="flex rounded-lg bg-hover p-0.5 text-xs">
-              {(['light', 'dark'] as const).map((v) => (
+              {variants.map((v) => (
                 <button key={v} onClick={() => setVariant(v)} className={cn('rounded-md px-3 py-1 capitalize', variant === v ? 'bg-panel text-fg shadow-sm' : 'text-muted')}>
                   {v} palette
                 </button>
