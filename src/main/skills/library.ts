@@ -1,5 +1,5 @@
 import { existsSync, type FSWatcher, watch } from 'node:fs'
-import { cp, mkdir, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
+import { cp, mkdir, readdir, readFile, realpath, rename, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join, relative, resolve, sep } from 'node:path'
 import { shell } from 'electron'
@@ -138,10 +138,20 @@ export async function findSkillByName(name: string): Promise<Skill | null> {
   return (await listSkills()).find((s) => s.enabled && s.name.toLowerCase() === wanted) ?? null
 }
 
+/**
+ * A file inside a skill's folder, for the model's read_skill_file tool. The check runs on real paths, so a
+ * symlink inside an imported skill can't point the model at files elsewhere on this Mac.
+ */
 export async function readSkillFile(skill: Skill, relPath: string): Promise<string> {
-  const full = resolve(skill.dir, relPath)
-  if (!full.startsWith(skill.dir + sep)) throw new Error('Path is outside the skill folder')
+  const outside = () => new Error('Path is outside the skill folder')
+  if (!resolve(skill.dir, relPath).startsWith(skill.dir + sep)) throw outside()
+  const root = await realpath(skill.dir)
+  const full = await realpath(resolve(skill.dir, relPath)).catch(() => {
+    throw new Error(`No file "${relPath}" in this skill`)
+  })
+  if (!full.startsWith(root + sep)) throw outside()
   const info = await stat(full)
+  if (!info.isFile()) throw new Error(`"${relPath}" is not a file`)
   if (info.size > 200_000) throw new Error('File is too large to load')
   return readFile(full, 'utf8')
 }
