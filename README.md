@@ -13,6 +13,7 @@ npm install
 npm run dev        # development, with hot reload
 npm run build      # production bundle in out/
 npm run dist       # Kiln.dmg in dist/  (or: npx electron-builder --mac --dir  for just the .app)
+npm run install:mac  # build, then install/replace /Applications/Kiln.app and open it
 ```
 
 Your data lives in `~/Library/Application Support/Kiln/`: a SQLite database (`kiln.db`), uploaded files, and your own skills (`skills/`).
@@ -51,6 +52,13 @@ tests/           Vitest unit tests      e2e/   live Playwright run against real 
   - Every search and page read shows as a badge in the chat. Click a page badge to open it in your browser.
   - gpt-oss-style names (`browser.open`, `web.run`, …) are routed to the real tools.
   - Tools a model invents get one explanation, then they're withdrawn so the turn still ends with an answer.
+- **Debugger.** The bug icon in a chat's header, or ⌘⇧D, opens a separate **Kiln Debugger** window. It shows every request the chat made (each chat round, tool call and title) live, grouped by turn. For each request:
+  - **Overview:** timings (first byte, first token, total, plus Ollama's own load/prompt/generation times when reported), prompt tokens counted by Ollama vs Kiln's estimate, cost, `done_reason`, and stream chunk count.
+  - **Prompt anatomy:** where the tokens go (system sections, history, this turn, tool definitions, images), a context-window meter, and every message readable.
+  - **Request, Response, Tools:** the exact JSON sent (image bytes replaced by size placeholders; API keys are never recorded), the output with thinking and tool calls, Ollama's final stats, and the tool schemas offered.
+  - **Replay:** edit the recorded request and resend it without streaming, like a playground. It's recorded as a replay and counted as usage.
+
+  The debugger can also copy a request as `curl` (keys appear as `$OLLAMA_API_KEY`), export traces as JSON, and open Chromium DevTools. Traces are stored locally, deleted with their chat, and capped at the newest 500. Turn recording off under Settings → Data.
 - **Usage & cost.** The title bar shows two chips.
   - **This chat:** tokens and estimated cost so far, including retries and title generation. Click it for a per-model breakdown and how full the context window is.
   - **Your Ollama quota:** % used, and time left until the next reset. Its mini bar also marks how much of the period has passed.

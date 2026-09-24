@@ -135,5 +135,26 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX usage_events_conversation ON usage_events(conversation_id, created_at);
   CREATE INDEX usage_events_created ON usage_events(created_at);
+  `,
+  /* sql */ `
+  -- Recorded requests for the debugger. Deleting a chat deletes its traces; only the newest 500 are kept.
+  CREATE TABLE traces (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT REFERENCES conversations(id) ON DELETE CASCADE,
+    message_id TEXT,
+    kind TEXT NOT NULL,
+    model TEXT,
+    round INTEGER,
+    status TEXT NOT NULL,
+    started_at INTEGER NOT NULL,
+    duration_ms INTEGER,
+    prompt_tokens INTEGER,
+    completion_tokens INTEGER,
+    cost_usd REAL,
+    summary TEXT NOT NULL DEFAULT '',
+    data TEXT NOT NULL
+  );
+  CREATE INDEX traces_conversation ON traces(conversation_id, started_at);
+  CREATE INDEX traces_started ON traces(started_at);
   `
 ]

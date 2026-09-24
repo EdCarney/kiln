@@ -162,6 +162,11 @@ export async function showModel(model: string): Promise<ShowResponse> {
 
 export const isCloudName = (name: string): boolean => /(:|-)cloud$/.test(name)
 
+/** Full URL for an Ollama API path on the current target (never includes credentials). */
+export function endpointFor(path: string): string {
+  return `${target().base}${path}`
+}
+
 export function connectionMode(): 'local' | 'direct' {
   return getSettings().connection.mode
 }

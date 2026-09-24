@@ -4,6 +4,7 @@ import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import { normalizeCitations } from '@shared/citations'
+import { normalizeSpaces } from '@shared/text'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/format'
 import { CodeBlock } from './CodeBlock'
@@ -58,7 +59,7 @@ export const Markdown = memo(function Markdown({ text, className, onOpenAsArtifa
   return (
     <div className={cn('prose-kiln selectable', className)}>
       <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={components}>
-        {normalizeCitations(normalizeMath(text))}
+        {normalizeSpaces(normalizeCitations(normalizeMath(text)))}
       </ReactMarkdown>
     </div>
   )

@@ -1,10 +1,10 @@
 import { join } from 'node:path'
 import { app, BrowserWindow, Menu, type MenuItemConstructorOptions, nativeTheme, shell } from 'electron'
 import { EVENT_CHANNELS } from '@shared/ipc'
-import { BUILTIN_THEMES } from '@shared/themes'
+import { currentBackground } from './background'
 import { openDatabase } from './db/index'
+import { settleStaleTraces } from './debug/traces'
 import { staleAttachmentPaths } from './db/conversations'
-import { listCustomThemes } from './db/kv'
 import { removeFiles } from './files/ingest'
 import { registerIpc } from './ipc'
 import { initPaths, paths } from './paths'
@@ -20,13 +20,6 @@ registerSchemes()
 if (!app.requestSingleInstanceLock()) app.quit()
 
 let mainWindow: BrowserWindow | null = null
-
-function initialBackground(): string {
-  const { themeId, mode } = getSettings().appearance
-  const theme = [...BUILTIN_THEMES, ...listCustomThemes()].find((t) => t.id === themeId) ?? BUILTIN_THEMES[0]
-  const dark = mode === 'dark' || (mode === 'system' && nativeTheme.shouldUseDarkColors)
-  return (dark ? theme.dark : theme.light).canvas
-}
 
 function sendMenu(action: string): void {
   const win = BrowserWindow.getFocusedWindow() ?? mainWindow
@@ -54,6 +47,7 @@ function buildMenu(): void {
       submenu: [
         { label: 'New Chat', accelerator: 'CmdOrCtrl+N', click: () => sendMenu('new-chat') },
         { label: 'Search Chats…', accelerator: 'CmdOrCtrl+K', click: () => sendMenu('search') },
+        { label: 'Open Debugger', accelerator: 'CmdOrCtrl+Shift+D', click: () => sendMenu('debugger') },
         { type: 'separator' },
         { role: 'close' }
       ]
@@ -86,7 +80,7 @@ function createWindow(): void {
     show: false,
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 16 },
-    backgroundColor: initialBackground(),
+    backgroundColor: currentBackground(),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,
@@ -127,6 +121,7 @@ app.on('second-instance', () => {
 app.whenReady().then(async () => {
   initPaths()
   openDatabase(paths.db)
+  settleStaleTraces()
   await removeFiles(staleAttachmentPaths(Date.now() - 24 * 60 * 60 * 1000))
   handleProtocols()
   registerIpc()

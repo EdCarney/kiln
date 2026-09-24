@@ -7,9 +7,9 @@ import './index.css'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './App'
+import { DebugApp } from './debug/DebugApp'
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>
-)
+// The debugger window loads this same bundle at #debug.
+const isDebugger = window.location.hash.startsWith('#debug')
+
+createRoot(document.getElementById('root')!).render(<StrictMode>{isDebugger ? <DebugApp /> : <App />}</StrictMode>)

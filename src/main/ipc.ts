@@ -34,6 +34,11 @@ import { paths } from './paths'
 import { stageArtifact } from './protocols'
 import { getSettings, setApiKey, updateSettings } from './settings'
 import { getAccountUsage, invalidateAccountUsage, lastRawUsage } from './usage/account'
+import { currentBackground } from './background'
+import { replayRequest } from './debug/replay'
+import { clearTraces, getTrace, listTraces, tracesForExport } from './debug/traces'
+import { openDebugWindow } from './debug/window'
+import { connectionMode, endpointFor } from './ollama/client'
 import { getPriceTable, refreshPrices } from './usage/pricing'
 import {
   deleteSkill,
@@ -214,6 +219,25 @@ const impl: Impl = {
     raw: async () => lastRawUsage(),
     prices: async () => getPriceTable(),
     refreshPrices: () => refreshPrices(true)
+  },
+
+  debug: {
+    open: async (conversationId) => openDebugWindow(conversationId, currentBackground()),
+    list: async (conversationId) => listTraces(conversationId),
+    get: async (id) => getTrace(id),
+    clear: async (conversationId) => clearTraces(conversationId),
+    exportTraces: async (conversationId) => {
+      const res = await dialog.showSaveDialog({ defaultPath: `kiln-traces-${new Date().toISOString().slice(0, 10)}.json` })
+      if (res.canceled || !res.filePath) return false
+      await writeFile(res.filePath, JSON.stringify(tracesForExport(conversationId), null, 2))
+      return true
+    },
+    replay: (conversationId, body) => replayRequest(conversationId, body),
+    target: async () => ({ chatEndpoint: endpointFor('/api/chat'), needsKey: connectionMode() === 'direct' }),
+    inspectApp: async () => {
+      const main = BrowserWindow.getAllWindows().find((w) => !w.webContents.getURL().includes('#debug'))
+      main?.webContents.openDevTools({ mode: 'detach' })
+    }
   },
 
   themes: {

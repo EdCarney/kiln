@@ -2,6 +2,7 @@ import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { BrowserWindow } from 'electron'
 import { parseMessage } from '@shared/artifactParser'
+import { normalizeSpaces } from '@shared/text'
 import { EVENT_CHANNELS } from '@shared/ipc'
 import { resolveThinkProfile, toOllamaThink } from '@shared/thinking'
 import type {
@@ -29,9 +30,10 @@ import {
 } from '../db/conversations'
 import { getProject, projectKnowledge, touchProject } from '../db/projects'
 import { imageForModel, removeFiles } from '../files/ingest'
-import { type ChatBody, type ChatChunk, chatOnce, chatStream, type ToolCall } from '../ollama/client'
+import { type ChatBody, type ChatChunk, chatOnce, chatStream, endpointFor, type ToolCall } from '../ollama/client'
 import { getModelInfo, isCloudName } from '../ollama/models'
-import { webAvailable } from '../ollama/web'
+import { webAvailable, webEndpoint } from '../ollama/web'
+import { startTrace, type Trace } from '../debug/traces'
 import { paths } from '../paths'
 import { getSettings } from '../settings'
 import { getSkill, listSkills } from '../skills/library'
@@ -147,10 +149,11 @@ async function generate(
   let evalNs = 0
   let error: string | null = null
   let openRound: { content: string; thinking: string; promptEstimate: number } | null = null
+  let roundTrace: Trace | null = null
 
   // Each round is a separate billed request: log it, and roll it into the message's stats.
   const recordRound = (final: ChatChunk | null) => {
-    if (!openRound) return
+    if (!openRound) return null
     const estimated = !final?.eval_count
     const promptTokens = final?.prompt_eval_count ?? openRound.promptEstimate
     const completionTokens = final?.eval_count ?? estimateTokens(openRound.content + openRound.thinking)
@@ -161,6 +164,7 @@ async function generate(
     stats.costUsd = stats.costUsd === null || costUsd === null ? null : (stats.costUsd ?? 0) + costUsd
     if (estimated) stats.estimated = true
     openRound = null
+    return { promptTokens, completionTokens, costUsd, estimated }
   }
 
   const delta = (d: { content?: string; thinking?: string }) => emit({ type: 'delta', conversationId, messageId, ...d })
@@ -231,8 +235,25 @@ async function generate(
       let roundThinking = ''
       let final: ChatChunk | null = null
       openRound = { content: '', thinking: '', promptEstimate: estimatePrompt(body) }
+      roundTrace = startTrace({
+        kind: 'chat',
+        conversationId,
+        messageId,
+        model: modelName,
+        round,
+        endpoint: endpointFor('/api/chat'),
+        request: { ...body, stream: true },
+        summary: 'Streaming…'
+      })
+      let chunks = 0
       for await (const chunk of chatStream(body, controller.signal)) {
+        chunks++
+        roundTrace.firstByte()
         const m = chunk.message
+        if (m?.thinking || m?.content) {
+          roundTrace.firstToken()
+          roundTrace.progress(roundContent || 'Thinking…', estimateTokens(roundContent + roundThinking))
+        }
         if (m?.thinking) {
           thinkStart ??= Date.now()
           thinking += m.thinking
@@ -250,7 +271,18 @@ async function generate(
         if (m?.tool_calls?.length) calls.push(...m.tool_calls)
         if (chunk.done) final = chunk
       }
-      recordRound(final)
+      const billed = recordRound(final)
+      const { message: _message, ...finalStats } = final ?? { done: true }
+      roundTrace.finish({
+        status: 'ok',
+        response: { content: roundContent, thinking: roundThinking, toolCalls: calls.length ? calls : undefined, final: finalStats, chunks },
+        promptTokens: billed?.promptTokens,
+        completionTokens: billed?.completionTokens,
+        costUsd: billed?.costUsd,
+        summary: calls.length ? `→ ${calls.map((c) => c.function.name).join(', ')}` : roundContent.trim() || '(empty reply)',
+        ollama: final ?? undefined
+      })
+      roundTrace = null
       evalNs += final?.eval_duration ?? 0
       if (!calls.length) break
 
@@ -261,7 +293,23 @@ async function generate(
         const pending = pendingEvent(call, toolContext)
         toolEvents.push(pending)
         emit({ type: 'tool', conversationId, messageId, index, event: pending })
+        const toolTrace = startTrace({
+          kind: 'tool',
+          conversationId,
+          messageId,
+          model: null,
+          round,
+          endpoint:
+            pending.tool === 'web_search' || pending.tool === 'web_fetch' ? webEndpoint(`/api/${pending.tool}`) : `kiln://tools/${pending.tool}`,
+          request: { tool: call.function.name, arguments: call.function.arguments },
+          summary: `${pending.tool}: ${pending.summary}`
+        })
         const result = await runTool(call, toolContext)
+        toolTrace.finish({
+          status: result.event.ok ? 'ok' : 'error',
+          response: { result: result.content, error: result.event.ok ? undefined : result.event.summary },
+          summary: `${result.event.tool}: ${result.event.summary}`
+        })
         if (result.unknown) triedUnknown.push(call.function.name)
         else onlyUnknown = false
         toolEvents[index] = result.event
@@ -286,7 +334,16 @@ async function generate(
   } catch (err) {
     if (!controller.signal.aborted) error = errorMessage(err)
     // A stopped or failed stream still spent tokens; record an estimate for the partial round.
-    if (openRound && (openRound.content || openRound.thinking)) recordRound(null)
+    const partial = openRound ? { content: openRound.content, thinking: openRound.thinking } : null
+    const billed = partial && (partial.content || partial.thinking) ? recordRound(null) : null
+    roundTrace?.finish({
+      status: controller.signal.aborted ? 'aborted' : 'error',
+      response: { ...partial, error: controller.signal.aborted ? 'Stopped by you' : (error ?? undefined) },
+      promptTokens: billed?.promptTokens,
+      completionTokens: billed?.completionTokens,
+      costUsd: billed?.costUsd,
+      summary: controller.signal.aborted ? 'Stopped' : `Error: ${error}`
+    })
   }
 
   stats.durationMs = Date.now() - startedAt
@@ -345,7 +402,7 @@ function saveArtifacts(conversationId: string, messageId: string, content: strin
 }
 
 function cleanTitle(raw: string): string {
-  const firstLine = raw
+  const firstLine = normalizeSpaces(raw)
     .replace(/<think>[\s\S]*?<\/think>/g, '')
     .split('\n')
     .map((l) => l.trim())
@@ -375,11 +432,12 @@ async function generateTitle(conversationId: string, chatModel: string): Promise
     .join('\n\n')
 
   let title = ''
+  let titleTrace: Trace | null = null
   try {
     const modelName = getSettings().titleModel || chatModel
     const info = await getModelInfo(modelName)
     const profile = resolveThinkProfile(modelName, info.capabilities, info.overrides.think)
-    const res = await chatOnce({
+    const titleBody: ChatBody = {
       model: modelName,
       messages: [
         { role: 'system', content: TITLE_PROMPT },
@@ -387,10 +445,22 @@ async function generateTitle(conversationId: string, chatModel: string): Promise
       ],
       think: profile.kind === 'levels' ? 'low' : profile.kind === 'toggle' ? false : undefined,
       options: { temperature: 0.3 }
+    }
+    titleTrace = startTrace({
+      kind: 'title',
+      conversationId,
+      messageId: null,
+      model: modelName,
+      endpoint: endpointFor('/api/chat'),
+      request: { ...titleBody, stream: false },
+      summary: 'Generating title…'
     })
+    const res = await chatOnce(titleBody)
+    titleTrace.firstByte()
     title = cleanTitle(res.message?.content ?? '')
     const promptTokens = res.prompt_eval_count ?? estimateTokens(transcript)
     const completionTokens = res.eval_count ?? estimateTokens(res.message?.content ?? '')
+    const costUsd = requestCost(modelName, promptTokens, completionTokens)
     insertUsageEvent({
       conversationId,
       messageId: null,
@@ -398,10 +468,21 @@ async function generateTitle(conversationId: string, chatModel: string): Promise
       kind: 'title',
       promptTokens,
       completionTokens,
-      costUsd: requestCost(modelName, promptTokens, completionTokens),
+      costUsd,
       estimated: res.eval_count === undefined
     })
-  } catch {
+    const { message: titleMessage, ...titleStats } = res
+    titleTrace.finish({
+      status: 'ok',
+      response: { content: titleMessage?.content, thinking: titleMessage?.thinking, final: titleStats },
+      promptTokens,
+      completionTokens,
+      costUsd,
+      summary: `Title: ${title || '(empty)'}`,
+      ollama: res
+    })
+  } catch (err) {
+    titleTrace?.finish({ status: 'error', response: { error: errorMessage(err) }, summary: `Title failed: ${errorMessage(err)}` })
     /* fall back below */
   }
   if (!title) title = fallbackTitle(firstUser?.content ?? '')

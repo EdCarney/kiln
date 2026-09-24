@@ -1,5 +1,6 @@
 import { Brain, ChevronRight } from 'lucide-react'
 import { useState } from 'react'
+import { normalizeSpaces } from '@shared/text'
 import { cn, formatDuration } from '@/lib/format'
 
 export function ThinkingBlock({ thinking, active, durationMs }: { thinking: string; active: boolean; durationMs: number | null }) {
@@ -20,7 +21,7 @@ export function ThinkingBlock({ thinking, active, durationMs }: { thinking: stri
       </button>
       {open && (
         <div className="selectable mt-1.5 max-h-96 overflow-y-auto whitespace-pre-wrap border-l-2 border-line pl-3.5 font-ui text-[13px] leading-relaxed text-muted">
-          {thinking || '…'}
+          {normalizeSpaces(thinking) || '…'}
         </div>
       )}
     </div>

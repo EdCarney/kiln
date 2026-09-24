@@ -249,6 +249,59 @@ export interface UsageSummary {
   byDay: Array<{ day: string; costUsd: number; tokens: number }>
 }
 
+// ---- Debugger traces -----------------------------------------------------
+
+export type TraceKind = 'chat' | 'title' | 'tool' | 'replay'
+export type TraceStatus = 'running' | 'ok' | 'error' | 'aborted'
+
+export interface TraceSummary {
+  id: string
+  conversationId: ID | null
+  messageId: ID | null
+  kind: TraceKind
+  model: string | null
+  /** Tool-loop round within a turn (0-based), for chat traces. */
+  round: number | null
+  status: TraceStatus
+  startedAt: number
+  durationMs: number | null
+  promptTokens: number | null
+  completionTokens: number | null
+  costUsd: number | null
+  /** One-line description: tool call, first words of the reply, error. */
+  summary: string
+}
+
+export interface TraceTiming {
+  /** Time until Ollama's first response byte. */
+  ttfbMs: number | null
+  /** Time until the first thinking or content token. */
+  firstTokenMs: number | null
+  totalMs: number | null
+  /** Ollama's own durations (from the final chunk). */
+  loadMs: number | null
+  promptEvalMs: number | null
+  evalMs: number | null
+}
+
+export interface TraceDetail extends TraceSummary {
+  endpoint: string
+  /** The exact body sent, with image bytes replaced by size placeholders. */
+  request: unknown
+  response: {
+    content?: string
+    thinking?: string
+    toolCalls?: unknown[]
+    /** Ollama's final chunk (stats, done_reason) without the message. */
+    final?: unknown
+    /** For tool traces: what was returned to the model. */
+    result?: string
+    error?: string
+    chunks?: number
+  }
+  timing: TraceTiming
+}
+
 // ---- Skills -------------------------------------------------------------
 
 export type SkillSource = 'app' | 'ollama' | 'claude'
@@ -332,6 +385,8 @@ export interface Settings {
   skills: { sources: { ollama: boolean; claude: boolean }; disabled: string[]; enabledImports: string[]; autoLoad: boolean }
   /** Web search and page reading through Ollama's web API (needs an ollama.com API key). */
   web: { enabled: boolean }
+  /** Record every request for the debugger window. */
+  debug: { record: boolean }
   usage: {
     /** Show quota and chat cost in the title bar. */
     showInHeader: boolean

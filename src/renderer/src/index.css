@@ -225,6 +225,12 @@
     border-radius: var(--k-radius);
   }
 
+  /* Debugger JSON: long strings (system prompts) wrap instead of running off-screen. */
+  .json-wrap pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
   .code-body pre {
     margin: 0;
     padding: 14px 16px;

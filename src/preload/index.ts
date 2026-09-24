@@ -17,6 +17,8 @@ function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
 
 api.events = {
   onChat: (cb) => subscribe(EVENT_CHANNELS.chat, cb),
+  onTrace: (cb) => subscribe(EVENT_CHANNELS.trace, cb),
+  onDebugFocus: (cb) => subscribe(EVENT_CHANNELS.debugFocus, cb),
   onSkillsChanged: (cb) => subscribe(EVENT_CHANNELS.skills, cb),
   onMenu: (cb) => subscribe(EVENT_CHANNELS.menu, cb)
 } satisfies KilnApi['events']

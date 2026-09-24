@@ -804,10 +804,35 @@ function FeaturesTab({ settings }: { settings: Settings }) {
 
 function DataTab() {
   const [info, setInfo] = useState<{ version: string; dataDir: string } | null>(null)
+  const { settings, updateSettings, toast } = useApp()
   useEffect(() => {
     void api.app.info().then(setInfo)
   }, [])
   return (
+    <>
+    <Section
+      title="Debugger"
+      description="Kiln can record every request it sends (each chat round, tool call and title) so you can inspect it in the debugger window. Traces include your messages and are stored locally; deleting a chat deletes its traces, and only the newest 500 are kept."
+    >
+      <Row label="Record requests for the debugger">
+        <Switch checked={!!settings?.debug.record} onChange={(record) => updateSettings({ debug: { record } })} />
+      </Row>
+      <div className="flex gap-2">
+        <Button size="sm" onClick={() => api.debug.open(null)}>
+          Open debugger
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={async () => {
+            await api.debug.clear(null)
+            toast('Debug traces cleared')
+          }}
+        >
+          Clear all traces
+        </Button>
+      </div>
+    </Section>
     <Section title="Your data" description="Everything stays on this Mac: chats, projects and files live in a local SQLite database.">
       <Row label="Data folder" hint={<span className="font-mono">{info?.dataDir}</span>}>
         <Button size="sm" onClick={() => api.app.openDataFolder()}>
@@ -818,5 +843,6 @@ function DataTab() {
         <span className="text-sm text-muted">{info?.version}</span>
       </Row>
     </Section>
+    </>
   )
 }

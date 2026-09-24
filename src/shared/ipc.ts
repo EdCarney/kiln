@@ -23,6 +23,8 @@ import type {
   SkillDetail,
   ThemeDef,
   ThinkSetting,
+  TraceDetail,
+  TraceSummary,
   UsageSummary
 } from './types'
 
@@ -135,8 +137,23 @@ export interface KilnApi {
     prices(): Promise<PriceTable>
     refreshPrices(): Promise<PriceTable>
   }
+  debug: {
+    /** Open (or focus) the debugger window, showing this conversation. */
+    open(conversationId: ID | null): Promise<void>
+    list(conversationId: ID | null): Promise<TraceSummary[]>
+    get(id: string): Promise<TraceDetail | null>
+    clear(conversationId: ID | null): Promise<void>
+    exportTraces(conversationId: ID | null): Promise<boolean>
+    /** Re-send an edited request (non-streaming). Recorded as a 'replay' trace; nothing is added to the chat. */
+    replay(conversationId: ID | null, body: unknown): Promise<TraceDetail>
+    /** The endpoint Kiln talks to, and whether it needs an API key (for curl export). */
+    target(): Promise<{ chatEndpoint: string; needsKey: boolean }>
+    inspectApp(): Promise<void>
+  }
   events: {
     onChat(cb: (e: ChatEvent) => void): () => void
+    onTrace(cb: (e: TraceEvent) => void): () => void
+    onDebugFocus(cb: (conversationId: ID | null) => void): () => void
     onSkillsChanged(cb: () => void): () => void
     onMenu(cb: (action: string) => void): () => void
   }
@@ -158,7 +175,16 @@ export const INVOKE_CHANNELS = {
   artifacts: ['list', 'stage', 'save', 'createFromBlock'],
   skills: ['list', 'get', 'save', 'delete', 'duplicate', 'setEnabled', 'reveal'],
   themes: ['list', 'save', 'delete', 'exportTheme', 'importTheme'],
-  usage: ['account', 'summary', 'raw', 'prices', 'refreshPrices']
+  usage: ['account', 'summary', 'raw', 'prices', 'refreshPrices'],
+  debug: ['open', 'list', 'get', 'clear', 'exportTraces', 'replay', 'target', 'inspectApp']
 } as const satisfies { [G in Exclude<keyof KilnApi, 'events' | 'files'>]: ReadonlyArray<keyof KilnApi[G]> }
 
-export const EVENT_CHANNELS = { chat: 'event:chat', skills: 'event:skills', menu: 'event:menu' } as const
+export const EVENT_CHANNELS = {
+  chat: 'event:chat',
+  skills: 'event:skills',
+  menu: 'event:menu',
+  trace: 'event:trace',
+  debugFocus: 'event:debug-focus'
+} as const
+
+export type TraceEvent = { type: 'upsert'; trace: TraceSummary } | { type: 'cleared'; conversationId: ID | null }

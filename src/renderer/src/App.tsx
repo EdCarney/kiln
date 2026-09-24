@@ -1,6 +1,5 @@
 import { X } from 'lucide-react'
-import { useEffect, useState } from 'react'
-import { BUILTIN_THEMES } from '@shared/themes'
+import { useEffect } from 'react'
 import { ArtifactPanel } from './components/ArtifactPanel'
 import { CommandPalette } from './components/CommandPalette'
 import { Sidebar } from './components/Sidebar'
@@ -10,7 +9,7 @@ import { cn } from './lib/format'
 import { useApp } from './stores/app'
 import { useArtifactPanel } from './stores/artifactPanel'
 import { startUsagePolling } from './stores/usage'
-import { applyTheme, onSystemThemeChange } from './theme/applyTheme'
+import { useTheme } from './theme/useTheme'
 import { ArtifactsView } from './views/ArtifactsView'
 import { ChatsView } from './views/ChatsView'
 import { ChatView } from './views/ChatView'
@@ -39,6 +38,7 @@ function useBootstrap() {
       } else if (action === 'settings') s.navigate({ name: 'settings' })
       else if (action === 'search') s.setSearchOpen(true)
       else if (action === 'toggle-sidebar') s.toggleSidebar()
+      else if (action === 'debugger') void api.debug.open(s.route.name === 'chat' ? s.route.id : null)
     })
     // The menu accelerator covers ⌘K normally; this also catches it when the menu doesn't see the key.
     const onKey = (e: KeyboardEvent) => {
@@ -55,22 +55,6 @@ function useBootstrap() {
       window.removeEventListener('keydown', onKey)
     }
   }, [])
-}
-
-function useTheme() {
-  const settings = useApp((s) => s.settings)
-  const themes = useApp((s) => s.themes)
-  const preview = useApp((s) => s.previewTheme)
-  const [systemTick, setSystemTick] = useState(0)
-
-  useEffect(() => onSystemThemeChange(() => setSystemTick((n) => n + 1)), [])
-
-  useEffect(() => {
-    if (!settings) return
-    const theme = preview ?? themes.find((t) => t.id === settings.appearance.themeId) ?? BUILTIN_THEMES[0]
-    const background = applyTheme(theme, settings.appearance)
-    void api.app.setNativeTheme(settings.appearance.mode, background)
-  }, [settings, themes, preview, systemTick])
 }
 
 function Toasts() {

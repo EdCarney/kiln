@@ -246,7 +246,14 @@ const fakeOllama = createServer(async (req, res) => {
   if (req.url === '/api/tags') return json({ models: [{ name: 'mock-tools:latest' }] })
   if (req.url === '/api/show') return json({ capabilities: ['completion', 'tools'], model_info: { 'mock.context_length': 32768 }, details: {} })
   if (req.url !== '/api/chat') return res.writeHead(404).end()
-  if (!body.stream) return json({ message: { role: 'assistant', content: 'Mock title' }, done: true, prompt_eval_count: 10, eval_count: 2 })
+  // Non-streaming: title requests (no tools) get a title; debugger replays of a tool round get its tool call.
+  if (!body.stream) {
+    if (body.tools?.length) {
+      mockChats.push({ toolNames: body.tools.map((t) => t.function.name), toolResults: [], system: body.messages[0].content, replay: true })
+      return json({ message: { role: 'assistant', content: '', tool_calls: [{ function: { name: 'web_search', arguments: { query: 'replayed' } } }] }, done: true, prompt_eval_count: 100, eval_count: 5 })
+    }
+    return json({ message: { role: 'assistant', content: 'Mock title' }, done: true, prompt_eval_count: 10, eval_count: 2 })
+  }
   const toolNames = (body.tools ?? []).map((t) => t.function.name)
   const toolResults = body.messages.filter((m) => m.role === 'tool').map((m) => m.content)
   mockChats.push({ toolNames, toolResults, system: body.messages[0].content })
@@ -257,7 +264,7 @@ const fakeOllama = createServer(async (req, res) => {
         ? { role: 'assistant', content: '', tool_calls: [{ function: { name: 'web_search', arguments: { query: 'top headlines today' } } }] }
         : toolResults.length === 1
           ? { role: 'assistant', content: '', tool_calls: [{ function: { name: 'browser.open', arguments: { id: 'https://news.example.com/story' } } }] }
-          : { role: 'assistant', content: 'The lead story is KILN-WEB-OK, per [Example News](https://news.example.com/story).' }
+          : { role: 'assistant', content: 'The lead story is KILN-WEB-OK on Sept\u202F23, per [Example News](https://news.example.com/story).' }
   } else if (toolNames.length) {
     message = { role: 'assistant', content: '', tool_calls: [{ function: { name: 'web.run', arguments: { url: 'https://news.google.com' } } }] }
   } else {
@@ -316,9 +323,49 @@ writeFileSync(join(mockUserData, 'skills', 'news-helper', 'SKILL.md'), '---\nnam
     const pageResult = mockChats[2]?.toolResults[1] ?? ''
     check('page content reaches the model framed as untrusted', /KILN-WEB-MARKER/.test(pageResult) && /untrusted data/.test(pageResult))
     check('the answer cites the page', /KILN-WEB-OK/.test(webReply), webReply.slice(0, 70))
+    // gpt-oss writes "Sept 23" with U+202F, which the bundled fonts lack; it must still render as a real space.
+    const spaceWidth = await win.evaluate(() => {
+      const prose = [...document.querySelectorAll('.prose-kiln')].at(-1)
+      const walker = document.createTreeWalker(prose, NodeFilter.SHOW_TEXT)
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const i = node.textContent.indexOf('Sept\u00A023')
+        if (i < 0) continue
+        const range = document.createRange()
+        range.setStart(node, i + 4)
+        range.setEnd(node, i + 5)
+        return range.getBoundingClientRect().width
+      }
+      return -1
+    })
+    check('narrow no-break spaces render as visible spaces', spaceWidth > 2, `${spaceWidth.toFixed(1)}px`)
     const badges = await win.locator('.mb-3.flex.flex-wrap').last().innerText()
     check('badges show the search and the page read', /Searched the web:\s+top headlines today\s+· 1 result\b/.test(badges) && /Read\s*Example story/.test(badges), badges.replace(/\s+/g, ' '))
     await win.screenshot({ path: join(SHOTS, 'web-tools.png') })
+
+    // 12. The debugger window shows the exact requests behind that turn, and can replay one.
+    const [dbg] = await Promise.all([app.waitForEvent('window'), win.click('button[aria-label^="Open debugger"]')])
+    await dbg.waitForSelector('text=chat · round 1', { timeout: 10000 })
+    await dbg.waitForTimeout(800)
+    const list = await dbg.locator('.w-\\[420px\\]').innerText()
+    const sequence = ['chat · round 1', 'web_search', 'chat · round 2', 'web_fetch', 'chat · round 3', 'title'].every((s) => list.includes(s))
+    check('debugger lists every request in the turn, in order', sequence, list.replace(/\s+/g, ' ').slice(0, 160))
+    await dbg.locator('button', { hasText: '→ web_search' }).first().click()
+    await dbg.waitForSelector('text=Tools offered')
+    const overview = await dbg.locator('dl').first().innerText()
+    check('overview shows the model, think setting and tools offered', /mock-tools:latest/.test(overview) && /web_search/.test(overview), overview.replace(/\s+/g, ' ').slice(0, 120))
+    await dbg.getByRole('button', { name: 'Prompt anatomy' }).click()
+    const anatomyText = await dbg.locator('text=Where the tokens go').locator('..').locator('..').innerText()
+    check('prompt anatomy breaks the request into its parts', /Web tool guidance/.test(anatomyText) && /Tool definitions \(\d\)/.test(anatomyText) && /Base instructions/.test(anatomyText))
+    await dbg.getByRole('button', { name: 'Request', exact: true }).click()
+    const requestJson = await dbg.locator('.code-body').first().innerText()
+    check('request tab shows the exact JSON sent', /"model": "mock-tools:latest"/.test(requestJson) && /"stream": true/.test(requestJson))
+    await dbg.screenshot({ path: join(SHOTS, 'debugger.png') })
+    await dbg.getByRole('button', { name: 'Replay', exact: true }).click()
+    const before = mockChats.length
+    await dbg.getByRole('button', { name: 'Send' }).click()
+    await dbg.waitForSelector('text=Tool calls', { timeout: 10000 })
+    check('replay re-sends the request without streaming', mockChats.length === before + 1)
+    await dbg.screenshot({ path: join(SHOTS, 'debugger-replay.png') })
   } catch (err) {
     check('tool runs completed without errors', false, err.message.split('\n')[0])
     await win.screenshot({ path: join(SHOTS, 'tools-failure.png') }).catch(() => {})

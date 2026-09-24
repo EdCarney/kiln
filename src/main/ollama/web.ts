@@ -16,6 +16,8 @@ export interface FetchedPage {
   links: string[]
 }
 
+export const webEndpoint = (path: string): string => `${WEB_BASE}${path}`
+
 export function webAvailable(): boolean {
   return getApiKey() !== null
 }

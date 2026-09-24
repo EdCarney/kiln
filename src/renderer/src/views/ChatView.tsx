@@ -1,11 +1,11 @@
-import { ArrowDown, ChevronDown, FolderClosed } from 'lucide-react'
+import { ArrowDown, Bug, ChevronDown, FolderClosed } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Composer } from '@/components/Composer'
 import { ConversationMenu } from '@/components/ConversationMenu'
 import { AssistantMessage, UserMessage } from '@/components/Messages'
 import { TopBar } from '@/components/TopBar'
 import { ChatCost } from '@/components/UsageBar'
-import { Spinner } from '@/components/ui'
+import { IconButton, Spinner } from '@/components/ui'
 import { api } from '@/lib/api'
 import { editMessage, retryLast, sendMessage } from '@/lib/chatActions'
 import { useApp } from '@/stores/app'
@@ -47,7 +47,19 @@ export function ChatView({ id }: { id: string }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <TopBar className="border-b border-transparent" right={current && <ChatCost usage={usage} model={current.model} />}>
+      <TopBar
+        className="border-b border-transparent"
+        right={
+          current && (
+            <>
+              <ChatCost usage={usage} model={current.model} />
+              <IconButton label="Open debugger (⌘⇧D)" size="sm" onClick={() => api.debug.open(current.id)}>
+                <Bug className="size-4" />
+              </IconButton>
+            </>
+          )
+        }
+      >
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
           {project && (
             <>
