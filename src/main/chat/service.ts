@@ -26,6 +26,7 @@ import {
   insertMessage,
   linkAttachments,
   listMessages,
+  unfinishedReplyIds,
   updateConversation,
   updateMessage
 } from '../db/conversations'
@@ -43,12 +44,16 @@ import { requestCost } from '../usage/pricing'
 import { errorMessage, estimateTokens } from '../util'
 import { assemble, type HistoryTurn } from './assemble'
 import { TITLE_PROMPT } from './prompts'
-import { pendingEvent, runTool, type ToolContext, toolsFor } from './tools'
+import { pendingEvent, runTool, settleToolEvent, type ToolContext, toolsFor } from './tools'
 import type { WebStatus } from './prompts'
 
 // Room for a search, a few page reads and a skill load; the last round is always tool-free.
 const MAX_TOOL_ROUNDS = 6
-const active = new Map<string, AbortController>()
+// How often a streaming reply is saved, so a quit or crash loses at most this much.
+const CHECKPOINT_MS = 1500
+
+/** Replies in progress, by conversation. `settled` resolves once the reply has been saved. */
+const active = new Map<string, { controller: AbortController; settled: Promise<void> }>()
 
 function emit(event: ChatEvent): void {
   for (const win of BrowserWindow.getAllWindows()) win.webContents.send(EVENT_CHANNELS.chat, event)
@@ -97,8 +102,32 @@ export async function edit(messageId: string, content: string, opts: { model: st
   return startAssistant(conversation, user, opts.model, opts.think)
 }
 
-export function stop(conversationId: string): void {
-  active.get(conversationId)?.abort()
+/** Stop a reply and wait until what it produced has been saved. */
+export function stop(conversationId: string): Promise<void> {
+  const run = active.get(conversationId)
+  if (!run) return Promise.resolve()
+  run.controller.abort()
+  return run.settled
+}
+
+export const isReplying = (): boolean => active.size > 0
+
+/**
+ * Replies that were still streaming when Kiln last quit or crashed. Their checkpointed text is kept;
+ * they're marked so the chat shows what happened and offers Retry. Run once at startup.
+ */
+export function markInterruptedReplies(): number {
+  const ids = unfinishedReplyIds()
+  for (const id of ids) {
+    const m = getMessage(id)!
+    updateMessage(id, { toolEvents: m.toolEvents.map(settleToolEvent), error: 'Kiln closed before this reply finished.' })
+  }
+  return ids.length
+}
+
+/** Stop every reply in progress and wait for each to save (used before quitting). */
+export async function stopAll(): Promise<void> {
+  await Promise.all([...active.keys()].map(stop))
 }
 
 async function dropAfter(conversationId: string, messages: Message[], index: number): Promise<void> {
@@ -111,8 +140,10 @@ async function dropAfter(conversationId: string, messages: Message[], index: num
 function startAssistant(conversation: Conversation, parent: Message, model: string, think: ThinkSetting | null): SendResult {
   const assistant = insertMessage({ conversationId: conversation.id, parentId: parent.id, role: 'assistant', content: '', model })
   const controller = new AbortController()
-  active.set(conversation.id, controller)
-  void generate(conversation.id, assistant.id, model, think, controller).finally(() => active.delete(conversation.id))
+  const settled = generate(conversation.id, assistant.id, model, think, controller)
+    .catch((err) => console.error('Kiln: a reply failed to finish', err))
+    .finally(() => active.delete(conversation.id))
+  active.set(conversation.id, { controller, settled })
   return { conversation, userMessage: parent, assistantMessageId: assistant.id }
 }
 
@@ -170,6 +201,14 @@ async function generate(
 
   const delta = (d: { content?: string; thinking?: string }) => emit({ type: 'delta', conversationId, messageId, ...d })
 
+  // Save progress now and then, so a quit or crash keeps the partial reply (see markInterruptedReplies).
+  let savedAt = Date.now()
+  const checkpoint = () => {
+    if (Date.now() - savedAt < CHECKPOINT_MS) return
+    savedAt = Date.now()
+    updateMessage(messageId, { content, thinking: thinking || null, toolEvents })
+  }
+
   try {
     const conversation = getConversation(conversationId)!
     const settings = getSettings()
@@ -214,7 +253,7 @@ async function generate(
       history
     })
     if (assembled.droppedTurns) stats.truncatedHistory = assembled.droppedTurns
-    const toolContext: ToolContext = { skills: skillIndex.length > 0, web: web === 'on' }
+    const toolContext: ToolContext = { skills: skillIndex.length > 0, web: web === 'on', signal: controller.signal }
 
     const body: ChatBody = {
       model: modelName,
@@ -270,6 +309,7 @@ async function generate(
         }
         if (m?.tool_calls?.length) calls.push(...m.tool_calls)
         if (chunk.done) final = chunk
+        checkpoint()
       }
       const billed = recordRound(final)
       const { message: _message, ...finalStats } = final ?? { done: true }
@@ -305,6 +345,7 @@ async function generate(
           summary: `${pending.tool}: ${pending.summary}`
         })
         const result = await runTool(call, toolContext)
+        controller.signal.throwIfAborted()
         toolTrace.finish({
           status: result.event.ok ? 'ok' : 'error',
           response: { result: result.content, error: result.event.ok ? undefined : result.event.summary },
@@ -320,6 +361,7 @@ async function generate(
           updateConversation(conversationId, { autoSkills: loadedIds })
         }
         body.messages.push({ role: 'tool', content: result.content, tool_name: call.function.name })
+        checkpoint()
       }
       // A model reaching for tools Kiln lacks keeps guessing names; after one explanation, take the
       // tools away so the next request has to be answered in words.
@@ -346,6 +388,9 @@ async function generate(
     })
   }
 
+  // The chat was deleted while replying: there's nothing left to save or show.
+  if (!getMessage(messageId)) return
+
   stats.durationMs = Date.now() - startedAt
   if (evalNs && stats.completionTokens) stats.tokensPerSecond = stats.completionTokens / (evalNs / 1e9)
   if (thinkStart) stats.thinkingMs = (thinkEnd ?? Date.now()) - thinkStart
@@ -353,7 +398,8 @@ async function generate(
   const message = updateMessage(messageId, {
     content: content.trimEnd(),
     thinking: thinking || null,
-    toolEvents,
+    // A tool still running when the reply stopped never finished.
+    toolEvents: toolEvents.map(settleToolEvent),
     stats,
     error
   })

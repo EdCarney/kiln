@@ -26,7 +26,9 @@ export function webAvailable(): boolean {
  * Ollama's web search/fetch run on ollama.com (pages are fetched by Ollama, not this Mac) and are
  * authorised with the ollama.com API key, which stays in the main process.
  */
-async function call<T>(path: string, body: Record<string, unknown>): Promise<T> {
+const TIMEOUT_MS = 30_000
+
+async function call<T>(path: string, body: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
   const key = getApiKey()
   if (!key) throw new OllamaError('Web tools need an ollama.com API key (Settings → Usage & cost).')
   let res: Response
@@ -35,9 +37,11 @@ async function call<T>(path: string, body: Record<string, unknown>): Promise<T> 
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(30_000)
+      // Stopping the reply cancels the request instead of waiting out the timeout.
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(TIMEOUT_MS)]) : AbortSignal.timeout(TIMEOUT_MS)
     })
   } catch (err) {
+    if (signal?.aborted) throw err
     throw new OllamaError(`Couldn't reach ollama.com: ${(err as Error).message}`)
   }
   if (res.status === 401 || res.status === 403) throw new OllamaError('ollama.com rejected the API key.', res.status)
@@ -55,13 +59,13 @@ async function call<T>(path: string, body: Record<string, unknown>): Promise<T> 
   return (await res.json()) as T
 }
 
-export async function webSearch(query: string, maxResults = 5): Promise<SearchResult[]> {
+export async function webSearch(query: string, maxResults = 5, signal?: AbortSignal): Promise<SearchResult[]> {
   const n = Math.min(10, Math.max(1, Math.round(maxResults) || 5))
-  const data = await call<{ results?: SearchResult[] }>('/api/web_search', { query, max_results: n })
+  const data = await call<{ results?: SearchResult[] }>('/api/web_search', { query, max_results: n }, signal)
   return (data.results ?? []).map((r) => ({ title: r.title ?? '', url: r.url ?? '', content: r.content ?? '' }))
 }
 
-export async function webFetch(url: string): Promise<FetchedPage> {
-  const data = await call<{ title?: string; content?: string; links?: string[] }>('/api/web_fetch', { url })
+export async function webFetch(url: string, signal?: AbortSignal): Promise<FetchedPage> {
+  const data = await call<{ title?: string; content?: string; links?: string[] }>('/api/web_fetch', { url }, signal)
   return { title: data.title ?? '', content: data.content ?? '', links: Array.isArray(data.links) ? data.links : [] }
 }

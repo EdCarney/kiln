@@ -2,6 +2,7 @@ import { join } from 'node:path'
 import { app, BrowserWindow, Menu, type MenuItemConstructorOptions, nativeTheme, shell } from 'electron'
 import { EVENT_CHANNELS } from '@shared/ipc'
 import { currentBackground } from './background'
+import { isReplying, markInterruptedReplies, stopAll } from './chat/service'
 import { openDatabase } from './db/index'
 import { settleStaleTraces } from './debug/traces'
 import { staleAttachmentPaths } from './db/conversations'
@@ -121,6 +122,7 @@ app.on('second-instance', () => {
 app.whenReady().then(async () => {
   initPaths()
   openDatabase(paths.db)
+  markInterruptedReplies()
   settleStaleTraces()
   await removeFiles(staleAttachmentPaths(Date.now() - 24 * 60 * 60 * 1000))
   handleProtocols()
@@ -133,6 +135,16 @@ app.whenReady().then(async () => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+})
+
+// Quitting mid-reply: stop the stream and save what arrived before the process exits.
+let quitting = false
+app.on('before-quit', (event) => {
+  if (quitting || !isReplying()) return
+  event.preventDefault()
+  quitting = true
+  const timeout = new Promise((resolve) => setTimeout(resolve, 3000))
+  void Promise.race([stopAll(), timeout]).finally(() => app.quit())
 })
 
 app.on('window-all-closed', () => {

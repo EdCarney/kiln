@@ -224,6 +224,16 @@ export function updateMessage(
   return getMessage(id)!
 }
 
+/**
+ * Assistant messages that never got their final save: every finished reply has stats, even an
+ * errored or stopped one, so no stats and no error means the app quit or crashed mid-reply.
+ */
+export function unfinishedReplyIds(): string[] {
+  return all<{ id: string }>(
+    `SELECT id FROM messages WHERE role = 'assistant' AND (stats IS NULL OR stats = 'null') AND error IS NULL`
+  ).map((r) => r.id)
+}
+
 /** Delete messages created at or after `fromCreatedAt` (used by retry and edit). */
 export function deleteMessagesFrom(conversationId: string, fromCreatedAt: number): string[] {
   const ids = all<{ id: string }>(
