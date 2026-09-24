@@ -17,6 +17,21 @@ export async function sendMessage(conversationId: string | null, projectId: stri
   }
 }
 
+export const CONTINUE_PROMPT = 'Your last reply was cut off. Continue exactly where it stopped, without repeating what you already wrote.'
+
+/** Ask the model to pick up a reply that hit its length limit, as a normal follow-up in the chat. */
+export async function continueReply(conversationId: string): Promise<void> {
+  const { conversation } = useChat.getState()
+  if (!conversation?.model || conversation.id !== conversationId) return
+  await sendMessage(conversationId, conversation.projectId, {
+    content: CONTINUE_PROMPT,
+    attachmentIds: [],
+    model: conversation.model,
+    think: conversation.think,
+    skills: conversation.skills
+  })
+}
+
 export async function retryLast(conversationId: string, messages: Message[]): Promise<void> {
   const { conversation } = useChat.getState()
   if (!conversation?.model) return

@@ -338,6 +338,8 @@ async function generate(
         checkpoint()
       }
       const billed = recordRound(final)
+      // The last round's reason is the reply's: "length" means the model was cut off mid-answer.
+      if (final?.done_reason) stats.doneReason = final.done_reason
       const { message: _message, ...finalStats } = final ?? { done: true }
       roundTrace.finish({
         status: 'ok',

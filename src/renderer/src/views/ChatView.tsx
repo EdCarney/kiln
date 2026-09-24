@@ -7,7 +7,7 @@ import { TopBar } from '@/components/TopBar'
 import { ChatCost } from '@/components/UsageBar'
 import { IconButton, Spinner } from '@/components/ui'
 import { api } from '@/lib/api'
-import { editMessage, retryLast, sendMessage } from '@/lib/chatActions'
+import { continueReply, editMessage, retryLast, sendMessage } from '@/lib/chatActions'
 import { useApp } from '@/stores/app'
 import { useChat } from '@/stores/chat'
 
@@ -105,6 +105,10 @@ export function ChatView({ id }: { id: string }) {
                   artifacts={artifacts}
                   isLast={i === messages.length - 1}
                   onRetry={() => retryLast(id, messages)}
+                  onContinue={() => {
+                    pinned.current = true
+                    void continueReply(id)
+                  }}
                 />
               )
             )}

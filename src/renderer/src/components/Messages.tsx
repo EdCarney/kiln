@@ -211,9 +211,10 @@ interface AssistantProps {
   artifacts: Artifact[]
   isLast: boolean
   onRetry: () => void
+  onContinue: () => void
 }
 
-export const AssistantMessage = memo(function AssistantMessage({ message, stream, artifacts, isLast, onRetry }: AssistantProps) {
+export const AssistantMessage = memo(function AssistantMessage({ message, stream, artifacts, isLast, onRetry, onContinue }: AssistantProps) {
   const streaming = !!stream
   const content = stream ? stream.content : message.content
   const thinking = stream ? stream.thinking : (message.thinking ?? '')
@@ -282,6 +283,17 @@ export const AssistantMessage = memo(function AssistantMessage({ message, stream
           {isLast && (
             <Button size="sm" onClick={onRetry}>
               Retry
+            </Button>
+          )}
+        </div>
+      )}
+      {!streaming && !message.error && message.stats?.doneReason === 'length' && (
+        <div className="mt-2 flex items-start gap-2 rounded-kiln border border-warn/40 bg-[color-mix(in_srgb,var(--k-warn)_8%,transparent)] px-3 py-2.5 text-sm">
+          <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warn" />
+          <div className="flex-1">This reply hit the model's length limit and was cut off.</div>
+          {isLast && (
+            <Button size="sm" onClick={onContinue}>
+              Continue
             </Button>
           )}
         </div>
