@@ -1,8 +1,11 @@
-import { lookup } from 'node:dns/promises'
+import { lookup as dnsLookup, type LookupAddress, type LookupOptions } from 'node:dns'
+import { type IncomingMessage, request as httpRequest } from 'node:http'
+import { request as httpsRequest } from 'node:https'
+import type { Readable } from 'node:stream'
+import { createBrotliDecompress, createGunzip, createInflate } from 'node:zlib'
 import type { LinkPreview } from '@shared/ipc'
 import { isBlockedHostname, isPrivateAddress, parseHtmlPreview } from '@shared/links'
 import { getSettings } from '../settings'
-
 
 const PAGE_BYTES = 512 * 1024
 const IMAGE_BYTES = 400 * 1024
@@ -15,13 +18,59 @@ const USER_AGENT = 'Mozilla/5.0 (Macintosh) KilnLinkPreview/1.0'
 // Tests serve pages from 127.0.0.1; never set in normal use.
 const allowPrivate = !!process.env.KILN_ALLOW_PRIVATE_PREVIEWS
 
+type LookupCallback = (err: NodeJS.ErrnoException | null, address: string | LookupAddress[], family?: number) => void
+type Resolver = (hostname: string, options: LookupOptions & { all: true }, callback: (err: NodeJS.ErrnoException | null, addresses: LookupAddress[]) => void) => void
+
+/**
+ * A `lookup` for http(s).request that refuses local-network and loopback addresses. It runs when the socket
+ * connects, so the address checked is the address used: a DNS answer that changes between a check and the
+ * request (DNS rebinding) can't slip through.
+ */
+export function publicOnlyLookup(resolve: Resolver = dnsLookup as unknown as Resolver) {
+  return (hostname: string, options: LookupOptions, callback: LookupCallback): void => {
+    resolve(hostname, { ...options, all: true }, (err, addresses) => {
+      if (err) return callback(err, [])
+      if (!allowPrivate && (!addresses.length || addresses.some((a) => isPrivateAddress(a.address))))
+        return callback(Object.assign(new Error('Resolves to a local address'), { code: 'EPRIVATE' }), [])
+      if (options.all) callback(null, addresses)
+      else callback(null, addresses[0].address, addresses[0].family)
+    })
+  }
+}
+
+const checkedLookup = publicOnlyLookup()
+
 /** Refuse URLs that would make this Mac talk to its own network (routers, local services). */
-async function assertPublic(url: URL): Promise<void> {
+function assertPublicUrl(url: URL): void {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('Only http(s) links get previews')
   if (allowPrivate) return
+  // IP literals never reach the lookup, so check them (and local-only names) here.
   if (isBlockedHostname(url.hostname) || isPrivateAddress(url.hostname.replace(/^\[|\]$/g, ''))) throw new Error('Local address')
-  const addresses = await lookup(url.hostname, { all: true })
-  if (!addresses.length || addresses.some((a) => isPrivateAddress(a.address))) throw new Error('Resolves to a local address')
+}
+
+function open(url: URL, accept: string, signal: AbortSignal): Promise<IncomingMessage> {
+  return new Promise((resolve, reject) => {
+    const req = (url.protocol === 'https:' ? httpsRequest : httpRequest)(
+      url,
+      { headers: { 'User-Agent': USER_AGENT, Accept: accept, 'Accept-Encoding': 'gzip, deflate, br' }, lookup: checkedLookup, signal },
+      resolve
+    )
+    req.on('error', reject)
+    req.end()
+  })
+}
+
+function decoded(res: IncomingMessage): Readable {
+  switch ((res.headers['content-encoding'] ?? '').toLowerCase()) {
+    case 'gzip':
+      return res.pipe(createGunzip())
+    case 'deflate':
+      return res.pipe(createInflate())
+    case 'br':
+      return res.pipe(createBrotliDecompress())
+    default:
+      return res
+  }
 }
 
 /** GET with manual redirects, re-checking every hop, and a byte cap. */
@@ -29,30 +78,37 @@ async function capturedGet(start: string, maxBytes: number, stopAtHead = false):
   let url = new URL(start)
   const signal = AbortSignal.timeout(TIMEOUT_MS)
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-    await assertPublic(url)
-    const res = await fetch(url, { redirect: 'manual', signal, headers: { 'User-Agent': USER_AGENT, Accept: stopAtHead ? 'text/html' : '*/*' } })
-    if (res.status >= 300 && res.status < 400 && res.headers.get('location')) {
-      url = new URL(res.headers.get('location')!, url)
+    assertPublicUrl(url)
+    const res = await open(url, stopAtHead ? 'text/html' : '*/*', signal)
+    const status = res.statusCode ?? 0
+    if (status >= 300 && status < 400 && res.headers.location) {
+      res.resume()
+      url = new URL(res.headers.location, url)
       continue
     }
-    if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
+    if (status < 200 || status >= 300) {
+      res.resume()
+      throw new Error(`HTTP ${status}`)
+    }
     const chunks: Buffer[] = []
     let size = 0
-    const reader = res.body.getReader()
-    for (;;) {
-      const { value, done } = await reader.read()
-      if (done) break
-      chunks.push(Buffer.from(value))
-      size += value.length
-      if (size > maxBytes) {
-        if (!stopAtHead) throw new Error('Too large')
-        break
+    const body = decoded(res)
+    try {
+      for await (const chunk of body) {
+        const buf = chunk as Buffer
+        chunks.push(buf)
+        size += buf.length
+        if (size > maxBytes) {
+          if (!stopAtHead) throw new Error('Too large')
+          break
+        }
+        // Metadata lives in <head>; stop reading once it's over.
+        if (stopAtHead && /<\/head>/i.test(buf.toString('latin1'))) break
       }
-      // Metadata lives in <head>; stop reading once it's over.
-      if (stopAtHead && /<\/head>/i.test(Buffer.from(value).toString('latin1'))) break
+    } finally {
+      res.destroy()
     }
-    await reader.cancel().catch(() => {})
-    return { url: url.toString(), type: res.headers.get('content-type') ?? '', body: Buffer.concat(chunks) }
+    return { url: url.toString(), type: String(res.headers['content-type'] ?? ''), body: Buffer.concat(chunks) }
   }
   throw new Error('Too many redirects')
 }
