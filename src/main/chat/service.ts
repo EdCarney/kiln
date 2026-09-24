@@ -44,7 +44,7 @@ import { requestCost } from '../usage/pricing'
 import { errorMessage, estimateTokens } from '../util'
 import { assemble, type HistoryTurn } from './assemble'
 import { TITLE_PROMPT } from './prompts'
-import { pendingEvent, runTool, settleToolEvent, type ToolContext, toolsFor } from './tools'
+import { pendingEvent, runTool, settleToolEvent, type ToolContext, type ToolResult, toolsFor } from './tools'
 import type { WebStatus } from './prompts'
 
 // Room for a search, a few page reads and a skill load; the last round is always tool-free.
@@ -344,13 +344,20 @@ async function generate(
           request: { tool: call.function.name, arguments: call.function.arguments },
           summary: `${pending.tool}: ${pending.summary}`
         })
-        const result = await runTool(call, toolContext)
-        controller.signal.throwIfAborted()
+        let result: ToolResult
+        try {
+          result = await runTool(call, toolContext)
+        } catch (err) {
+          // Only a stop gets here (tool failures come back as results); close the trace before unwinding.
+          toolTrace.finish({ status: 'aborted', response: { error: 'Stopped by you' }, summary: `${pending.tool}: stopped` })
+          throw err
+        }
         toolTrace.finish({
           status: result.event.ok ? 'ok' : 'error',
           response: { result: result.content, error: result.event.ok ? undefined : result.event.summary },
           summary: `${result.event.tool}: ${result.event.summary}`
         })
+        controller.signal.throwIfAborted()
         if (result.unknown) triedUnknown.push(call.function.name)
         else onlyUnknown = false
         toolEvents[index] = result.event

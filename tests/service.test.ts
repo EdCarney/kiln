@@ -28,6 +28,7 @@ process.env.KILN_WEB_URL = ollama.url
 const { openDatabase } = await import('../src/main/db/index')
 const { updateSettings, setApiKey } = await import('../src/main/settings')
 const service = await import('../src/main/chat/service')
+const { listTraces } = await import('../src/main/debug/traces')
 const { deleteConversation, getMessage, insertMessage, createConversation, updateMessage } = await import('../src/main/db/conversations')
 
 type ChatHandler = (body: Record<string, unknown>, res: ServerResponse, call: number) => unknown
@@ -146,6 +147,10 @@ describe('reply loop', () => {
     const saved = getMessage(r.assistantMessageId)!
     expect(saved.toolEvents).toEqual([expect.objectContaining({ tool: 'web_fetch', pending: false, ok: false })])
     expect(saved.error).toBeNull()
+    // The debugger shows the cancelled call as stopped, not forever running.
+    const traces = listTraces(r.conversation.id)
+    expect(traces.find((t) => t.kind === 'tool')?.status).toBe('aborted')
+    expect(traces.every((t) => t.status !== 'running')).toBe(true)
   })
 
   it('withdraws tools after the model only calls tools Kiln lacks', async () => {
