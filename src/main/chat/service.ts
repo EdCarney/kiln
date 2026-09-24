@@ -455,7 +455,8 @@ async function generateTitle(conversationId: string, chatModel: string): Promise
       request: { ...titleBody, stream: false },
       summary: 'Generating title…'
     })
-    const res = await chatOnce(titleBody)
+    // Bounded: a title is never worth a request that hangs forever (it may still need a cold model load).
+    const res = await chatOnce(titleBody, { timeoutMs: 5 * 60_000 })
     titleTrace.firstByte()
     title = cleanTitle(res.message?.content ?? '')
     const promptTokens = res.prompt_eval_count ?? estimateTokens(transcript)
