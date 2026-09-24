@@ -224,6 +224,24 @@ export function updateMessage(
   return getMessage(id)!
 }
 
+/**
+ * Save a streaming reply's progress. Deliberately one UPDATE: this runs every couple of seconds on the
+ * main thread, and search indexing waits for the final save (updateMessage).
+ */
+export function checkpointMessage(id: string, patch: { content: string; thinking: string | null; toolEvents: ToolEvent[] }): void {
+  run('UPDATE messages SET content = ?, thinking = ?, tool_events = ? WHERE id = ?', patch.content, patch.thinking, JSON.stringify(patch.toolEvents), id)
+}
+
+/**
+ * Assistant messages that never got their final save: every finished reply has stats, even an
+ * errored or stopped one, so no stats and no error means the app quit or crashed mid-reply.
+ */
+export function unfinishedReplyIds(): string[] {
+  return all<{ id: string }>(
+    `SELECT id FROM messages WHERE role = 'assistant' AND (stats IS NULL OR stats = 'null') AND error IS NULL`
+  ).map((r) => r.id)
+}
+
 /** Delete messages created at or after `fromCreatedAt` (used by retry and edit). */
 export function deleteMessagesFrom(conversationId: string, fromCreatedAt: number): string[] {
   const ids = all<{ id: string }>(

@@ -76,10 +76,12 @@ tests/           Vitest unit tests      e2e/   live Playwright run against real 
 ## Tests
 
 ```sh
-npm test                    # unit: artifact parser, thinking profiles, prompt assembly, file extraction
+npm test                    # unit: parsing, prompt assembly, file extraction, and the chat loop against a mock Ollama
 npm run typecheck
 npm run build && npm run e2e   # live: needs Ollama running; uses a throwaway data folder
 ```
+
+`npm test` needs no Ollama: `tests/ollamaMock.ts` is a stand-in daemon that streams scripted NDJSON. The client and reply-loop tests use it to cover split lines, dropped and stalled streams, error chunks, Stop, tool rounds and saving partial replies. CI (`.github/workflows/ci.yml`) runs the typecheck and unit tests on every pull request.
 
 The e2e run checks:
 - streaming and auto-titles

@@ -79,6 +79,9 @@ function friendly(status: number, body: string, model?: string): OllamaError {
   return new OllamaError(detail || `Ollama returned HTTP ${status}`, status)
 }
 
+// Short calls (model lists, /api/show) should never hang the UI on a wedged daemon.
+const METADATA_TIMEOUT_MS = 30_000
+
 async function request(path: string, init: RequestInit & { model?: string; base?: string } = {}): Promise<Response> {
   const { base, headers } = target()
   const url = `${init.base ?? base}${path}`
@@ -86,10 +89,12 @@ async function request(path: string, init: RequestInit & { model?: string; base?
   try {
     res = await fetch(url, {
       ...init,
+      signal: init.signal ?? AbortSignal.timeout(METADATA_TIMEOUT_MS),
       headers: { 'Content-Type': 'application/json', ...headers, ...(init.headers as Record<string, string>) }
     })
   } catch (err) {
     if ((err as Error).name === 'AbortError') throw err
+    if ((err as Error).name === 'TimeoutError') throw new OllamaError('Ollama took too long to respond. Try again in a moment.')
     throw new OllamaError(
       getSettings().connection.mode === 'direct'
         ? `Can't reach ${OLLAMA_CLOUD}. Check your internet connection.`
@@ -100,39 +105,113 @@ async function request(path: string, init: RequestInit & { model?: string; base?
   return res
 }
 
-export async function* chatStream(body: ChatBody, signal: AbortSignal): AsyncGenerator<ChatChunk> {
-  const res = await request('/api/chat', {
-    method: 'POST',
-    body: JSON.stringify({ ...body, stream: true }),
-    signal,
-    model: body.model
-  })
-  if (!res.body) throw new OllamaError('Ollama returned an empty response')
-  const reader = res.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-  for (;;) {
-    const { value, done } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    let nl: number
-    while ((nl = buffer.indexOf('\n')) >= 0) {
-      const line = buffer.slice(0, nl).trim()
-      buffer = buffer.slice(nl + 1)
-      if (!line) continue
-      const chunk = JSON.parse(line) as ChatChunk
-      if (chunk.error) throw new OllamaError(chunk.error)
-      yield chunk
-    }
-  }
-  if (buffer.trim()) yield JSON.parse(buffer) as ChatChunk
+export interface StreamTimeouts {
+  /** Until the first byte of the reply: covers loading a cold local model and reading a long prompt. */
+  firstByteMs: number
+  /** Between chunks once the reply has started. */
+  idleMs: number
+  /**
+   * Between chunks when the request offers tools. Ollama holds back a tool call until its arguments are
+   * complete, so a slow local model writing a long argument can go quiet for many minutes while healthy.
+   */
+  toolIdleMs: number
 }
 
-export async function chatOnce(body: ChatBody, signal?: AbortSignal): Promise<ChatChunk> {
+// Generous on purpose: these catch a dead connection, not a slow model.
+export const STREAM_TIMEOUTS: StreamTimeouts = { firstByteMs: 10 * 60_000, idleMs: 3 * 60_000, toolIdleMs: 30 * 60_000 }
+
+/**
+ * The long tool-call allowance is only for local models: cloud models finish a tool call's arguments in
+ * seconds, so a long silence there is always a dead connection.
+ */
+export function streamTimeoutsFor(location: 'cloud' | 'local'): StreamTimeouts {
+  return location === 'local' ? STREAM_TIMEOUTS : { ...STREAM_TIMEOUTS, toolIdleMs: STREAM_TIMEOUTS.idleMs }
+}
+
+function parseChunk(line: string): ChatChunk {
+  try {
+    return JSON.parse(line) as ChatChunk
+  } catch {
+    throw new OllamaError(`Ollama sent a response Kiln couldn't read: ${line.slice(0, 120)}`)
+  }
+}
+
+/**
+ * Stream /api/chat as NDJSON chunks. Throws an OllamaError when the stream stalls past the timeouts or
+ * ends without Ollama's final `done` chunk, so a dropped connection never passes for a finished reply.
+ * Aborting `signal` still surfaces as an AbortError, which callers treat as the user stopping.
+ */
+export async function* chatStream(body: ChatBody, signal: AbortSignal, timeouts: StreamTimeouts = STREAM_TIMEOUTS): AsyncGenerator<ChatChunk> {
+  const inner = new AbortController()
+  const forward = () => inner.abort(signal.reason)
+  if (signal.aborted) forward()
+  else signal.addEventListener('abort', forward, { once: true })
+  let stalled: string | null = null
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const arm = (ms: number, message: string) => {
+    clearTimeout(timer)
+    timer = setTimeout(() => {
+      stalled = message
+      inner.abort()
+    }, ms)
+  }
+
+  arm(timeouts.firstByteMs, `Ollama didn't start replying within ${Math.round(timeouts.firstByteMs / 60_000)} minutes. Check that it's running, then retry.`)
+  try {
+    const res = await request('/api/chat', {
+      method: 'POST',
+      body: JSON.stringify({ ...body, stream: true }),
+      signal: inner.signal,
+      model: body.model
+    })
+    if (!res.body) throw new OllamaError('Ollama returned an empty response')
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    const idleMs = body.tools?.length ? timeouts.toolIdleMs : timeouts.idleMs
+    const idle = `Ollama stopped responding in the middle of the reply (nothing for ${Math.round(idleMs / 60_000)} minutes).`
+    let buffer = ''
+    let finished = false
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (done) break
+      arm(idleMs, idle)
+      buffer += decoder.decode(value, { stream: true })
+      let nl: number
+      while ((nl = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, nl).trim()
+        buffer = buffer.slice(nl + 1)
+        if (!line) continue
+        const chunk = parseChunk(line)
+        if (chunk.error) throw new OllamaError(chunk.error)
+        if (chunk.done) finished = true
+        yield chunk
+      }
+    }
+    buffer += decoder.decode()
+    if (buffer.trim()) {
+      const chunk = parseChunk(buffer.trim())
+      if (chunk.error) throw new OllamaError(chunk.error)
+      if (chunk.done) finished = true
+      yield chunk
+    }
+    if (!finished) throw new OllamaError('The connection to Ollama dropped before the reply finished.')
+  } catch (err) {
+    if (stalled && !signal.aborted) throw new OllamaError(stalled)
+    throw err
+  } finally {
+    clearTimeout(timer)
+    signal.removeEventListener('abort', forward)
+    // A consumer that stops early (break or throw) must not leave Ollama generating into an unread socket.
+    inner.abort()
+  }
+}
+
+export async function chatOnce(body: ChatBody, opts: { signal?: AbortSignal; timeoutMs: number }): Promise<ChatChunk> {
+  const timeout = AbortSignal.timeout(opts.timeoutMs)
   const res = await request('/api/chat', {
     method: 'POST',
     body: JSON.stringify({ ...body, stream: false }),
-    signal,
+    signal: opts.signal ? AbortSignal.any([opts.signal, timeout]) : timeout,
     model: body.model
   })
   return (await res.json()) as ChatChunk

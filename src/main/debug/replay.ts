@@ -25,7 +25,7 @@ export async function replayRequest(conversationId: string | null, raw: unknown)
     summary: 'Replay…'
   })
   try {
-    const res = await chatOnce(request)
+    const res = await chatOnce(request, { timeoutMs: 10 * 60_000 })
     trace.firstByte()
     const { message, ...final } = res
     const promptTokens = res.prompt_eval_count ?? 0

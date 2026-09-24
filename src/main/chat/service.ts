@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { BrowserWindow } from 'electron'
 import { parseMessage } from '@shared/artifactParser'
 import { normalizeSpaces } from '@shared/text'
+import { contextOptions, effectiveContext } from '@shared/context'
 import { EVENT_CHANNELS } from '@shared/ipc'
 import { resolveThinkProfile, toOllamaThink } from '@shared/thinking'
 import type {
@@ -18,6 +19,7 @@ import type {
 import { addArtifactVersion, listArtifacts, pruneEmptyArtifacts } from '../db/artifacts'
 import {
   attachmentRowsForMessage,
+  checkpointMessage,
   createConversation,
   deleteMessagesFrom,
   getConversation,
@@ -25,13 +27,14 @@ import {
   insertMessage,
   linkAttachments,
   listMessages,
+  unfinishedReplyIds,
   updateConversation,
   updateMessage
 } from '../db/conversations'
 import { getProject, projectKnowledge, touchProject } from '../db/projects'
 import { imageForModel, removeFiles } from '../files/ingest'
-import { type ChatBody, type ChatChunk, chatOnce, chatStream, endpointFor, type ToolCall } from '../ollama/client'
-import { getModelInfo, isCloudName } from '../ollama/models'
+import { type ChatBody, type ChatChunk, chatOnce, chatStream, endpointFor, streamTimeoutsFor, type ToolCall } from '../ollama/client'
+import { getModelInfo } from '../ollama/models'
 import { webAvailable, webEndpoint } from '../ollama/web'
 import { startTrace, type Trace } from '../debug/traces'
 import { paths } from '../paths'
@@ -42,12 +45,24 @@ import { requestCost } from '../usage/pricing'
 import { errorMessage, estimateTokens } from '../util'
 import { assemble, type HistoryTurn } from './assemble'
 import { TITLE_PROMPT } from './prompts'
-import { pendingEvent, runTool, type ToolContext, toolsFor } from './tools'
+import { pendingEvent, runTool, settleToolEvent, type ToolContext, type ToolResult, toolsFor } from './tools'
 import type { WebStatus } from './prompts'
 
 // Room for a search, a few page reads and a skill load; the last round is always tool-free.
 const MAX_TOOL_ROUNDS = 6
-const active = new Map<string, AbortController>()
+// How often a streaming reply is saved, so a quit or crash loses at most this much.
+const CHECKPOINT_MS = 1500
+
+/**
+ * Replies in progress, by conversation. `settled` resolves once the reply has been saved. `quiet` marks a
+ * stop made for a delete or a quit, where the chat won't be seen again, so no title is generated.
+ */
+interface Run {
+  controller: AbortController
+  flags: { quiet: boolean }
+  settled: Promise<void>
+}
+const active = new Map<string, Run>()
 
 function emit(event: ChatEvent): void {
   for (const win of BrowserWindow.getAllWindows()) win.webContents.send(EVENT_CHANNELS.chat, event)
@@ -96,8 +111,44 @@ export async function edit(messageId: string, content: string, opts: { model: st
   return startAssistant(conversation, user, opts.model, opts.think)
 }
 
-export function stop(conversationId: string): void {
-  active.get(conversationId)?.abort()
+/**
+ * Stop a reply and wait until what it produced has been saved. Pass `quiet` when stopping for a delete or
+ * a quit; a plain Stop still lets a new chat get its title.
+ */
+export function stop(conversationId: string, opts: { quiet?: boolean } = {}): Promise<void> {
+  const run = active.get(conversationId)
+  if (!run) return Promise.resolve()
+  if (opts.quiet) run.flags.quiet = true
+  run.controller.abort()
+  return run.settled
+}
+
+export const isReplying = (): boolean => active.size > 0
+
+/**
+ * Replies that were still streaming when Kiln last quit or crashed. Their checkpointed text is kept;
+ * they're marked so the chat shows what happened and offers Retry. Run once at startup.
+ */
+export function markInterruptedReplies(): number {
+  const ids = unfinishedReplyIds()
+  for (const id of ids) {
+    const m = getMessage(id)!
+    // Passing the content indexes it for search; checkpoints skip indexing.
+    updateMessage(id, {
+      content: m.content,
+      toolEvents: m.toolEvents.map(settleToolEvent),
+      error: 'Kiln closed before this reply finished.'
+    })
+  }
+  return ids.length
+}
+
+/**
+ * Quietly stop every reply in progress (or those in chats matching `which`) and wait for each to save.
+ * Used before quitting and deleting a project.
+ */
+export async function stopAll(which: (conversationId: string) => boolean = () => true): Promise<void> {
+  await Promise.all([...active.keys()].filter(which).map((id) => stop(id, { quiet: true })))
 }
 
 async function dropAfter(conversationId: string, messages: Message[], index: number): Promise<void> {
@@ -110,8 +161,14 @@ async function dropAfter(conversationId: string, messages: Message[], index: num
 function startAssistant(conversation: Conversation, parent: Message, model: string, think: ThinkSetting | null): SendResult {
   const assistant = insertMessage({ conversationId: conversation.id, parentId: parent.id, role: 'assistant', content: '', model })
   const controller = new AbortController()
-  active.set(conversation.id, controller)
-  void generate(conversation.id, assistant.id, model, think, controller).finally(() => active.delete(conversation.id))
+  const flags = { quiet: false }
+  const settled = generate(conversation.id, assistant.id, model, think, controller, flags)
+    .catch((err) => console.error('Kiln: a reply failed to finish', err))
+    .finally(() => {
+      // Only remove our own entry: a reply that overlapped this one must stay stoppable.
+      if (active.get(conversation.id)?.controller === controller) active.delete(conversation.id)
+    })
+  active.set(conversation.id, { controller, flags, settled })
   return { conversation, userMessage: parent, assistantMessageId: assistant.id }
 }
 
@@ -137,7 +194,8 @@ async function generate(
   messageId: string,
   modelName: string,
   think: ThinkSetting | null,
-  controller: AbortController
+  controller: AbortController,
+  flags: Run['flags']
 ): Promise<void> {
   let content = ''
   let thinking = ''
@@ -169,6 +227,14 @@ async function generate(
 
   const delta = (d: { content?: string; thinking?: string }) => emit({ type: 'delta', conversationId, messageId, ...d })
 
+  // Save progress now and then, so a quit or crash keeps the partial reply (see markInterruptedReplies).
+  let savedAt = Date.now()
+  const checkpoint = () => {
+    if (Date.now() - savedAt < CHECKPOINT_MS) return
+    savedAt = Date.now()
+    checkpointMessage(messageId, { content, thinking: thinking || null, toolEvents })
+  }
+
   try {
     const conversation = getConversation(conversationId)!
     const settings = getSettings()
@@ -176,6 +242,7 @@ async function generate(
     const profile = resolveThinkProfile(modelName, model.capabilities, model.overrides.think)
     const vision = model.capabilities.includes('vision')
     const toolsCapable = model.capabilities.includes('tools')
+    const numCtx = effectiveContext(model, settings.localNumCtx)
     const autoSkills = settings.skills.autoLoad && toolsCapable && model.overrides.autoSkills !== false
     const web: WebStatus = !settings.web.enabled ? 'off' : !toolsCapable ? 'unsupported' : webAvailable() ? 'on' : 'no-key'
 
@@ -198,7 +265,7 @@ async function generate(
 
     const assembled = assemble({
       model: modelName,
-      contextLength: model.contextLength,
+      contextLength: numCtx,
       userName: settings.userName,
       preferences: settings.preferences,
       date: new Date(),
@@ -212,7 +279,7 @@ async function generate(
       history
     })
     if (assembled.droppedTurns) stats.truncatedHistory = assembled.droppedTurns
-    const toolContext: ToolContext = { skills: skillIndex.length > 0, web: web === 'on' }
+    const toolContext: ToolContext = { skills: skillIndex.length > 0, web: web === 'on', signal: controller.signal }
 
     const body: ChatBody = {
       model: modelName,
@@ -220,9 +287,7 @@ async function generate(
       think: toOllamaThink(profile, think),
       tools: toolsFor(toolContext),
       // Cloud models manage their own context; local ones default to a small window unless told otherwise.
-      options: isCloudName(modelName)
-        ? undefined
-        : { num_ctx: Math.min(model.contextLength ?? settings.localNumCtx, settings.localNumCtx) }
+      options: contextOptions(model, settings.localNumCtx)
     }
 
     const triedUnknown: string[] = []
@@ -246,7 +311,7 @@ async function generate(
         summary: 'Streaming…'
       })
       let chunks = 0
-      for await (const chunk of chatStream(body, controller.signal)) {
+      for await (const chunk of chatStream(body, controller.signal, streamTimeoutsFor(model.location))) {
         chunks++
         roundTrace.firstByte()
         const m = chunk.message
@@ -270,6 +335,7 @@ async function generate(
         }
         if (m?.tool_calls?.length) calls.push(...m.tool_calls)
         if (chunk.done) final = chunk
+        checkpoint()
       }
       const billed = recordRound(final)
       const { message: _message, ...finalStats } = final ?? { done: true }
@@ -304,7 +370,14 @@ async function generate(
           request: { tool: call.function.name, arguments: call.function.arguments },
           summary: `${pending.tool}: ${pending.summary}`
         })
-        const result = await runTool(call, toolContext)
+        let result: ToolResult
+        try {
+          result = await runTool(call, toolContext)
+        } catch (err) {
+          // Only a stop gets here (tool failures come back as results); close the trace before unwinding.
+          toolTrace.finish({ status: 'aborted', response: { error: 'Stopped by you' }, summary: `${pending.tool}: stopped` })
+          throw err
+        }
         toolTrace.finish({
           status: result.event.ok ? 'ok' : 'error',
           response: { result: result.content, error: result.event.ok ? undefined : result.event.summary },
@@ -320,6 +393,9 @@ async function generate(
           updateConversation(conversationId, { autoSkills: loadedIds })
         }
         body.messages.push({ role: 'tool', content: result.content, tool_name: call.function.name })
+        checkpoint()
+        // Checked only after the result is recorded, so a call that finished isn't saved as stopped.
+        controller.signal.throwIfAborted()
       }
       // A model reaching for tools Kiln lacks keeps guessing names; after one explanation, take the
       // tools away so the next request has to be answered in words.
@@ -346,6 +422,9 @@ async function generate(
     })
   }
 
+  // The chat was deleted while replying: there's nothing left to save or show.
+  if (!getMessage(messageId)) return
+
   stats.durationMs = Date.now() - startedAt
   if (evalNs && stats.completionTokens) stats.tokensPerSecond = stats.completionTokens / (evalNs / 1e9)
   if (thinkStart) stats.thinkingMs = (thinkEnd ?? Date.now()) - thinkStart
@@ -353,7 +432,8 @@ async function generate(
   const message = updateMessage(messageId, {
     content: content.trimEnd(),
     thinking: thinking || null,
-    toolEvents,
+    // A tool still running when the reply stopped never finished.
+    toolEvents: toolEvents.map(settleToolEvent),
     stats,
     error
   })
@@ -368,7 +448,8 @@ async function generate(
     usage: conversationUsage(conversationId)
   })
 
-  if (!error && message.content && getConversation(conversationId)?.title === 'New chat')
+  // A plain Stop still titles a new chat; a stop for a delete or a quit doesn't start a title request.
+  if (!error && !flags.quiet && message.content && getConversation(conversationId)?.title === 'New chat')
     void generateTitle(conversationId, modelName)
 }
 
@@ -444,7 +525,8 @@ async function generateTitle(conversationId: string, chatModel: string): Promise
         { role: 'user', content: transcript }
       ],
       think: profile.kind === 'levels' ? 'low' : profile.kind === 'toggle' ? false : undefined,
-      options: { temperature: 0.3 }
+      // Same num_ctx as the chat: a different one makes Ollama reload a local model just for the title.
+      options: { temperature: 0.3, ...contextOptions(info, getSettings().localNumCtx) }
     }
     titleTrace = startTrace({
       kind: 'title',
@@ -455,7 +537,8 @@ async function generateTitle(conversationId: string, chatModel: string): Promise
       request: { ...titleBody, stream: false },
       summary: 'Generating title…'
     })
-    const res = await chatOnce(titleBody)
+    // Bounded: a title is never worth a request that hangs forever (it may still need a cold model load).
+    const res = await chatOnce(titleBody, { timeoutMs: 5 * 60_000 })
     titleTrace.firstByte()
     title = cleanTitle(res.message?.content ?? '')
     const promptTokens = res.prompt_eval_count ?? estimateTokens(transcript)

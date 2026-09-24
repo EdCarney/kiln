@@ -2,6 +2,7 @@ import { join } from 'node:path'
 import { app, BrowserWindow, Menu, type MenuItemConstructorOptions, nativeTheme, shell } from 'electron'
 import { EVENT_CHANNELS } from '@shared/ipc'
 import { currentBackground, currentThemeSource } from './background'
+import { isReplying, markInterruptedReplies, stopAll } from './chat/service'
 import { openDatabase } from './db/index'
 import { settleStaleTraces } from './debug/traces'
 import { staleAttachmentPaths } from './db/conversations'
@@ -16,7 +17,10 @@ app.setName('Kiln')
 if (process.env.KILN_USER_DATA) app.setPath('userData', process.env.KILN_USER_DATA)
 registerSchemes()
 
-if (!app.requestSingleInstanceLock()) app.quit()
+// A second launch hands off to the running instance. app.quit() is asynchronous, so whenReady below
+// must also bail out, or this process would touch the shared database (e.g. mark live replies interrupted).
+const hasLock = app.requestSingleInstanceLock()
+if (!hasLock) app.quit()
 
 let mainWindow: BrowserWindow | null = null
 
@@ -118,8 +122,10 @@ app.on('second-instance', () => {
 })
 
 app.whenReady().then(async () => {
+  if (!hasLock) return
   initPaths()
   openDatabase(paths.db)
+  markInterruptedReplies()
   settleStaleTraces()
   await removeFiles(staleAttachmentPaths(Date.now() - 24 * 60 * 60 * 1000))
   handleProtocols()
@@ -132,6 +138,16 @@ app.whenReady().then(async () => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+})
+
+// Quitting mid-reply: stop the stream and save what arrived before the process exits.
+let quitting = false
+app.on('before-quit', (event) => {
+  if (quitting || !isReplying()) return
+  event.preventDefault()
+  quitting = true
+  const timeout = new Promise((resolve) => setTimeout(resolve, 3000))
+  void Promise.race([stopAll(), timeout]).finally(() => app.quit())
 })
 
 app.on('window-all-closed', () => {

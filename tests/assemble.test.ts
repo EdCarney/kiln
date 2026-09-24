@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { assemble, type AssembleInput, type HistoryTurn } from '../src/main/chat/assemble'
+import { effectiveContext } from '../src/shared/context'
 
 const turn = (role: 'user' | 'assistant', content: string, extra: Partial<HistoryTurn> = {}): HistoryTurn => ({
   role,
@@ -81,5 +82,26 @@ describe('assemble', () => {
     expect(out.droppedTurns).toBeGreaterThan(0)
     expect(out.messages[out.messages.length - 1].content).toBe('latest')
     expect(out.messages[1].role).toBe('user')
+  })
+})
+
+describe('effectiveContext', () => {
+  it('caps local models at the num_ctx setting', () => {
+    expect(effectiveContext({ location: 'local', contextLength: 131_072 }, 32_768)).toBe(32_768)
+    expect(effectiveContext({ location: 'local', contextLength: 8_192 }, 32_768)).toBe(8_192)
+    expect(effectiveContext({ location: 'local', contextLength: null }, 32_768)).toBe(32_768)
+  })
+
+  it('gives cloud models their full length', () => {
+    expect(effectiveContext({ location: 'cloud', contextLength: 262_144 }, 32_768)).toBe(262_144)
+    expect(effectiveContext({ location: 'cloud', contextLength: null }, 32_768)).toBeNull()
+  })
+
+  it('trims history to the window Ollama will actually open', () => {
+    const history = Array.from({ length: 40 }, (_, i) => turn(i % 2 ? 'assistant' : 'user', 'x'.repeat(4_000)))
+    const window = effectiveContext({ location: 'local', contextLength: 131_072 }, 32_768)
+    const out = assemble({ ...base, contextLength: window, history })
+    expect(out.droppedTurns).toBeGreaterThan(0)
+    expect(out.estimatedTokens).toBeLessThanOrEqual(32_768)
   })
 })

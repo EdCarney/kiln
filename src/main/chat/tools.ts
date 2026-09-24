@@ -70,6 +70,8 @@ export const WEB_TOOLS: OllamaTool[] = [
 export interface ToolContext {
   skills: boolean
   web: boolean
+  /** The reply's stop signal: web requests are cancelled with it. */
+  signal?: AbortSignal
 }
 
 export function toolsFor(ctx: ToolContext): OllamaTool[] | undefined {
@@ -115,10 +117,15 @@ const hostOf = (url: string): string => {
   }
 }
 
-async function runWebTool(call: NonNullable<ReturnType<typeof resolveWebCall>>, name: string, args: Record<string, unknown>): Promise<ToolResult> {
+async function runWebTool(
+  call: NonNullable<ReturnType<typeof resolveWebCall>>,
+  name: string,
+  args: Record<string, unknown>,
+  signal: AbortSignal | undefined
+): Promise<ToolResult> {
   const via = name === call.tool ? {} : { via: name }
   if (call.tool === 'web_search') {
-    const results = await webSearch(call.query, call.maxResults)
+    const results = await webSearch(call.query, call.maxResults, signal)
     const body = results.length
       ? results.map((r, i) => `[${i + 1}] ${r.title}\n${r.url}\n${r.content.trim().slice(0, 1200)}`).join('\n\n')
       : 'No results.'
@@ -127,7 +134,7 @@ async function runWebTool(call: NonNullable<ReturnType<typeof resolveWebCall>>, 
       event: { tool: 'web_search', args: { query: call.query, results: results.length, ...via }, ok: true, summary: call.query }
     }
   }
-  const page = await webFetch(call.url)
+  const page = await webFetch(call.url, signal)
   const text = page.content.length > MAX_PAGE_CHARS ? `${page.content.slice(0, MAX_PAGE_CHARS)}\n[… page truncated]` : page.content
   const links = page.links.slice(0, 25).join('\n')
   return {
@@ -149,6 +156,11 @@ function argsOf(call: ToolCall): Record<string, unknown> {
   return raw ?? {}
 }
 
+/** A call that was still running when the reply stopped: show it as stopped, not spinning forever. */
+export function settleToolEvent(e: ToolEvent): ToolEvent {
+  return e.pending ? { ...e, pending: false, ok: false, summary: `${e.summary} (stopped)` } : e
+}
+
 /** What to show while a call runs, before its result is known. */
 export function pendingEvent(call: ToolCall, ctx: ToolContext): ToolEvent {
   const args = argsOf(call)
@@ -163,8 +175,9 @@ export async function runTool(call: ToolCall, ctx: ToolContext): Promise<ToolRes
   const web = ctx.web ? resolveWebCall(name, args) : null
   if (web) {
     try {
-      return await runWebTool(web, name, args)
+      return await runWebTool(web, name, args, ctx.signal)
     } catch (err) {
+      if (ctx.signal?.aborted) throw err
       const message = errorMessage(err)
       return { content: `Error: ${message}`, event: { tool: web.tool, args, ok: false, summary: message } }
     }

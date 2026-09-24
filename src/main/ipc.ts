@@ -4,7 +4,7 @@ import { artifactExtension, slugify } from '@shared/artifactParser'
 import { EVENT_CHANNELS, type KilnApi } from '@shared/ipc'
 import { BUILTIN_THEMES } from '@shared/themes'
 import type { ThemeDef } from '@shared/types'
-import { edit, regenerate, send, stop } from './chat/service'
+import { edit, regenerate, send, stop, stopAll } from './chat/service'
 import { addArtifactVersion, getArtifact, listAllArtifacts, listArtifacts } from './db/artifacts'
 import {
   deleteConversation,
@@ -103,7 +103,11 @@ const impl: Impl = {
     get: async (id) => getProject(id),
     create: async (input) => createProject(input),
     update: async (id, patch) => updateProject(id, patch),
-    delete: async (id) => removeFiles(deleteProject(id)),
+    delete: async (id) => {
+      // Let replies in the project's chats finish saving before their rows go.
+      await stopAll((conversationId) => getConversation(conversationId)?.projectId === id)
+      await removeFiles(deleteProject(id))
+    },
     files: async (id) => listProjectFiles(id),
     addFiles: async (id, sources) => {
       const { ok, errors } = await ingestAll(sources)
@@ -142,7 +146,8 @@ const impl: Impl = {
     },
     update: async (id, patch) => updateConversation(id, patch),
     delete: async (id) => {
-      stop(id)
+      // Wait for a reply in progress to stop and save, so it never writes to a deleted chat.
+      await stop(id, { quiet: true })
       await removeFiles(deleteConversation(id))
     },
     search: async (q) => search(q)

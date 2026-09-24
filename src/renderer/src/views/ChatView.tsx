@@ -125,6 +125,7 @@ export function ChatView({ id }: { id: string }) {
         <div className="mx-auto" style={{ maxWidth: 'var(--k-chat-width)' }}>
           <Composer
             conversation={current}
+            draftKey={id}
             streaming={!!stream}
             autoFocus
             onStop={() => api.chat.stop(id)}

@@ -17,7 +17,7 @@ interface ChatRequest {
   messages?: Array<{ role?: string; content?: string; images?: unknown[]; thinking?: string; tool_calls?: unknown[]; tool_name?: string }>
   tools?: Array<{ function?: { name?: string; description?: string; parameters?: unknown } }>
   think?: unknown
-  options?: unknown
+  options?: { num_ctx?: number } & Record<string, unknown>
 }
 
 function Section({ title, children, actions }: { title: string; children: ReactNode; actions?: ReactNode }) {

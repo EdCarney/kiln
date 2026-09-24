@@ -4,7 +4,7 @@ import { formatCost, formatDollars, formatPercent, formatTimeLeft, type Pace, ty
 import type { AccountUsage, ChatUsage, UsageSummary, UsageWindow } from '@shared/types'
 import { api } from '@/lib/api'
 import { cn, displayModelName, formatContext, formatTokens, relativeTime } from '@/lib/format'
-import { findModel, useApp } from '@/stores/app'
+import { contextWindowFor, findModel, useApp } from '@/stores/app'
 import { useUsage } from '@/stores/usage'
 import { PopoverContent, PopoverRoot, PopoverTrigger, Spinner } from './ui'
 
@@ -268,11 +268,12 @@ export function AccountQuota() {
 
 export function ChatCost({ usage, model: modelName }: { usage: ChatUsage | null; model: string | null }) {
   const models = useApp((s) => s.models)
-  const showInHeader = useApp((s) => s.settings?.usage.showInHeader)
-  if (!showInHeader || !usage || usage.promptTokens + usage.completionTokens === 0) return null
+  const settings = useApp((s) => s.settings)
+  if (!settings?.usage.showInHeader || !usage || usage.promptTokens + usage.completionTokens === 0) return null
   const model = findModel(models, modelName)
   const total = usage.promptTokens + usage.completionTokens
-  const context = model?.contextLength && usage.lastContextTokens ? usage.lastContextTokens / model.contextLength : null
+  const contextWindow = contextWindowFor(model, settings)
+  const context = contextWindow && usage.lastContextTokens ? usage.lastContextTokens / contextWindow : null
   const allLocal = usage.byModel.every((m) => m.costUsd === 0)
   const cost = allLocal ? 'local' : usage.costUsd === null ? 'cost unknown' : `${usage.estimated ? '≈' : ''}${formatCost(usage.costUsd)}`
 
@@ -313,7 +314,7 @@ export function ChatCost({ usage, model: modelName }: { usage: ChatUsage | null;
               <div className="flex justify-between text-xs">
                 <span className="text-muted">Context window</span>
                 <span className="tabular-nums">
-                  {formatTokens(usage.lastContextTokens!)} of {formatContext(model.contextLength)} ({Math.round(context * 100)}%)
+                  {formatTokens(usage.lastContextTokens!)} of {formatContext(contextWindow)} ({Math.round(context * 100)}%)
                 </span>
               </div>
               <span className="block h-1.5 overflow-hidden rounded-full bg-hover">

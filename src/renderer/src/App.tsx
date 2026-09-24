@@ -87,7 +87,8 @@ function CurrentView() {
     case 'home':
       return <HomeView />
     case 'chat':
-      return <ChatView id={route.id} />
+      // Keyed so each chat gets fresh view state (scroll position, composer menus).
+      return <ChatView key={route.id} id={route.id} />
     case 'chats':
       return <ChatsView />
     case 'projects':

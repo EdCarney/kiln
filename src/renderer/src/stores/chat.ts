@@ -59,6 +59,9 @@ const emptyStream = (messageId: string): StreamState => ({
   thinkingEndedAt: null
 })
 
+// Each open() gets a number; a response is applied only if no later open() started meanwhile.
+let openSeq = 0
+
 export const useChat = create<ChatState>((set, get) => ({
   conversation: null,
   messages: [],
@@ -69,8 +72,11 @@ export const useChat = create<ChatState>((set, get) => ({
 
   open: async (id) => {
     if (get().conversation?.id === id && !get().loading) return
+    const seq = ++openSeq
     set({ loading: true, conversation: null, messages: [], artifacts: [], usage: null })
     const detail = await api.conversations.get(id)
+    // Switched chats before this one loaded: showing it now would put its messages under the new chat.
+    if (seq !== openSeq) return
     if (!detail) {
       set({ loading: false })
       useApp.getState().navigate({ name: 'home' })
