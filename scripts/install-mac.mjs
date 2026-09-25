@@ -1,7 +1,7 @@
 // Build, package and install Kiln into /Applications (replacing any previous copy), then open it.
 // Your data in ~/Library/Application Support/Kiln is untouched.
 import { execFileSync, execSync } from 'node:child_process'
-import { existsSync, readdirSync, rmSync } from 'node:fs'
+import { existsSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 
 const run = (cmd) => execSync(cmd, { stdio: 'inherit' })
@@ -17,9 +17,10 @@ const running = () => {
 run('npx electron-vite build')
 run('npx electron-builder --mac --dir')
 
-const distDir = readdirSync('dist').find((d) => d.startsWith('mac') && existsSync(join('dist', d, 'Kiln.app')))
-if (!distDir) throw new Error('Packaged Kiln.app not found under dist/')
-const built = join('dist', distDir, 'Kiln.app')
+// --dir packages only this machine's architecture, but `npm run dist` leaves both chips' builds
+// in dist/ (x64 in dist/mac), so pick this one explicitly.
+const built = join('dist', process.arch === 'arm64' ? 'mac-arm64' : 'mac', 'Kiln.app')
+if (!existsSync(built)) throw new Error(`Packaged Kiln.app not found at ${built}`)
 const target = '/Applications/Kiln.app'
 
 if (running()) {

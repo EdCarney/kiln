@@ -4,7 +4,22 @@ A desktop chat app in the style of the Claude desktop app, running on your Ollam
 
 Features: projects (instructions + knowledge files), pinned chats and projects, searchable history, attachments (images, PDF, DOCX, XLSX, text/code), a model picker that adapts to each model's capabilities, thinking/effort controls, skills (`SKILL.md`), artifacts in a side panel, live token/cost and quota tracking, web search, and fully customisable themes.
 
-## Run it
+## Install
+
+On any Mac (Apple Silicon or Intel), without a checkout:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/EdCarney/kiln/main/scripts/install.sh | bash
+```
+
+This downloads the right build from the latest [release](https://github.com/EdCarney/kiln/releases/latest), installs it as `/Applications/Kiln.app` (quitting and replacing any older copy), and opens it. Run it again to upgrade. You'll also need the [Ollama app](https://ollama.com) running; for cloud models, run `ollama signin` once.
+
+- **Why `curl`.** Kiln isn't signed with an Apple Developer ID. Browsers mark downloads as quarantined, and macOS won't open a quarantined unsigned app: it says Kiln "can't be verified" or "is damaged". `curl` doesn't add that mark. If you downloaded the `.dmg` or `.zip` from the releases page in a browser, either allow it in System Settings → Privacy & Security → Open Anyway, or run `xattr -dr com.apple.quarantine /Applications/Kiln.app`.
+- **Each Mac has its own data.** Chats, projects and skills live in `~/Library/Application Support/Kiln/` and don't sync. Upgrading leaves them alone.
+- **The ollama.com API key is per Mac.** It's encrypted with that Mac's Keychain, so enter it on each machine. After an upgrade, macOS may ask to let Kiln use "Kiln Safe Storage"; choose Always Allow.
+- **Local Ollama is per Mac too.** Anything that goes through the Ollama app needs it installed and signed in on that machine.
+
+## Run it from source
 
 Requirements: macOS, Node 22+, and the [Ollama app](https://ollama.com) running. For cloud models, run `ollama signin` once.
 
@@ -12,7 +27,7 @@ Requirements: macOS, Node 22+, and the [Ollama app](https://ollama.com) running.
 npm install
 npm run dev        # development, with hot reload
 npm run build      # production bundle in out/
-npm run dist       # Kiln.dmg in dist/  (or: npx electron-builder --mac --dir  for just the .app)
+npm run dist       # Kiln-arm64/x64 .dmg and .zip in dist/  (or: npx electron-builder --mac --dir  for just the .app)
 npm run install:mac  # build, then install/replace /Applications/Kiln.app and open it
 ```
 
@@ -92,6 +107,18 @@ The e2e run checks:
 - theme persistence
 
 Screenshots go to `e2e/shots/`. Set `KILN_DEBUG=1` to log every request Kiln sends to Ollama to `debug.log` in the data folder.
+
+## Releasing
+
+1. Bump `version` in `package.json` and merge it to `main`.
+2. Tag that commit and push the tag:
+   ```sh
+   git tag v0.2.0 && git push origin v0.2.0
+   ```
+
+`.github/workflows/release.yml` then runs on a macOS runner. It checks the tag matches `package.json`, runs the typecheck and unit tests, builds, and creates the GitHub Release with `Kiln-arm64.zip`, `Kiln-x64.zip` and the matching `.dmg`s. The file names don't change between versions, so `releases/latest/download/Kiln-arm64.zip` (which the install script uses) always points at the newest build.
+
+Builds are signed ad hoc (`identity: '-'` in `electron-builder.yml`), which is enough for Apple Silicon to run them but not for Gatekeeper to trust a browser download. Signing with a Developer ID and notarizing would remove the browser warning and allow auto-updates with `electron-updater`, but needs the paid Apple Developer Program.
 
 ## Known limits (deliberately deferred)
 
