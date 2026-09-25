@@ -5,8 +5,8 @@
  * Swap them for spaces those fonts do have: non-breaking ones stay non-breaking (U+00A0).
  * U+3000 (ideographic space) is left alone; CJK fallback fonts draw it correctly.
  */
-const NON_BREAKING = /[  ]/g
-const BREAKING = /[  -    ]/g
+const NON_BREAKING = /[\u202f\u2007]/g
+const BREAKING = /[\u1680\u2000-\u2006\u2008\u200a\u205f]/g
 
 export function normalizeSpaces(text: string): string {
   return text.replace(NON_BREAKING, ' ').replace(BREAKING, ' ')

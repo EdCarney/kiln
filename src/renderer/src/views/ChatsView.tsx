@@ -10,6 +10,7 @@ import { useApp } from '@/stores/app'
 
 /** Render FTS snippets (matches wrapped in \u0001…\u0002) without touching innerHTML. */
 export function Snippet({ text }: { text: string }) {
+  // eslint-disable-next-line no-control-regex -- \u0001 and \u0002 are the match markers search asks SQLite to insert
   const parts = text.split(/(\u0001[^\u0002]*\u0002)/)
   return (
     <>

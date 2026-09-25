@@ -74,7 +74,7 @@ function assertIdle(conversationId: string): void {
 
 export function send(req: SendRequest): SendResult {
   if (!req.content.trim() && !req.attachmentIds.length) throw new Error('Message is empty')
-  let conversation: Conversation | null = null
+  let conversation: Conversation | null
   if (req.conversationId) {
     conversation = getConversation(req.conversationId)
     if (!conversation) throw new Error('Conversation not found')

@@ -68,7 +68,8 @@ export function TraceView({ trace, conversationId }: { trace: TraceDetail; conve
   const isModelCall = trace.kind !== 'tool'
   const [tab, setTab] = useState<Tab>('overview')
   const [target, setTarget] = useState<{ chatEndpoint: string; needsKey: boolean } | null>(null)
-  const request = (trace.request ?? {}) as ChatRequest
+  // Memoised so a trace without a request doesn't get a fresh `{}` each render and recompute the anatomy.
+  const request = useMemo(() => (trace.request ?? {}) as ChatRequest, [trace.request])
   const anatomy = useMemo(() => (isModelCall ? promptAnatomy(request) : null), [isModelCall, request])
 
   useEffect(() => {
