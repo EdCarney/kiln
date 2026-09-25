@@ -206,7 +206,7 @@ function ToolEvents({ events }: { events: ToolEvent[] }) {
         </span>
       ))}
       {unavailable.length > 0 && (
-        <Tooltip content="The model tried tools Kiln doesn't provide. Kiln can't browse the web or run code.">
+        <Tooltip content="The model tried tools that aren't available in this chat.">
           <span className="flex items-center gap-1.5 rounded-lg border border-line px-2 py-1 font-ui text-xs text-muted">
             <Ban className="size-3.5 text-warn" />
             Tried unavailable {unavailable.length === 1 ? 'tool' : 'tools'}:{' '}

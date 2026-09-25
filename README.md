@@ -73,7 +73,7 @@ tests/           Vitest unit tests      e2e/   live Playwright run against real 
   - The key stays in the main process and never enters a prompt.
   - Web content is marked as untrusted data, so the model is told not to follow instructions found in pages.
   - Every search and page read shows as a badge in the chat. Click a page badge to open it in your browser.
-  - gpt-oss-style names (`browser.open`, `web.run`, …) are routed to the real tools.
+  - gpt-oss-style names (`browser.open`, `web.run`, …) are routed to the real tools, but only when no offered tool has that name. Tools come from providers registered in `src/main/chat/tools.ts` (skills and web today), and an exact name always wins over an alias.
   - Tools a model invents get one explanation, then they're withdrawn so the turn still ends with an answer.
 - **Links.** Hovering a link in a reply shows a card with its destination: site, full URL, and whether it opens in your browser. It warns when the link text names a different domain than the real destination.
   - An opt-in setting (Settings → Web, artifacts & skills) adds the page's title, description and image, fetched from your Mac.
