@@ -5,7 +5,10 @@ import { afterAll, describe, expect, it, vi } from 'vitest'
 import type { Skill } from '@shared/types'
 
 vi.mock('electron', () => ({ shell: {} }))
-vi.mock('../src/main/settings', () => ({ getSettings: () => ({ skills: { sources: {}, disabled: [], enabledImports: [] } }), updateSettings: () => undefined }))
+vi.mock('../src/main/settings', () => ({
+  getSettings: () => ({ skills: { sources: {}, disabled: [], enabledImports: [] } }),
+  updateSettings: () => undefined
+}))
 
 const { readSkillFile } = await import('../src/main/skills/library')
 
@@ -20,7 +23,17 @@ symlinkSync(base, join(dir, 'outside'))
 symlinkSync(join(dir, 'references', 'guide.md'), join(dir, 'alias.md'))
 afterAll(() => rmSync(base, { recursive: true, force: true }))
 
-const skill: Skill = { id: 'app:helper', name: 'helper', description: '', source: 'app', dir, readOnly: false, hasScripts: false, enabled: true, files: [] }
+const skill: Skill = {
+  id: 'app:helper',
+  name: 'helper',
+  description: '',
+  source: 'app',
+  dir,
+  readOnly: false,
+  hasScripts: false,
+  enabled: true,
+  files: []
+}
 
 describe('readSkillFile', () => {
   it('reads files inside the skill', async () => {

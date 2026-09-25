@@ -38,9 +38,7 @@ describe('assemble', () => {
       selectedSkills: [{ name: 'tone', body: 'Write warmly.', files: [], hasScripts: false }]
     })
     const sys = messages[0].content
-    const order = ['Kiln', '<project name="Trip">', '<project_knowledge>', '<artifacts>', '<selected_skills>'].map((s) =>
-      sys.indexOf(s)
-    )
+    const order = ['Kiln', '<project name="Trip">', '<project_knowledge>', '<artifacts>', '<selected_skills>'].map((s) => sys.indexOf(s))
     expect(order.every((i) => i >= 0)).toBe(true)
     expect([...order].sort((a, b) => a - b)).toEqual(order)
     expect(sys).toContain('Lisbon in May')
@@ -109,7 +107,8 @@ describe('effectiveContext', () => {
 })
 
 describe('collapseSupersededArtifacts', () => {
-  const art = (id: string, body: string, title = 'Script') => `<artifact identifier="${id}" type="code" title="${title}" language="python">\n${body}\n</artifact>`
+  const art = (id: string, body: string, title = 'Script') =>
+    `<artifact identifier="${id}" type="code" title="${title}" language="python">\n${body}\n</artifact>`
 
   it('keeps only the newest version of each artifact in full', () => {
     const v1 = 'print("v1")\n' + 'x = 1\n'.repeat(200)
@@ -137,7 +136,10 @@ describe('collapseSupersededArtifacts', () => {
   })
 
   it('keeps the later of two versions in the same reply', () => {
-    const out = collapseSupersededArtifacts([turn('user', 'go'), turn('assistant', `${art('s', 'first draft')}\n${art('s', 'final draft')}`)])
+    const out = collapseSupersededArtifacts([
+      turn('user', 'go'),
+      turn('assistant', `${art('s', 'first draft')}\n${art('s', 'final draft')}`)
+    ])
     expect(out[1].content).not.toContain('first draft')
     expect(out[1].content).toContain('final draft')
     expect(out[1].content).toContain('<artifact identifier="s" type="code" title="Script" language="python">')
@@ -161,7 +163,13 @@ describe('collapseSupersededArtifacts', () => {
 describe('past web calls', () => {
   const searched: HistoryTurn = {
     ...turn('assistant', 'The top story is about kilns.'),
-    tools: [{ name: 'web_search', args: { query: 'news' }, record: '1. Kilns are back — https://a.example/kilns\n2. Pottery prices — https://b.example/pots' }]
+    tools: [
+      {
+        name: 'web_search',
+        args: { query: 'news' },
+        record: '1. Kilns are back — https://a.example/kilns\n2. Pottery prices — https://b.example/pots'
+      }
+    ]
   }
   const history = [turn('user', 'what is in the news?'), searched, turn('user', 'open the second result')]
 

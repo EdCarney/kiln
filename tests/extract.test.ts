@@ -36,8 +36,6 @@ describe('extractText', () => {
     await expect(extractText(Buffer.from([0, 1, 2, 3]), 'application/octet-stream', 'blob.bin')).rejects.toBeInstanceOf(
       UnsupportedFileError
     )
-    await expect(extractText(Buffer.from('x'), 'application/msword', 'old.doc')).rejects.toBeInstanceOf(
-      UnsupportedFileError
-    )
+    await expect(extractText(Buffer.from('x'), 'application/msword', 'old.doc')).rejects.toBeInstanceOf(UnsupportedFileError)
   })
 })

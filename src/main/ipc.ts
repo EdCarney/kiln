@@ -140,9 +140,7 @@ const impl: Impl = {
     list: async (opts) => listConversations(opts),
     get: async (id) => {
       const conversation = getConversation(id)
-      return conversation
-        ? { conversation, messages: listMessages(id), artifacts: listArtifacts(id), usage: conversationUsage(id) }
-        : null
+      return conversation ? { conversation, messages: listMessages(id), artifacts: listArtifacts(id), usage: conversationUsage(id) } : null
     },
     update: async (id, patch) => updateConversation(id, patch),
     delete: async (id) => {

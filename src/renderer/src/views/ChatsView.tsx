@@ -10,6 +10,7 @@ import { useApp } from '@/stores/app'
 
 /** Render FTS snippets (matches wrapped in \u0001…\u0002) without touching innerHTML. */
 export function Snippet({ text }: { text: string }) {
+  // eslint-disable-next-line no-control-regex -- \u0001 and \u0002 are the match markers search asks SQLite to insert
   const parts = text.split(/(\u0001[^\u0002]*\u0002)/)
   return (
     <>
@@ -68,7 +69,10 @@ export function ChatsView() {
               <ul className="divide-y divide-line">
                 {hits.map((h) => (
                   <li key={h.conversationId}>
-                    <button onClick={() => navigate({ name: 'chat', id: h.conversationId })} className="w-full rounded-lg px-3 py-3 text-left hover:bg-hover">
+                    <button
+                      onClick={() => navigate({ name: 'chat', id: h.conversationId })}
+                      className="w-full rounded-lg px-3 py-3 text-left hover:bg-hover"
+                    >
                       <div className="text-sm font-medium">{h.title}</div>
                       <div className="mt-0.5 line-clamp-2 text-[13px] text-muted">
                         <Snippet text={h.snippet} />

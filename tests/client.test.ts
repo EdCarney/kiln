@@ -27,7 +27,10 @@ async function collect(signal = new AbortController().signal, timeouts = fast, r
 
 describe('chatStream', () => {
   it('reassembles JSON lines split across network chunks', async () => {
-    const all = line({ message: { role: 'assistant', content: 'Hel' }, done: false }) + line({ message: { role: 'assistant', content: 'lo' }, done: false }) + line({ done: true, done_reason: 'stop', eval_count: 2 })
+    const all =
+      line({ message: { role: 'assistant', content: 'Hel' }, done: false }) +
+      line({ message: { role: 'assistant', content: 'lo' }, done: false }) +
+      line({ done: true, done_reason: 'stop', eval_count: 2 })
     ollama.handler = (_req, res) => streamChunks(res, [all.slice(0, 7), all.slice(7, 50), all.slice(50)], 5).then(() => res.end())
     const chunks = await collect()
     expect(chunks.map((c) => c.message?.content ?? '').join('')).toBe('Hello')
@@ -35,18 +38,25 @@ describe('chatStream', () => {
   })
 
   it('accepts a final chunk with no trailing newline', async () => {
-    ollama.handler = (_req, res) => streamChunks(res, [line({ message: { role: 'assistant', content: 'ok' }, done: false }), JSON.stringify({ done: true })]).then(() => res.end())
+    ollama.handler = (_req, res) =>
+      streamChunks(res, [line({ message: { role: 'assistant', content: 'ok' }, done: false }), JSON.stringify({ done: true })]).then(() =>
+        res.end()
+      )
     expect((await collect()).at(-1)?.done).toBe(true)
   })
 
   it('treats a stream that ends without done as a dropped connection', async () => {
-    ollama.handler = (_req, res) => streamChunks(res, [line({ message: { role: 'assistant', content: 'partial' }, done: false })]).then(() => res.end())
+    ollama.handler = (_req, res) =>
+      streamChunks(res, [line({ message: { role: 'assistant', content: 'partial' }, done: false })]).then(() => res.end())
     await expect(collect()).rejects.toThrow(/dropped before the reply finished/)
   })
 
   it('surfaces an error chunk sent mid-stream', async () => {
     ollama.handler = (_req, res) =>
-      streamChunks(res, [line({ message: { role: 'assistant', content: 'a' }, done: false }), line({ error: 'model runner has unexpectedly stopped' })]).then(() => res.end())
+      streamChunks(res, [
+        line({ message: { role: 'assistant', content: 'a' }, done: false }),
+        line({ error: 'model runner has unexpectedly stopped' })
+      ]).then(() => res.end())
     await expect(collect()).rejects.toThrow('model runner has unexpectedly stopped')
   })
 
@@ -84,7 +94,12 @@ describe('chatStream', () => {
     ollama.handler = async (_req, res) => {
       await streamChunks(res, [line({ message: { role: 'assistant', content: '' }, done: false })])
       await new Promise((r) => setTimeout(r, 300)) // longer than idleMs, as a tool call's arguments are generated
-      res.end(line({ message: { role: 'assistant', content: '', tool_calls: [{ function: { name: 'web_search', arguments: { query: 'q' } } }] }, done: false }) + line({ done: true }))
+      res.end(
+        line({
+          message: { role: 'assistant', content: '', tool_calls: [{ function: { name: 'web_search', arguments: { query: 'q' } } }] },
+          done: false
+        }) + line({ done: true })
+      )
     }
     const out = await collect(undefined, { firstByteMs: 5_000, idleMs: 150, toolIdleMs: 5_000 }, { ...body, tools })
     expect(out.at(-1)?.done).toBe(true)
@@ -96,7 +111,8 @@ describe('chatStream', () => {
       res.on('close', () => (closed = true))
       return streamChunks(res, [line({ message: { role: 'assistant', content: 'a' }, done: false })]) // then keeps the socket open
     }
-    for await (const _chunk of chatStream(body, new AbortController().signal, { firstByteMs: 5_000, idleMs: 5_000, toolIdleMs: 5_000 })) break
+    for await (const _chunk of chatStream(body, new AbortController().signal, { firstByteMs: 5_000, idleMs: 5_000, toolIdleMs: 5_000 }))
+      break
     await vi.waitFor(() => expect(closed).toBe(true), { timeout: 2_000 })
   })
 
@@ -118,7 +134,8 @@ describe('chatStream', () => {
 
 describe('chatOnce', () => {
   it('returns the single response', async () => {
-    ollama.handler = (_req, res) => void res.writeHead(200).end(JSON.stringify({ message: { role: 'assistant', content: 'Title' }, done: true }))
+    ollama.handler = (_req, res) =>
+      void res.writeHead(200).end(JSON.stringify({ message: { role: 'assistant', content: 'Title' }, done: true }))
     expect((await chatOnce(body, { timeoutMs: 2_000 })).message?.content).toBe('Title')
   })
 

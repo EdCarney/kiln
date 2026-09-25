@@ -150,7 +150,8 @@ export function DebugApp() {
           </label>
           <div className="flex-1" />
           <span className="truncate text-xs tabular-nums text-subtle">
-            {totals.requests} requests · {formatTokens(totals.prompt)} in / {formatTokens(totals.completion)} out · {formatCost(totals.cost)}
+            {totals.requests} requests · {formatTokens(totals.prompt)} in / {formatTokens(totals.completion)} out ·{' '}
+            {formatCost(totals.cost)}
           </span>
           <Tooltip content={settings.debug.record ? 'Recording every request' : 'Recording is paused'}>
             <label className="flex items-center gap-1.5 text-xs text-muted">
@@ -161,7 +162,11 @@ export function DebugApp() {
           <IconButton label="Export these requests as JSON" size="sm" onClick={() => api.debug.exportTraces(conversationId)}>
             <Download className="size-4" />
           </IconButton>
-          <IconButton label={conversationId ? "Clear this chat's requests" : 'Clear all requests'} size="sm" onClick={() => api.debug.clear(conversationId)}>
+          <IconButton
+            label={conversationId ? "Clear this chat's requests" : 'Clear all requests'}
+            size="sm"
+            onClick={() => api.debug.clear(conversationId)}
+          >
             <Trash2 className="size-4" />
           </IconButton>
           <IconButton label="Inspect app (Chromium DevTools)" size="sm" onClick={() => api.debug.inspectApp()}>

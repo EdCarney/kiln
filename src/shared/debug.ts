@@ -81,13 +81,14 @@ export function promptAnatomy(body: BodyLike): { segments: AnatomySegment[]; tot
     if (i >= lastUser && lastUser >= 0) {
       latest += t
       if (m.role === 'tool') latestHasTools = true
-    }
-    else byRole.set(m.role ?? 'other', (byRole.get(m.role ?? 'other') ?? 0) + t)
+    } else byRole.set(m.role ?? 'other', (byRole.get(m.role ?? 'other') ?? 0) + t)
   })
   for (const [role, tokens] of byRole)
     segments.push({ label: role === 'tool' ? 'Earlier tool results' : `Earlier ${role} messages`, group: 'history', tokens })
-  if (lastUser >= 0) segments.push({ label: latestHasTools ? 'Latest message + tool results' : 'Latest message', group: 'latest', tokens: latest })
-  if (body.tools?.length) segments.push({ label: `Tool definitions (${body.tools.length})`, group: 'tools', tokens: estimate(JSON.stringify(body.tools)) })
+  if (lastUser >= 0)
+    segments.push({ label: latestHasTools ? 'Latest message + tool results' : 'Latest message', group: 'latest', tokens: latest })
+  if (body.tools?.length)
+    segments.push({ label: `Tool definitions (${body.tools.length})`, group: 'tools', tokens: estimate(JSON.stringify(body.tools)) })
   if (images) segments.push({ label: `Images (${images})`, group: 'images', tokens: images * IMAGE_TOKENS })
 
   const kept = segments.filter((s) => s.tokens > 0)

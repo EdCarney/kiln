@@ -16,7 +16,11 @@ const chat = (projectId: string | null = null) => createConversation({ projectId
 const say = (conversationId: string, content: string) => insertMessage({ conversationId, parentId: null, role: 'user', content })
 
 const indexedMessages = (conversationId: string) =>
-  (getDb().prepare('SELECT COUNT(*) AS n FROM search_index WHERE conversation_id = ? AND message_id IS NOT NULL').get(conversationId) as { n: number }).n
+  (
+    getDb().prepare('SELECT COUNT(*) AS n FROM search_index WHERE conversation_id = ? AND message_id IS NOT NULL').get(conversationId) as {
+      n: number
+    }
+  ).n
 
 /** Make the next DELETE on `table` fail, as a disk or constraint error would halfway through. */
 function failNextDelete(table: string): () => void {

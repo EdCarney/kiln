@@ -31,7 +31,16 @@ export async function replayRequest(conversationId: string | null, raw: unknown)
     const promptTokens = res.prompt_eval_count ?? 0
     const completionTokens = res.eval_count ?? 0
     const costUsd = requestCost(request.model, promptTokens, completionTokens)
-    insertUsageEvent({ conversationId, messageId: null, model: request.model, kind: 'replay', promptTokens, completionTokens, costUsd, estimated: false })
+    insertUsageEvent({
+      conversationId,
+      messageId: null,
+      model: request.model,
+      kind: 'replay',
+      promptTokens,
+      completionTokens,
+      costUsd,
+      estimated: false
+    })
     return trace.finish({
       status: 'ok',
       response: { content: message?.content, thinking: message?.thinking, toolCalls: message?.tool_calls, final },

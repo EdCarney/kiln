@@ -95,8 +95,7 @@ export function parseUsageResponse(json: unknown): { windows: RawUsageWindow[]; 
   windows.sort((a, b) => (WINDOW_PERIODS[a.id] ?? Infinity) - (WINDOW_PERIODS[b.id] ?? Infinity))
 
   const activity = root.activity as
-    | { cost?: unknown; period?: { starting_at?: string; ending_at?: string; type?: string }; models?: unknown }
-    | undefined
+    { cost?: unknown; period?: { starting_at?: string; ending_at?: string; type?: string }; models?: unknown } | undefined
   let spend: AccountUsage['spend'] = null
   const cost = Number(activity?.cost)
   if (activity && Number.isFinite(cost)) {
@@ -143,7 +142,15 @@ export function effectiveSpend(
 ): AccountUsage['spend'] {
   const monthly = windows.find((w) => w.id === 'monthly')
   if (monthly && pool)
-    return { cost: Math.round(monthly.usage * pool * 100) / 100, label: 'This month', source: 'credits', pool, periodStart: null, periodEnd: null, models: [] }
+    return {
+      cost: Math.round(monthly.usage * pool * 100) / 100,
+      label: 'This month',
+      source: 'credits',
+      pool,
+      periodStart: null,
+      periodEnd: null,
+      models: []
+    }
   return activitySpend
 }
 

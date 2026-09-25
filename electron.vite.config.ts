@@ -11,7 +11,7 @@ const RENDERER_CSP = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: kiln:",
   "font-src 'self' data:",
-  "frame-src artifact:",
+  'frame-src artifact:',
   "connect-src 'self' kiln:"
 ].join('; ')
 

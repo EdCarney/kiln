@@ -41,7 +41,8 @@ export const WEB_TOOLS: OllamaTool[] = [
     type: 'function',
     function: {
       name: 'web_search',
-      description: 'Search the web. Returns titles, URLs and text snippets. Use for current events or anything that needs up-to-date information.',
+      description:
+        'Search the web. Returns titles, URLs and text snippets. Use for current events or anything that needs up-to-date information.',
       parameters: {
         type: 'object',
         properties: {
@@ -56,7 +57,8 @@ export const WEB_TOOLS: OllamaTool[] = [
     type: 'function',
     function: {
       name: 'web_fetch',
-      description: "Read a web page's main text and links. Use after web_search when the snippets aren't enough, or when the user gives a URL.",
+      description:
+        "Read a web page's main text and links. Use after web_search when the snippets aren't enough, or when the user gives a URL.",
       parameters: {
         type: 'object',
         properties: { url: { type: 'string', description: 'The full http(s) URL of the page' } },
@@ -156,7 +158,6 @@ async function runWebTool(
     }
   }
 }
-
 
 function argsOf(call: ToolCall): Record<string, unknown> {
   const raw = call.function.arguments

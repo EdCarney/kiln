@@ -36,7 +36,15 @@ function useResolvedArtifact(): Resolved | null {
         .filter((s) => s.kind === 'artifact' && s.identifier === live.identifier)
         .at(-1)
       if (!seg || seg.kind !== 'artifact') return null
-      return { title: seg.title, type: seg.type, language: seg.language, content: seg.content, complete: seg.complete, versions: [], version: null }
+      return {
+        title: seg.title,
+        type: seg.type,
+        language: seg.language,
+        content: seg.content,
+        complete: seg.complete,
+        versions: [],
+        version: null
+      }
     }
     const artifact = artifacts.find((a) => a.id === artifactId)
     if (!artifact || !artifact.versions.length) return null
@@ -62,7 +70,12 @@ function SandboxFrame({ type, content }: { type: ArtifactType; content: string }
       cancelled = true
     }
   }, [type, content])
-  if (!url) return <Centered><Spinner /></Centered>
+  if (!url)
+    return (
+      <Centered>
+        <Spinner />
+      </Centered>
+    )
   return (
     <iframe
       key={url}
@@ -143,7 +156,12 @@ function MermaidView({ source }: { source: string }) {
     mermaidLoader ??= import('mermaid').then((m) => m.default)
     mermaidLoader
       .then(async (mermaid) => {
-        mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'base', themeVariables: mermaidTheme(palette, dark, theme) })
+        mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: 'strict',
+          theme: 'base',
+          themeVariables: mermaidTheme(palette, dark, theme)
+        })
         const { svg } = await mermaid.render(`m${id}${Date.now()}`, source)
         if (!cancelled && ref.current) {
           ref.current.innerHTML = svg
@@ -158,7 +176,9 @@ function MermaidView({ source }: { source: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      {error && <div className="m-4 rounded-kiln border border-danger/40 p-3 text-sm text-danger">Couldn't render this diagram: {error}</div>}
+      {error && (
+        <div className="m-4 rounded-kiln border border-danger/40 p-3 text-sm text-danger">Couldn't render this diagram: {error}</div>
+      )}
       <div ref={ref} className="flex flex-1 items-start justify-center overflow-auto p-6 [&_svg]:h-auto [&_svg]:max-w-full" />
     </div>
   )
@@ -193,7 +213,8 @@ function CodeView({ artifact }: { artifact: Resolved }) {
   useEffect(() => {
     if (!artifact.complete && ref.current) ref.current.scrollTop = ref.current.scrollHeight
   }, [artifact.content, artifact.complete])
-  const lang = artifact.type === 'code' ? artifact.language : artifact.type === 'mermaid' ? 'mermaid' : artifact.type === 'svg' ? 'xml' : artifact.type
+  const lang =
+    artifact.type === 'code' ? artifact.language : artifact.type === 'mermaid' ? 'mermaid' : artifact.type === 'svg' ? 'xml' : artifact.type
   return (
     <div ref={ref} className="h-full overflow-auto bg-code">
       <CodeBlock code={artifact.content} lang={lang} bare />
@@ -243,7 +264,11 @@ export function ArtifactPanel() {
       <header className="drag flex h-12 shrink-0 items-center gap-2 border-b border-line px-3">
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-medium">{artifact?.title ?? 'Artifact'}</div>
-          {meta && <div className="truncate text-xs text-subtle">{[meta.label, artifact?.type === 'code' && artifact.language].filter(Boolean).join(' · ')}</div>}
+          {meta && (
+            <div className="truncate text-xs text-subtle">
+              {[meta.label, artifact?.type === 'code' && artifact.language].filter(Boolean).join(' · ')}
+            </div>
+          )}
         </div>
 
         {artifact && artifact.versions.length > 1 && (
@@ -255,7 +280,11 @@ export function ArtifactPanel() {
             </MenuTrigger>
             <MenuContent align="end" className="min-w-[140px]">
               {[...artifact.versions].reverse().map((v) => (
-                <MenuItem key={v} onSelect={() => panel.setVersion(v)} icon={v === artifact.version ? <Check className="size-4 text-accent" /> : null}>
+                <MenuItem
+                  key={v}
+                  onSelect={() => panel.setVersion(v)}
+                  icon={v === artifact.version ? <Check className="size-4 text-accent" /> : null}
+                >
                   Version {v}
                 </MenuItem>
               ))}

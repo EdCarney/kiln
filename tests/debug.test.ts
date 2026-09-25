@@ -4,7 +4,10 @@ import { promptAnatomy, redactImages, stripImagePlaceholders, toCurl } from '@sh
 const body = {
   model: 'gpt-oss:120b-cloud',
   messages: [
-    { role: 'system', content: 'You are helpful.\n\n<artifacts>' + 'a'.repeat(400) + '</artifacts>\n\n<skills>' + 'b'.repeat(80) + '</skills>' },
+    {
+      role: 'system',
+      content: 'You are helpful.\n\n<artifacts>' + 'a'.repeat(400) + '</artifacts>\n\n<skills>' + 'b'.repeat(80) + '</skills>'
+    },
     { role: 'user', content: 'x'.repeat(40) },
     { role: 'assistant', content: 'y'.repeat(80) },
     { role: 'user', content: 'what is this?', images: ['A'.repeat(4096)] }

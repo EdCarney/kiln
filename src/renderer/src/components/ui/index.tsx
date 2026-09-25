@@ -68,7 +68,15 @@ export function Spinner({ className }: { className?: string }) {
 
 // ---- Tooltip --------------------------------------------------------------
 
-export function Tooltip({ content, children, side = 'top' }: { content: ReactNode; children: ReactNode; side?: 'top' | 'bottom' | 'left' | 'right' }) {
+export function Tooltip({
+  content,
+  children,
+  side = 'top'
+}: {
+  content: ReactNode
+  children: ReactNode
+  side?: 'top' | 'bottom' | 'left' | 'right'
+}) {
   return (
     <RTooltip.Root>
       <RTooltip.Trigger asChild>{children}</RTooltip.Trigger>
@@ -96,7 +104,17 @@ const item =
 export const Menu = Dropdown.Root
 export const MenuTrigger = Dropdown.Trigger
 
-export function MenuContent({ children, align = 'start', side, className }: { children: ReactNode; align?: 'start' | 'end' | 'center'; side?: 'top' | 'bottom' | 'left' | 'right'; className?: string }) {
+export function MenuContent({
+  children,
+  align = 'start',
+  side,
+  className
+}: {
+  children: ReactNode
+  align?: 'start' | 'end' | 'center'
+  side?: 'top' | 'bottom' | 'left' | 'right'
+  className?: string
+}) {
   return (
     <Dropdown.Portal>
       <Dropdown.Content align={align} side={side} sideOffset={6} className={cn(surface, className)}>
@@ -106,7 +124,19 @@ export function MenuContent({ children, align = 'start', side, className }: { ch
   )
 }
 
-export function MenuItem({ children, onSelect, danger, disabled, icon }: { children: ReactNode; onSelect?: () => void; danger?: boolean; disabled?: boolean; icon?: ReactNode }) {
+export function MenuItem({
+  children,
+  onSelect,
+  danger,
+  disabled,
+  icon
+}: {
+  children: ReactNode
+  onSelect?: () => void
+  danger?: boolean
+  disabled?: boolean
+  icon?: ReactNode
+}) {
   return (
     <Dropdown.Item disabled={disabled} onSelect={onSelect} className={cn(item, danger && 'text-danger')}>
       {icon && <span className="flex size-4 items-center justify-center text-muted">{icon}</span>}
@@ -115,7 +145,17 @@ export function MenuItem({ children, onSelect, danger, disabled, icon }: { child
   )
 }
 
-export function MenuCheckItem({ children, checked, onCheckedChange, description }: { children: ReactNode; checked: boolean; onCheckedChange: (v: boolean) => void; description?: string }) {
+export function MenuCheckItem({
+  children,
+  checked,
+  onCheckedChange,
+  description
+}: {
+  children: ReactNode
+  checked: boolean
+  onCheckedChange: (v: boolean) => void
+  description?: string
+}) {
   return (
     <Dropdown.CheckboxItem
       checked={checked}
@@ -164,7 +204,19 @@ export const PopoverRoot = Popover.Root
 export const PopoverTrigger = Popover.Trigger
 export const PopoverAnchor = Popover.Anchor
 
-export function PopoverContent({ children, className, align = 'start', side = 'bottom', onOpenAutoFocus }: { children: ReactNode; className?: string; align?: 'start' | 'end' | 'center'; side?: 'top' | 'bottom'; onOpenAutoFocus?: (e: Event) => void }) {
+export function PopoverContent({
+  children,
+  className,
+  align = 'start',
+  side = 'bottom',
+  onOpenAutoFocus
+}: {
+  children: ReactNode
+  className?: string
+  align?: 'start' | 'end' | 'center'
+  side?: 'top' | 'bottom'
+  onOpenAutoFocus?: (e: Event) => void
+}) {
   return (
     <Popover.Portal>
       <Popover.Content
@@ -183,7 +235,23 @@ export function PopoverContent({ children, className, align = 'start', side = 'b
 
 // ---- Dialog ---------------------------------------------------------------
 
-export function Modal({ open, onOpenChange, title, description, children, footer, wide }: { open: boolean; onOpenChange: (open: boolean) => void; title: string; description?: string; children?: ReactNode; footer?: ReactNode; wide?: boolean }) {
+export function Modal({
+  open,
+  onOpenChange,
+  title,
+  description,
+  children,
+  footer,
+  wide
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  title: string
+  description?: string
+  children?: ReactNode
+  footer?: ReactNode
+  wide?: boolean
+}) {
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
@@ -218,15 +286,31 @@ export function Modal({ open, onOpenChange, title, description, children, footer
 const field =
   'w-full rounded-kiln border border-line bg-canvas px-3 text-sm text-fg placeholder:text-subtle outline-none focus:border-line-strong focus:ring-2 focus:ring-accent-soft'
 
-export const TextField = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function TextField({ className, ...rest }, ref) {
+export const TextField = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function TextField(
+  { className, ...rest },
+  ref
+) {
   return <input ref={ref} className={cn(field, 'h-9', className)} {...rest} />
 })
 
-export const TextArea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(function TextArea({ className, ...rest }, ref) {
+export const TextArea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(function TextArea(
+  { className, ...rest },
+  ref
+) {
   return <textarea ref={ref} className={cn(field, 'resize-none py-2 leading-relaxed', className)} {...rest} />
 })
 
-export function Switch({ checked, onChange, label, disabled }: { checked: boolean; onChange: (v: boolean) => void; label?: string; disabled?: boolean }) {
+export function Switch({
+  checked,
+  onChange,
+  label,
+  disabled
+}: {
+  checked: boolean
+  onChange: (v: boolean) => void
+  label?: string
+  disabled?: boolean
+}) {
   return (
     <button
       role="switch"
@@ -240,7 +324,12 @@ export function Switch({ checked, onChange, label, disabled }: { checked: boolea
       )}
     >
       {/* On, the knob takes the accent's text colour so it stays visible on light accents (Mocha, Dracula). */}
-      <span className={cn('inline-block size-4 rounded-full shadow transition-transform', checked ? 'translate-x-[18px] bg-accent-fg' : 'translate-x-0.5 bg-white')} />
+      <span
+        className={cn(
+          'inline-block size-4 rounded-full shadow transition-transform',
+          checked ? 'translate-x-[18px] bg-accent-fg' : 'translate-x-0.5 bg-white'
+        )}
+      />
     </button>
   )
 }
@@ -255,7 +344,15 @@ export function Field({ label, hint, children }: { label: string; hint?: ReactNo
   )
 }
 
-export function Badge({ children, tone = 'neutral', className }: { children: ReactNode; tone?: 'neutral' | 'accent' | 'warn'; className?: string }) {
+export function Badge({
+  children,
+  tone = 'neutral',
+  className
+}: {
+  children: ReactNode
+  tone?: 'neutral' | 'accent' | 'warn'
+  className?: string
+}) {
   return (
     <span
       className={cn(

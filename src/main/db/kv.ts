@@ -9,11 +9,7 @@ export function readSetting<T>(key: string, fallback: T): T {
 }
 
 export function writeSetting(key: string, value: unknown): void {
-  run(
-    'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
-    key,
-    JSON.stringify(value)
-  )
+  run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', key, JSON.stringify(value))
 }
 
 export function deleteSetting(key: string): void {

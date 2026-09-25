@@ -66,7 +66,10 @@ export function ProjectView({ id }: { id: string }) {
   return (
     <div className="flex h-full flex-col">
       <TopBar>
-        <button onClick={() => navigate({ name: 'projects' })} className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[13px] text-muted hover:bg-hover hover:text-fg">
+        <button
+          onClick={() => navigate({ name: 'projects' })}
+          className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[13px] text-muted hover:bg-hover hover:text-fg"
+        >
           <ChevronLeft className="size-4" /> All projects
         </button>
       </TopBar>
@@ -78,12 +81,19 @@ export function ProjectView({ id }: { id: string }) {
               {project.description && <p className="mt-1 text-sm text-muted">{project.description}</p>}
             </div>
             <div className="flex shrink-0 items-center gap-1">
-              <IconButton label={project.pinned ? 'Unpin' : 'Pin'} active={project.pinned} onClick={() => save({ pinned: !project.pinned })}>
+              <IconButton
+                label={project.pinned ? 'Unpin' : 'Pin'}
+                active={project.pinned}
+                onClick={() => save({ pinned: !project.pinned })}
+              >
                 <Pin className={cn('size-4', project.pinned && 'fill-current text-accent')} />
               </IconButton>
               <Menu>
                 <MenuTrigger asChild>
-                  <button aria-label="Project options" className="flex size-8 items-center justify-center rounded-lg text-muted hover:bg-hover hover:text-fg">
+                  <button
+                    aria-label="Project options"
+                    className="flex size-8 items-center justify-center rounded-lg text-muted hover:bg-hover hover:text-fg"
+                  >
                     <Ellipsis className="size-4" />
                   </button>
                 </MenuTrigger>
@@ -105,7 +115,13 @@ export function ProjectView({ id }: { id: string }) {
             </div>
           </div>
 
-          <Composer conversation={null} draftKey={`project:${id}`} streaming={false} placeholder={`Start a chat in ${project.name}…`} onSubmit={(input) => sendMessage(null, id, input)} />
+          <Composer
+            conversation={null}
+            draftKey={`project:${id}`}
+            streaming={false}
+            placeholder={`Start a chat in ${project.name}…`}
+            onSubmit={(input) => sendMessage(null, id, input)}
+          />
 
           <div className="mt-8">
             {chats.length ? (
@@ -198,7 +214,9 @@ export function ProjectView({ id }: { id: string }) {
                 ))}
               </ul>
             ) : (
-              <p className="text-[13px] text-muted">Add PDFs, documents, spreadsheets or text files. Every chat in this project can use them.</p>
+              <p className="text-[13px] text-muted">
+                Add PDFs, documents, spreadsheets or text files. Every chat in this project can use them.
+              </p>
             )}
           </section>
         </aside>
@@ -239,7 +257,11 @@ export function ProjectView({ id }: { id: string }) {
             <Button variant="ghost" onClick={() => setEditing(null)}>
               Cancel
             </Button>
-            <Button variant="primary" disabled={!draft.name.trim()} onClick={() => save({ name: draft.name, description: draft.description })}>
+            <Button
+              variant="primary"
+              disabled={!draft.name.trim()}
+              onClick={() => save({ name: draft.name, description: draft.description })}
+            >
               Save
             </Button>
           </>

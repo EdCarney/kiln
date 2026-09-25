@@ -68,8 +68,7 @@ export async function imageForModel(path: string, mime: string): Promise<string>
   if (img.isEmpty()) return (await readFile(path)).toString('base64')
   const { width, height } = img.getSize()
   const longEdge = Math.max(width, height)
-  if (longEdge <= MODEL_IMAGE_EDGE && (mime === 'image/png' || mime === 'image/jpeg'))
-    return (await readFile(path)).toString('base64')
+  if (longEdge <= MODEL_IMAGE_EDGE && (mime === 'image/png' || mime === 'image/jpeg')) return (await readFile(path)).toString('base64')
   const resized = longEdge > MODEL_IMAGE_EDGE ? img.resize({ width: Math.round((width * MODEL_IMAGE_EDGE) / longEdge) }) : img
   // PNG keeps transparency (JPEG would turn it black); everything else becomes a compact JPEG.
   return (mime === 'image/png' ? resized.toPNG() : resized.toJPEG(88)).toString('base64')

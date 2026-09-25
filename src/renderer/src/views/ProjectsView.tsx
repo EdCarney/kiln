@@ -46,7 +46,12 @@ export function NewProjectDialog({ open, onOpenChange }: { open: boolean; onOpen
           <TextField autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Name your project" />
         </Field>
         <Field label="What are you trying to achieve?">
-          <TextArea rows={3} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Describe your project, goals, subject, etc." />
+          <TextArea
+            rows={3}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Describe your project, goals, subject, etc."
+          />
         </Field>
       </div>
     </Modal>
@@ -105,7 +110,10 @@ export function ProjectsView() {
                         await api.projects.update(p.id, { pinned: !p.pinned }).catch(reportError)
                         await loadProjects()
                       }}
-                      className={cn('rounded p-1 hover:bg-hover', p.pinned ? 'text-accent' : 'text-subtle opacity-0 group-hover:opacity-100')}
+                      className={cn(
+                        'rounded p-1 hover:bg-hover',
+                        p.pinned ? 'text-accent' : 'text-subtle opacity-0 group-hover:opacity-100'
+                      )}
                     >
                       <Pin className={cn('size-4', p.pinned && 'fill-current')} />
                     </button>

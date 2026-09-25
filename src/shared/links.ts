@@ -24,7 +24,8 @@ export function decodeEntities(s: string): string {
 
 function attrs(tag: string): Record<string, string> {
   const out: Record<string, string> = {}
-  for (const m of tag.matchAll(/([a-zA-Z:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/g)) out[m[1].toLowerCase()] = m[2] ?? m[3] ?? m[4] ?? ''
+  for (const m of tag.matchAll(/([a-zA-Z:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/g))
+    out[m[1].toLowerCase()] = m[2] ?? m[3] ?? m[4] ?? ''
   return out
 }
 
@@ -82,8 +83,14 @@ export function isPrivateAddress(ip: string): boolean {
   if (parts.length === 4 && parts.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)) {
     const [a, b] = parts
     return (
-      a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || a >= 224
+      a === 0 ||
+      a === 10 ||
+      a === 127 ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 100 && b >= 64 && b <= 127) ||
+      a >= 224
     )
   }
   const v6 = ip.toLowerCase()
@@ -116,7 +123,11 @@ export function hostnameOf(href: string): string | null {
  * the link actually goes (the classic "text says bank.com, link goes elsewhere" trick).
  */
 export function mismatchedLinkText(text: string, href: string): string | null {
-  const shown = text.trim().match(/^(?:https?:\/\/)?((?:[a-z0-9-]+\.)+[a-z]{2,})(?:[/:?#]\S*)?$/i)?.[1]?.toLowerCase().replace(/^www\./, '')
+  const shown = text
+    .trim()
+    .match(/^(?:https?:\/\/)?((?:[a-z0-9-]+\.)+[a-z]{2,})(?:[/:?#]\S*)?$/i)?.[1]
+    ?.toLowerCase()
+    .replace(/^www\./, '')
   const actual = hostnameOf(href)
   if (!shown || !actual) return null
   return actual === shown || actual.endsWith(`.${shown}`) ? null : shown

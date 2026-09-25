@@ -190,7 +190,8 @@ export function startTrace(meta: {
 }
 
 export function listTraces(conversationId: string | null): TraceSummary[] {
-  const cols = 'id, conversation_id, message_id, kind, model, round, status, started_at, duration_ms, prompt_tokens, completion_tokens, cost_usd, summary'
+  const cols =
+    'id, conversation_id, message_id, kind, model, round, status, started_at, duration_ms, prompt_tokens, completion_tokens, cost_usd, summary'
   const rows = conversationId
     ? all<Row>(`SELECT ${cols} FROM traces WHERE conversation_id = ? ORDER BY started_at`, conversationId)
     : all<Row>(`SELECT ${cols} FROM traces ORDER BY started_at DESC LIMIT 300`).reverse()

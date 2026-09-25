@@ -24,7 +24,15 @@ function plainText(content: string): string {
 
 // ---- User -----------------------------------------------------------------
 
-export const UserMessage = memo(function UserMessage({ message, onEdit, disabled }: { message: Message; onEdit: (content: string) => void; disabled: boolean }) {
+export const UserMessage = memo(function UserMessage({
+  message,
+  onEdit,
+  disabled
+}: {
+  message: Message
+  onEdit: (content: string) => void
+  disabled: boolean
+}) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(message.content)
   const [copied, copy] = useCopy()
@@ -35,7 +43,12 @@ export const UserMessage = memo(function UserMessage({ message, onEdit, disabled
         <div className="flex max-w-[85%] flex-wrap justify-end gap-2">
           {message.attachments.map((a) =>
             a.kind === 'image' ? (
-              <img key={a.id} src={`kiln://attachment/${a.id}`} alt={a.name} className="max-h-48 max-w-64 rounded-kiln border border-line object-cover" />
+              <img
+                key={a.id}
+                src={`kiln://attachment/${a.id}`}
+                alt={a.name}
+                className="max-h-48 max-w-64 rounded-kiln border border-line object-cover"
+              />
             ) : (
               <div key={a.id} className="flex h-12 max-w-56 items-center gap-2 rounded-lg border border-line bg-panel px-2.5">
                 <FileText className="size-4 shrink-0 text-muted" />
@@ -50,7 +63,13 @@ export const UserMessage = memo(function UserMessage({ message, onEdit, disabled
       )}
       {editing ? (
         <div className="w-full max-w-[85%] space-y-2">
-          <TextArea autoFocus rows={Math.min(12, draft.split('\n').length + 1)} value={draft} onChange={(e) => setDraft(e.target.value)} className="bg-panel text-[15px]" />
+          <TextArea
+            autoFocus
+            rows={Math.min(12, draft.split('\n').length + 1)}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            className="bg-panel text-[15px]"
+          />
           <div className="flex justify-end gap-2">
             <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
               Cancel
@@ -165,24 +184,33 @@ function ToolEvents({ events }: { events: ToolEvent[] }) {
           )}
         >
           {e.pending ? <LoaderCircle className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
-          {e.pending
-            ? e.tool === 'load_skill'
-              ? `Loading skill ${e.summary}…`
-              : 'Reading skill file…'
-            : e.tool === 'load_skill'
-              ? e.ok
-                ? <>Using skill <b className="font-medium text-fg">{e.summary}</b></>
-                : `Skill failed: ${e.summary}`
-              : e.ok
-                ? `Read ${e.summary}`
-                : `Couldn't read file: ${e.summary}`}
+          {e.pending ? (
+            e.tool === 'load_skill' ? (
+              `Loading skill ${e.summary}…`
+            ) : (
+              'Reading skill file…'
+            )
+          ) : e.tool === 'load_skill' ? (
+            e.ok ? (
+              <>
+                Using skill <b className="font-medium text-fg">{e.summary}</b>
+              </>
+            ) : (
+              `Skill failed: ${e.summary}`
+            )
+          ) : e.ok ? (
+            `Read ${e.summary}`
+          ) : (
+            `Couldn't read file: ${e.summary}`
+          )}
         </span>
       ))}
       {unavailable.length > 0 && (
         <Tooltip content="The model tried tools Kiln doesn't provide. Kiln can't browse the web or run code.">
           <span className="flex items-center gap-1.5 rounded-lg border border-line px-2 py-1 font-ui text-xs text-muted">
             <Ban className="size-3.5 text-warn" />
-            Tried unavailable {unavailable.length === 1 ? 'tool' : 'tools'}: <span className="font-mono text-fg">{unavailable.join(', ')}</span>
+            Tried unavailable {unavailable.length === 1 ? 'tool' : 'tools'}:{' '}
+            <span className="font-mono text-fg">{unavailable.join(', ')}</span>
           </span>
         </Tooltip>
       )}
@@ -214,7 +242,14 @@ interface AssistantProps {
   onContinue: () => void
 }
 
-export const AssistantMessage = memo(function AssistantMessage({ message, stream, artifacts, isLast, onRetry, onContinue }: AssistantProps) {
+export const AssistantMessage = memo(function AssistantMessage({
+  message,
+  stream,
+  artifacts,
+  isLast,
+  onRetry,
+  onContinue
+}: AssistantProps) {
   const streaming = !!stream
   const content = stream ? stream.content : message.content
   const thinking = stream ? stream.thinking : (message.thinking ?? '')
@@ -241,7 +276,14 @@ export const AssistantMessage = memo(function AssistantMessage({ message, stream
     try {
       const type = typeForCodeLanguage(lang)
       const title = lang ? `${lang[0].toUpperCase()}${lang.slice(1)} ${type === 'code' ? 'code' : 'snippet'}` : 'Code snippet'
-      const artifact = await api.artifacts.createFromBlock({ conversationId, messageId: message.id, title, type, language: lang, content: code })
+      const artifact = await api.artifacts.createFromBlock({
+        conversationId,
+        messageId: message.id,
+        title,
+        type,
+        language: lang,
+        content: code
+      })
       useChat.getState().addArtifact(artifact)
       openArtifact(artifact.id)
     } catch (err) {
@@ -258,10 +300,7 @@ export const AssistantMessage = memo(function AssistantMessage({ message, stream
 
   const occurrences = new Map<string, number>()
   const rendered = segments.map((seg: Segment, i) => {
-    if (seg.kind === 'text')
-      return (
-        <Markdown key={i} text={seg.text} onOpenAsArtifact={streaming ? undefined : openAsArtifact} />
-      )
+    if (seg.kind === 'text') return <Markdown key={i} text={seg.text} onOpenAsArtifact={streaming ? undefined : openAsArtifact} />
     const n = occurrences.get(seg.identifier) ?? 0
     occurrences.set(seg.identifier, n + 1)
     return <ArtifactCard key={i} segment={seg} messageId={message.id} occurrence={n} artifacts={artifacts} streaming={streaming} />
@@ -272,9 +311,7 @@ export const AssistantMessage = memo(function AssistantMessage({ message, stream
       <ThinkingBlock thinking={thinking} active={thinkingActive && !!(thinking || streaming)} durationMs={thinkingMs} />
       <ToolEvents events={toolEvents} />
       {rendered}
-      {streaming && !content && !thinking && (
-        <div className="stream-caret h-6" aria-label="Waiting for reply" />
-      )}
+      {streaming && !content && !thinking && <div className="stream-caret h-6" aria-label="Waiting for reply" />}
       {streaming && content && <span className="stream-caret" />}
       {message.error && !streaming && (
         <div className="mt-2 flex items-start gap-2 rounded-kiln border border-danger/40 bg-[color-mix(in_srgb,var(--k-danger)_8%,transparent)] px-3 py-2.5 text-sm">
@@ -299,7 +336,9 @@ export const AssistantMessage = memo(function AssistantMessage({ message, stream
         </div>
       )}
       {!streaming && (message.content || !message.error) && (
-        <div className={cn('mt-2 flex items-center gap-0.5 transition-opacity', isLast ? 'opacity-100' : 'opacity-0 group-hover:opacity-100')}>
+        <div
+          className={cn('mt-2 flex items-center gap-0.5 transition-opacity', isLast ? 'opacity-100' : 'opacity-0 group-hover:opacity-100')}
+        >
           <IconButton label={copied ? 'Copied' : 'Copy'} size="sm" onClick={() => copy(plainText(message.content))}>
             {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
           </IconButton>

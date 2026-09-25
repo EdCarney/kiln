@@ -71,11 +71,21 @@ function ColorField({ label, value, onChange }: { label: string; value: string; 
   return (
     <label className="flex items-center gap-2">
       <span className="relative size-7 shrink-0 overflow-hidden rounded-md border border-line-strong" style={{ background: value }}>
-        <input type="color" value={toHex(value)} onChange={(e) => onChange(withHex(value, e.target.value))} className="absolute inset-0 cursor-pointer opacity-0" />
+        <input
+          type="color"
+          value={toHex(value)}
+          onChange={(e) => onChange(withHex(value, e.target.value))}
+          className="absolute inset-0 cursor-pointer opacity-0"
+        />
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-xs text-muted">{label}</span>
-        <input value={value} onChange={(e) => onChange(e.target.value)} className="w-full bg-transparent font-mono text-[11px] text-subtle outline-none" spellCheck={false} />
+        <input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full bg-transparent font-mono text-[11px] text-subtle outline-none"
+          spellCheck={false}
+        />
       </span>
     </label>
   )
@@ -92,7 +102,9 @@ export function ThemeEditor({ base, open, onClose }: { base: ThemeDef; open: boo
     if (!open) return
     // Themes saved before newer tokens existed get the default theme's values for them.
     const filled = { ...base, light: { ...BUILTIN_THEMES[0].light, ...base.light }, dark: { ...BUILTIN_THEMES[0].dark, ...base.dark } }
-    setDraft(filled.builtin ? { ...filled, id: `custom-${Date.now().toString(36)}`, name: `${base.name} (custom)`, builtin: false } : filled)
+    setDraft(
+      filled.builtin ? { ...filled, id: `custom-${Date.now().toString(36)}`, name: `${base.name} (custom)`, builtin: false } : filled
+    )
   }, [open, base])
 
   // Live preview while the editor is open.
@@ -127,7 +139,11 @@ export function ThemeEditor({ base, open, onClose }: { base: ThemeDef; open: boo
       open={open}
       onOpenChange={(o) => !o && onClose()}
       title="Customize theme"
-      description={draft.only ? `Changes preview live. This theme has a single ${draft.only} palette.` : 'Changes preview live. Each theme has a light and a dark palette.'}
+      description={
+        draft.only
+          ? `Changes preview live. This theme has a single ${draft.only} palette.`
+          : 'Changes preview live. Each theme has a light and a dark palette.'
+      }
       wide
       footer={
         <>
@@ -146,7 +162,14 @@ export function ThemeEditor({ base, open, onClose }: { base: ThemeDef; open: boo
             <TextField value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
           </Field>
           <Field label={`Corner radius: ${draft.radius}px`}>
-            <input type="range" min={0} max={20} value={draft.radius} onChange={(e) => setDraft({ ...draft, radius: Number(e.target.value) })} className="mt-2 w-full accent-[var(--k-accent)]" />
+            <input
+              type="range"
+              min={0}
+              max={20}
+              value={draft.radius}
+              onChange={(e) => setDraft({ ...draft, radius: Number(e.target.value) })}
+              className="mt-2 w-full accent-[var(--k-accent)]"
+            />
           </Field>
         </div>
 
@@ -172,12 +195,20 @@ export function ThemeEditor({ base, open, onClose }: { base: ThemeDef; open: boo
           <div className="mb-3 flex items-center gap-3">
             <div className="flex rounded-lg bg-hover p-0.5 text-xs">
               {variants.map((v) => (
-                <button key={v} onClick={() => setVariant(v)} className={cn('rounded-md px-3 py-1 capitalize', variant === v ? 'bg-panel text-fg shadow-sm' : 'text-muted')}>
+                <button
+                  key={v}
+                  onClick={() => setVariant(v)}
+                  className={cn('rounded-md px-3 py-1 capitalize', variant === v ? 'bg-panel text-fg shadow-sm' : 'text-muted')}
+                >
                   {v} palette
                 </button>
               ))}
             </div>
-            {mismatch && <span className="text-xs text-subtle">The app is in {variant === 'dark' ? 'light' : 'dark'} mode, so this palette isn't shown live.</span>}
+            {mismatch && (
+              <span className="text-xs text-subtle">
+                The app is in {variant === 'dark' ? 'light' : 'dark'} mode, so this palette isn't shown live.
+              </span>
+            )}
           </div>
           <div className="space-y-4">
             {GROUPS.map((g) => (

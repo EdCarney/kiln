@@ -19,7 +19,15 @@ async function patch(conversation: Conversation, p: Parameters<typeof api.conver
   }
 }
 
-export function ConversationMenu({ conversation, trigger, align = 'start' }: { conversation: Conversation; trigger?: ReactNode; align?: 'start' | 'end' }) {
+export function ConversationMenu({
+  conversation,
+  trigger,
+  align = 'start'
+}: {
+  conversation: Conversation
+  trigger?: ReactNode
+  align?: 'start' | 'end'
+}) {
   const projects = useApp((s) => s.projects)
   const [renaming, setRenaming] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -59,7 +67,10 @@ export function ConversationMenu({ conversation, trigger, align = 'start' }: { c
           )}
         </MenuTrigger>
         <MenuContent align={align}>
-          <MenuItem icon={conversation.pinned ? <PinOff className="size-4" /> : <Pin className="size-4" />} onSelect={() => patch(conversation, { pinned: !conversation.pinned })}>
+          <MenuItem
+            icon={conversation.pinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
+            onSelect={() => patch(conversation, { pinned: !conversation.pinned })}
+          >
             {conversation.pinned ? 'Unpin' : 'Pin'}
           </MenuItem>
           <MenuItem
@@ -185,7 +196,17 @@ export function ConversationMenu({ conversation, trigger, align = 'start' }: { c
   )
 }
 
-export function ConversationRow({ conversation, active, onOpen, streaming }: { conversation: Conversation; active: boolean; onOpen: () => void; streaming: boolean }) {
+export function ConversationRow({
+  conversation,
+  active,
+  onOpen,
+  streaming
+}: {
+  conversation: Conversation
+  active: boolean
+  onOpen: () => void
+  streaming: boolean
+}) {
   return (
     <div
       role="button"

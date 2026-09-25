@@ -154,10 +154,7 @@ export interface SearchHit {
 // ---- Models -------------------------------------------------------------
 
 export type ThinkProfile =
-  | { kind: 'none' }
-  | { kind: 'toggle' }
-  | { kind: 'always'; note?: string }
-  | { kind: 'levels'; canDisable: boolean }
+  { kind: 'none' } | { kind: 'toggle' } | { kind: 'always'; note?: string } | { kind: 'levels'; canDisable: boolean }
 
 export interface ModelOverrides {
   think?: ThinkProfile['kind']

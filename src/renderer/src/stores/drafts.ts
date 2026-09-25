@@ -35,7 +35,8 @@ export const useDrafts = create<DraftsState>((set, get) => ({
     }),
   discard: (keys) => {
     for (const key of keys)
-      for (const p of get().drafts[key]?.pending ?? []) if (p.attachment) void api.attachments.remove(p.attachment.id).catch(() => undefined)
+      for (const p of get().drafts[key]?.pending ?? [])
+        if (p.attachment) void api.attachments.remove(p.attachment.id).catch(() => undefined)
     set((s) => ({ drafts: Object.fromEntries(Object.entries(s.drafts).filter(([key]) => !keys.includes(key))) }))
   }
 }))

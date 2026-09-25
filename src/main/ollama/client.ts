@@ -72,8 +72,7 @@ function friendly(status: number, body: string, model?: string): OllamaError {
         : 'Ollama cloud needs you to sign in. Run `ollama signin` in a terminal, then retry.',
       status
     )
-  if (status === 429)
-    return new OllamaError('Ollama cloud usage limit reached. Try again later, or switch to a local model.', status)
+  if (status === 429) return new OllamaError('Ollama cloud usage limit reached. Try again later, or switch to a local model.', status)
   if (status === 404 && /not found/i.test(detail))
     return new OllamaError(model ? `Model “${model}” was not found by Ollama.` : detail, status)
   return new OllamaError(detail || `Ollama returned HTTP ${status}`, status)
@@ -141,7 +140,11 @@ function parseChunk(line: string): ChatChunk {
  * ends without Ollama's final `done` chunk, so a dropped connection never passes for a finished reply.
  * Aborting `signal` still surfaces as an AbortError, which callers treat as the user stopping.
  */
-export async function* chatStream(body: ChatBody, signal: AbortSignal, timeouts: StreamTimeouts = STREAM_TIMEOUTS): AsyncGenerator<ChatChunk> {
+export async function* chatStream(
+  body: ChatBody,
+  signal: AbortSignal,
+  timeouts: StreamTimeouts = STREAM_TIMEOUTS
+): AsyncGenerator<ChatChunk> {
   const inner = new AbortController()
   const forward = () => inner.abort(signal.reason)
   if (signal.aborted) forward()
@@ -156,7 +159,10 @@ export async function* chatStream(body: ChatBody, signal: AbortSignal, timeouts:
     }, ms)
   }
 
-  arm(timeouts.firstByteMs, `Ollama didn't start replying within ${Math.round(timeouts.firstByteMs / 60_000)} minutes. Check that it's running, then retry.`)
+  arm(
+    timeouts.firstByteMs,
+    `Ollama didn't start replying within ${Math.round(timeouts.firstByteMs / 60_000)} minutes. Check that it's running, then retry.`
+  )
   try {
     const res = await request('/api/chat', {
       method: 'POST',

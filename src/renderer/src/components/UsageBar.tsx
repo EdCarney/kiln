@@ -32,9 +32,16 @@ export const PACE_META: Record<PaceStatus, { label: string; icon: typeof CircleC
 function Meter({ window: w, pace, wide }: { window: UsageWindow; pace: Pace; wide?: boolean }) {
   return (
     <span className={cn('relative block overflow-hidden rounded-full bg-hover', wide ? 'h-2 w-full' : 'h-1.5 w-12')}>
-      <span className={cn('absolute inset-y-0 left-0 rounded-full', PACE_META[pace.status].fill)} style={{ width: `${Math.min(100, w.usage * 100)}%` }} />
+      <span
+        className={cn('absolute inset-y-0 left-0 rounded-full', PACE_META[pace.status].fill)}
+        style={{ width: `${Math.min(100, w.usage * 100)}%` }}
+      />
       {pace.target !== null && (
-        <span className="absolute inset-y-0 w-0.5 bg-fg/60" style={{ left: `calc(${pace.target * 100}% - 1px)` }} title="Target: an even share of the allowance for the time gone" />
+        <span
+          className="absolute inset-y-0 w-0.5 bg-fg/60"
+          style={{ left: `calc(${pace.target * 100}% - 1px)` }}
+          title="Target: an even share of the allowance for the time gone"
+        />
       )}
     </span>
   )
@@ -177,7 +184,9 @@ export function AccountQuota() {
         <div className="flex items-center justify-between border-b border-line px-4 py-3">
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium">Ollama usage</span>
-            {account?.plan && <span className="rounded-md bg-accent-soft px-1.5 py-0.5 text-[11px] font-medium capitalize text-accent">{account.plan}</span>}
+            {account?.plan && (
+              <span className="rounded-md bg-accent-soft px-1.5 py-0.5 text-[11px] font-medium capitalize text-accent">{account.plan}</span>
+            )}
           </div>
           <button onClick={() => load(true)} aria-label="Refresh usage" className="rounded-md p-1 text-subtle hover:bg-hover hover:text-fg">
             {loading ? <Spinner className="size-3.5" /> : <RefreshCw className="size-3.5" />}
@@ -187,7 +196,8 @@ export function AccountQuota() {
           {account?.needsKey ? (
             <div className="space-y-2 text-[13px] text-muted">
               <p>
-                Ollama only shares quota numbers with an <b className="font-medium text-fg">ollama.com API key</b>. Your app sign-in isn't enough.
+                Ollama only shares quota numbers with an <b className="font-medium text-fg">ollama.com API key</b>. Your app sign-in isn't
+                enough.
               </p>
               {account.error && <p className="text-danger">{account.error}</p>}
               <button onClick={goSettings} className="text-accent hover:underline">
@@ -214,7 +224,11 @@ export function AccountQuota() {
                   <span className="text-muted">Ollama spend, {account.spend.label.toLowerCase()}</span>
                   <span
                     className="font-medium tabular-nums"
-                    title={account.spend.source === 'credits' ? 'Your share of the monthly credit pool. Ollama reports it to 0.1%, so this is approximate.' : undefined}
+                    title={
+                      account.spend.source === 'credits'
+                        ? 'Your share of the monthly credit pool. Ollama reports it to 0.1%, so this is approximate.'
+                        : undefined
+                    }
                   >
                     {account.spend.source === 'credits'
                       ? `≈${formatDollars(account.spend.cost)} of ${formatDollars(account.spend.pool)}`
@@ -226,7 +240,9 @@ export function AccountQuota() {
                 <div>
                   <div className="flex items-baseline justify-between gap-3">
                     <span className="text-muted">Requests, {periodPhrase(activityWindow.id)} (all apps)</span>
-                    <span className="font-medium tabular-nums">{activityWindow.models.reduce((n, m) => n + m.requests, 0).toLocaleString()}</span>
+                    <span className="font-medium tabular-nums">
+                      {activityWindow.models.reduce((n, m) => n + m.requests, 0).toLocaleString()}
+                    </span>
                   </div>
                   <div className="mt-0.5 truncate text-xs text-subtle">
                     {activityWindow.models
@@ -318,13 +334,16 @@ export function ChatCost({ usage, model: modelName }: { usage: ChatUsage | null;
                 </span>
               </div>
               <span className="block h-1.5 overflow-hidden rounded-full bg-hover">
-                <span className={cn('block h-full rounded-full', context > 0.8 ? 'bg-danger' : 'bg-accent')} style={{ width: `${Math.min(100, context * 100)}%` }} />
+                <span
+                  className={cn('block h-full rounded-full', context > 0.8 ? 'bg-danger' : 'bg-accent')}
+                  style={{ width: `${Math.min(100, context * 100)}%` }}
+                />
               </span>
             </div>
           )}
           <p className="text-xs text-subtle">
-            Includes retries and title generation. Costs use Ollama's published per-token prices at the full input rate, so real charges can be
-            lower with cached input or off-peak pricing.{usage.estimated && ' Stopped replies are estimated.'}
+            Includes retries and title generation. Costs use Ollama's published per-token prices at the full input rate, so real charges can
+            be lower with cached input or off-peak pricing.{usage.estimated && ' Stopped replies are estimated.'}
           </p>
         </div>
       </PopoverContent>
