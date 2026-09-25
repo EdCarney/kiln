@@ -34,9 +34,19 @@ import { getSkill, listSkills } from '../skills/library'
 import { conversationUsage, insertUsageEvent } from '../db/usage'
 import { requestCost } from '../usage/pricing'
 import { errorMessage, estimateTokens } from '../util'
-import { assemble, type HistoryTurn, type PastToolCall } from './assemble'
+import { assemble, type HistoryTurn } from './assemble'
 import { TITLE_PROMPT } from './prompts'
-import { pendingEvent, runTool, settleToolEvent, type ToolContext, type ToolResult, toolsFor } from './tools'
+import {
+  missingAbilities,
+  pendingEvent,
+  replayCalls,
+  runTool,
+  settleToolEvent,
+  type ToolContext,
+  toolGrants,
+  type ToolResult,
+  toolsFor
+} from './tools'
 import type { WebStatus } from './prompts'
 
 // Room for a search, a few page reads and a skill load; the last round is always tool-free.
@@ -167,19 +177,10 @@ function startAssistant(conversation: Conversation, parent: Message, model: stri
   return { conversation, userMessage: parent, assistantMessageId: assistant.id }
 }
 
-/** The successful web calls behind a reply, in brief, for replaying on later turns. */
-function pastToolCalls(events: ToolEvent[]): PastToolCall[] {
-  return events.flatMap((e): PastToolCall[] => {
-    if (!e.ok || e.pending || !e.record || (e.tool !== 'web_search' && e.tool !== 'web_fetch')) return []
-    const args = e.tool === 'web_search' ? { query: e.args.query } : { url: e.args.url }
-    return [{ name: e.tool, args, record: e.record }]
-  })
-}
-
 async function toTurn(message: Message, vision: boolean): Promise<HistoryTurn> {
   const turn: HistoryTurn = { role: message.role, content: message.content, documents: [], images: [], hiddenImages: [] }
   if (message.role !== 'user') {
-    turn.tools = pastToolCalls(message.toolEvents)
+    turn.tools = replayCalls(message.toolEvents)
     return turn
   }
   for (const a of attachmentRowsForMessage(message.id)) {
@@ -263,6 +264,9 @@ async function generate(
       ? (await listSkills()).filter((s) => s.enabled && !selectedIds.includes(s.id) && !loadedIds.includes(s.id))
       : []
 
+    const toolContext: ToolContext = { skills: skillIndex.length > 0, web: web === 'on', workspace: null, signal: controller.signal }
+    const grants = toolGrants(toolContext)
+
     const project = conversation.projectId ? getProject(conversation.projectId) : null
     const history = await Promise.all(
       listMessages(conversationId)
@@ -278,6 +282,7 @@ async function generate(
       date: new Date(),
       artifacts: { enabled: settings.artifacts.enabled && model.overrides.artifacts !== false, allowCdn: settings.artifacts.allowCdn },
       web,
+      grants: [...grants],
       pastTools: toolsCapable,
       project: project ? { name: project.name, instructions: project.instructions } : null,
       chatInstructions: conversation.instructions,
@@ -288,7 +293,6 @@ async function generate(
       history
     })
     if (assembled.droppedTurns) stats.truncatedHistory = assembled.droppedTurns
-    const toolContext: ToolContext = { skills: skillIndex.length > 0, web: web === 'on', signal: controller.signal }
 
     const body: ChatBody = {
       model: modelName,
@@ -425,7 +429,12 @@ async function generate(
       }
     }
     if (!content.trim() && triedUnknown.length)
-      error = `The model tried to use tools Kiln doesn't have (${[...new Set(triedUnknown)].join(', ')}) and gave no answer. Kiln can't browse the web or run code.`
+      error = [
+        `The model tried to use tools Kiln doesn't have (${[...new Set(triedUnknown)].join(', ')}) and gave no answer.`,
+        missingAbilities(grants)
+      ]
+        .filter(Boolean)
+        .join(' ')
   } catch (err) {
     if (!controller.signal.aborted) error = errorMessage(err)
     // A stopped or failed stream still spent tokens; record an estimate for the partial round.

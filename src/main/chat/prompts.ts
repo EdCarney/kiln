@@ -1,26 +1,34 @@
 import type { Skill } from '@shared/types'
+import type { ToolGrant } from './tools'
 
 /** Whether this request offers the web tools, and if not, why. */
 export type WebStatus = 'on' | 'no-key' | 'off' | 'unsupported'
 
-function capabilities(web: WebStatus): string {
-  if (web === 'on')
-    return 'You can search the web and read pages with the web_search and web_fetch tools. You cannot run code, and the only tools you have are the ones listed with this request.'
+/** What the model can and can't do with this request's tools. `grants` come from the tool providers on offer. */
+function capabilities(web: WebStatus, grants: readonly ToolGrant[]): string {
+  const code = grants.includes('code')
+  if (grants.includes('web')) {
+    const search = web === 'on' ? 'You can search the web and read pages with the web_search and web_fetch tools. ' : ''
+    return `${search}${code ? 'The' : 'You cannot run code, and the'} only tools you have are the ones listed with this request.`
+  }
   const hint =
     web === 'no-key'
       ? ' If the user wants web access, they can add an ollama.com API key in Settings → Usage & cost.'
       : web === 'unsupported'
         ? " The current model can't use tools; a model with tool support can search the web."
         : ''
-  return `Kiln gives you no internet access and no code execution right now: you can't open links, browse, search the web or run code, and the only tools you have are any listed with this request. When something needs live or online information, say you can't fetch it and offer what you can do instead. Never claim to have fetched, searched or looked something up.${hint}`
+  const [lacks, cant] = code
+    ? ['no internet access', 'open links, browse or search the web']
+    : ['no internet access and no code execution', 'open links, browse, search the web or run code']
+  return `Kiln gives you ${lacks} right now: you can't ${cant}, and the only tools you have are any listed with this request. When something needs live or online information, say you can't fetch it and offer what you can do instead. Never claim to have fetched, searched or looked something up.${hint}`
 }
 
-export function basePrompt(opts: { userName: string; model: string; date: Date; web: WebStatus }): string {
+export function basePrompt(opts: { userName: string; model: string; date: Date; web: WebStatus; grants: readonly ToolGrant[] }): string {
   const who = opts.userName ? `You are talking with ${opts.userName}.` : ''
   return `You are a helpful, thoughtful assistant running inside Kiln, a desktop chat app. ${who}
 The current date is ${opts.date.toDateString()}. You are the model "${opts.model}".
 
-${capabilities(opts.web)}
+${capabilities(opts.web, opts.grants)}
 
 Write in clear, natural prose. Use Markdown when it helps: headings for long answers, lists for steps or options, tables for comparisons, fenced code blocks with a language tag for code, and $…$ / $$…$$ for math. Keep simple answers short. Don't add filler like "Great question".`
 }
