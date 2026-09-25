@@ -17,14 +17,20 @@ export async function sendMessage(conversationId: string | null, projectId: stri
   }
 }
 
-export const CONTINUE_PROMPT = 'Your last reply was cut off. Continue exactly where it stopped, without repeating what you already wrote.'
+/** Why a reply stopped short: it hit the model's length limit, or used up its tool rounds. */
+export type ContinueReason = 'length' | 'rounds'
 
-/** Ask the model to pick up a reply that hit its length limit, as a normal follow-up in the chat. */
-export async function continueReply(conversationId: string): Promise<void> {
+export const CONTINUE_PROMPTS: Record<ContinueReason, string> = {
+  length: 'Your last reply was cut off. Continue exactly where it stopped, without repeating what you already wrote.',
+  rounds: 'Your last reply ran out of tool calls before you had finished. Carry on from where you got to, using tools again as needed.'
+}
+
+/** Ask the model to pick up a reply that stopped short, as a normal follow-up in the chat. */
+export async function continueReply(conversationId: string, reason: ContinueReason = 'length'): Promise<void> {
   const { conversation } = useChat.getState()
   if (!conversation?.model || conversation.id !== conversationId) return
   await sendMessage(conversationId, conversation.projectId, {
-    content: CONTINUE_PROMPT,
+    content: CONTINUE_PROMPTS[reason],
     attachmentIds: [],
     model: conversation.model,
     think: conversation.think,

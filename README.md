@@ -75,6 +75,8 @@ tests/           Vitest unit tests      e2e/   live Playwright run against real 
   - Every search and page read shows as a badge in the reply, at the point where the model made it. Click a page badge to open it in your browser.
   - gpt-oss-style names (`browser.open`, `web.run`, …) are routed to the real tools, but only when no offered tool has that name. Tools come from providers registered in `src/main/chat/tools.ts` (skills and web today), and an exact name always wins over an alias.
   - Tools a model invents get one explanation, then they're withdrawn so the turn still ends with an answer.
+  - A reply gets up to 6 tool rounds. If the model is still using tools after that, it has to answer with what it found, and the reply offers Continue.
+  - Every tool result is capped at 24,000 characters. When a turn's results outgrow the context window, older ones from that turn are cut to a one-line note and the newest stay whole; the reply's stats say so. The check uses Ollama's own token count for the previous request when that's higher than Kiln's estimate.
 - **Links.** Hovering a link in a reply shows a card with its destination: site, full URL, and whether it opens in your browser. It warns when the link text names a different domain than the real destination.
   - An opt-in setting (Settings → Web, artifacts & skills) adds the page's title, description and image, fetched from your Mac.
   - Local-network and loopback addresses are never fetched, including after redirects.
