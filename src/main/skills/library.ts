@@ -114,9 +114,7 @@ export async function listSkills(): Promise<Skill[]> {
       })
     }
   }
-  skills.sort(
-    (a, b) => SOURCE_PRIORITY.indexOf(a.source) - SOURCE_PRIORITY.indexOf(b.source) || a.name.localeCompare(b.name)
-  )
+  skills.sort((a, b) => SOURCE_PRIORITY.indexOf(a.source) - SOURCE_PRIORITY.indexOf(b.source) || a.name.localeCompare(b.name))
   cache = skills
   return skills
 }

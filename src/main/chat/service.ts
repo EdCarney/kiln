@@ -6,16 +6,7 @@ import { normalizeSpaces } from '@shared/text'
 import { contextOptions, effectiveContext } from '@shared/context'
 import { EVENT_CHANNELS } from '@shared/ipc'
 import { resolveThinkProfile, toOllamaThink } from '@shared/thinking'
-import type {
-  ChatEvent,
-  Conversation,
-  Message,
-  MessageStats,
-  SendRequest,
-  SendResult,
-  ThinkSetting,
-  ToolEvent
-} from '@shared/types'
+import type { ChatEvent, Conversation, Message, MessageStats, SendRequest, SendResult, ThinkSetting, ToolEvent } from '@shared/types'
 import { addArtifactVersion, listArtifacts, pruneEmptyArtifacts } from '../db/artifacts'
 import {
   attachmentRowsForMessage,
@@ -105,7 +96,11 @@ export async function edit(messageId: string, content: string, opts: { model: st
   if (!original || original.role !== 'user') throw new Error('Only your own messages can be edited')
   assertIdle(original.conversationId)
   const messages = listMessages(original.conversationId)
-  await dropAfter(original.conversationId, messages, messages.findIndex((m) => m.id === messageId))
+  await dropAfter(
+    original.conversationId,
+    messages,
+    messages.findIndex((m) => m.id === messageId)
+  )
   const user = updateMessage(messageId, { content })
   const conversation = updateConversation(original.conversationId, { model: opts.model, think: opts.think, touch: true })
   return startAssistant(conversation, user, opts.model, opts.think)
@@ -357,7 +352,13 @@ async function generate(
       const { message: _message, ...finalStats } = final ?? { done: true }
       roundTrace.finish({
         status: 'ok',
-        response: { content: roundContent, thinking: roundThinking, toolCalls: calls.length ? calls : undefined, final: finalStats, chunks },
+        response: {
+          content: roundContent,
+          thinking: roundThinking,
+          toolCalls: calls.length ? calls : undefined,
+          final: finalStats,
+          chunks
+        },
         promptTokens: billed?.promptTokens,
         completionTokens: billed?.completionTokens,
         costUsd: billed?.costUsd,
@@ -382,7 +383,9 @@ async function generate(
           model: null,
           round,
           endpoint:
-            pending.tool === 'web_search' || pending.tool === 'web_fetch' ? webEndpoint(`/api/${pending.tool}`) : `kiln://tools/${pending.tool}`,
+            pending.tool === 'web_search' || pending.tool === 'web_fetch'
+              ? webEndpoint(`/api/${pending.tool}`)
+              : `kiln://tools/${pending.tool}`,
           request: { tool: call.function.name, arguments: call.function.arguments },
           summary: `${pending.tool}: ${pending.summary}`
         })

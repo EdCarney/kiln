@@ -54,13 +54,21 @@ export function Anatomy({
           <div className="mb-1.5 flex items-baseline justify-between text-[13px]">
             <span className="font-medium">Context window</span>
             <span className="tabular-nums text-muted">
-              {formatTokens(used)} of {formatContext(contextLength)} · {(share * 100).toFixed(1)}%
-              {actualTokens == null && ' (estimated)'}
+              {formatTokens(used)} of {formatContext(contextLength)} · {(share * 100).toFixed(1)}%{actualTokens == null && ' (estimated)'}
             </span>
           </div>
           {/* Meter: same-hue fill on a neutral track. */}
-          <div className="h-2 overflow-hidden rounded-full bg-hover" role="meter" aria-valuemin={0} aria-valuemax={contextLength} aria-valuenow={used}>
-            <div className={cn('h-full rounded-full', share > 0.8 ? 'bg-danger' : 'bg-accent')} style={{ width: `${Math.min(100, share * 100)}%` }} />
+          <div
+            className="h-2 overflow-hidden rounded-full bg-hover"
+            role="meter"
+            aria-valuemin={0}
+            aria-valuemax={contextLength}
+            aria-valuenow={used}
+          >
+            <div
+              className={cn('h-full rounded-full', share > 0.8 ? 'bg-danger' : 'bg-accent')}
+              style={{ width: `${Math.min(100, share * 100)}%` }}
+            />
           </div>
         </section>
       )}
@@ -131,14 +139,18 @@ function MessageRow({ index, message: m }: { index: number; message: NonNullable
           {m.role}
           {m.tool_name ? `:${m.tool_name}` : ''}
         </span>
-        <span className="min-w-0 flex-1 truncate text-muted">{text.replace(/\s+/g, ' ').slice(0, 160) || (m.tool_calls ? '(tool call)' : '(empty)')}</span>
+        <span className="min-w-0 flex-1 truncate text-muted">
+          {text.replace(/\s+/g, ' ').slice(0, 160) || (m.tool_calls ? '(tool call)' : '(empty)')}
+        </span>
         {m.images?.length ? <span className="shrink-0 text-xs text-subtle">{m.images.length} image(s)</span> : null}
         <span className="shrink-0 font-mono text-[11px] tabular-nums text-subtle">≈{formatTokens(tokens)}</span>
       </button>
       {open && (
         <div className="space-y-2 border-t border-line px-3 py-2">
           {m.thinking && <pre className="selectable whitespace-pre-wrap font-mono text-[12px] text-subtle">{m.thinking}</pre>}
-          {text && <pre className="selectable max-h-[520px] overflow-auto whitespace-pre-wrap font-mono text-[12px] leading-relaxed">{text}</pre>}
+          {text && (
+            <pre className="selectable max-h-[520px] overflow-auto whitespace-pre-wrap font-mono text-[12px] leading-relaxed">{text}</pre>
+          )}
           {m.tool_calls && <JsonBlock value={m.tool_calls} />}
           {m.images?.length ? <div className="text-xs text-subtle">{m.images.join(', ')}</div> : null}
         </div>

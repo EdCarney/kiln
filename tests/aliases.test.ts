@@ -3,13 +3,20 @@ import { resolveWebCall } from '../src/main/chat/aliases'
 
 describe('resolveWebCall', () => {
   it('passes the real tool names through', () => {
-    expect(resolveWebCall('web_search', { query: 'kiln news', max_results: 3 })).toEqual({ tool: 'web_search', query: 'kiln news', maxResults: 3 })
+    expect(resolveWebCall('web_search', { query: 'kiln news', max_results: 3 })).toEqual({
+      tool: 'web_search',
+      query: 'kiln news',
+      maxResults: 3
+    })
     expect(resolveWebCall('web_fetch', { url: 'https://example.com' })).toEqual({ tool: 'web_fetch', url: 'https://example.com' })
   })
 
   it('maps the names gpt-oss reached for in practice', () => {
     expect(resolveWebCall('browser.search', { query: 'top stories' })).toMatchObject({ tool: 'web_search', query: 'top stories' })
-    expect(resolveWebCall('browser.open', { id: 'https://news.google.com/topstories' })).toEqual({ tool: 'web_fetch', url: 'https://news.google.com/topstories' })
+    expect(resolveWebCall('browser.open', { id: 'https://news.google.com/topstories' })).toEqual({
+      tool: 'web_fetch',
+      url: 'https://news.google.com/topstories'
+    })
     expect(resolveWebCall('http.get', { url: 'https://a.io' })).toEqual({ tool: 'web_fetch', url: 'https://a.io' })
     expect(resolveWebCall('fetch', { link: 'https://b.io' })).toEqual({ tool: 'web_fetch', url: 'https://b.io' })
     expect(resolveWebCall('web.fetch', { url: 'https://c.io' })).toEqual({ tool: 'web_fetch', url: 'https://c.io' })

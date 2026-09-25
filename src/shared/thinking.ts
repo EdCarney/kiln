@@ -16,11 +16,7 @@ const FAMILY_RULES: Array<{ match: RegExp; profile: ThinkProfile }> = [
   }
 ]
 
-export function resolveThinkProfile(
-  model: string,
-  capabilities: string[],
-  override?: ThinkProfile['kind']
-): ThinkProfile {
+export function resolveThinkProfile(model: string, capabilities: string[], override?: ThinkProfile['kind']): ThinkProfile {
   if (!capabilities.includes('thinking')) return { kind: 'none' }
   if (override === 'none' || override === 'toggle') return { kind: override }
   if (override === 'always') return { kind: 'always' }

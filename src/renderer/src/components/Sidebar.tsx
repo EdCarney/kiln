@@ -8,7 +8,19 @@ import { ConversationRow } from './ConversationMenu'
 import { KilnMark } from './KilnMark'
 import { IconButton } from './ui'
 
-function NavItem({ icon, label, active, onClick, accent }: { icon: ReactNode; label: string; active?: boolean; onClick: () => void; accent?: boolean }) {
+function NavItem({
+  icon,
+  label,
+  active,
+  onClick,
+  accent
+}: {
+  icon: ReactNode
+  label: string
+  active?: boolean
+  onClick: () => void
+  accent?: boolean
+}) {
   return (
     <button
       onClick={onClick}
@@ -67,15 +79,30 @@ export function Sidebar() {
 
       <nav className="space-y-0.5 px-2">
         <NavItem accent icon={<Plus className="size-3.5" strokeWidth={2.5} />} label="New chat" onClick={() => go({ name: 'home' })} />
-        <NavItem icon={<MessageSquare className="size-4" />} label="Chats" active={route.name === 'chats'} onClick={() => go({ name: 'chats' })} />
+        <NavItem
+          icon={<MessageSquare className="size-4" />}
+          label="Chats"
+          active={route.name === 'chats'}
+          onClick={() => go({ name: 'chats' })}
+        />
         <NavItem
           icon={<FolderClosed className="size-4" />}
           label="Projects"
           active={route.name === 'projects' || route.name === 'project'}
           onClick={() => go({ name: 'projects' })}
         />
-        <NavItem icon={<Shapes className="size-4" />} label="Artifacts" active={route.name === 'artifacts'} onClick={() => go({ name: 'artifacts' })} />
-        <NavItem icon={<Sparkles className="size-4" />} label="Skills" active={route.name === 'skills'} onClick={() => go({ name: 'skills' })} />
+        <NavItem
+          icon={<Shapes className="size-4" />}
+          label="Artifacts"
+          active={route.name === 'artifacts'}
+          onClick={() => go({ name: 'artifacts' })}
+        />
+        <NavItem
+          icon={<Sparkles className="size-4" />}
+          label="Skills"
+          active={route.name === 'skills'}
+          onClick={() => go({ name: 'skills' })}
+        />
       </nav>
 
       <div className="mt-2 min-h-0 flex-1 overflow-y-auto px-2 pb-3">

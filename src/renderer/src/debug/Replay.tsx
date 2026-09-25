@@ -86,14 +86,18 @@ export function Replay({ trace, conversationId }: { trace: TraceDetail; conversa
             {result.response.thinking && (
               <div>
                 <div className="mb-1 text-[11px] font-medium text-subtle">Thinking</div>
-                <pre className="selectable whitespace-pre-wrap rounded-kiln border border-line bg-code p-3 font-mono text-[12px] text-muted">{result.response.thinking}</pre>
+                <pre className="selectable whitespace-pre-wrap rounded-kiln border border-line bg-code p-3 font-mono text-[12px] text-muted">
+                  {result.response.thinking}
+                </pre>
               </div>
             )}
             <div>
               <div className="mb-1 flex items-center justify-between text-[11px] font-medium text-subtle">
                 Content {result.response.content && <CopyButton text={result.response.content} />}
               </div>
-              <pre className="selectable whitespace-pre-wrap rounded-kiln border border-line bg-code p-3 font-mono text-[12px] leading-relaxed">{result.response.content || '(empty)'}</pre>
+              <pre className="selectable whitespace-pre-wrap rounded-kiln border border-line bg-code p-3 font-mono text-[12px] leading-relaxed">
+                {result.response.content || '(empty)'}
+              </pre>
             </div>
             {result.response.toolCalls && (
               <div>

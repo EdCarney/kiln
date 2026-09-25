@@ -13,7 +13,15 @@ const LEVELS: Array<{ value: ThinkSetting; label: string; hint: string }> = [
 const pill = 'flex h-8 items-center gap-1.5 rounded-lg px-2 text-[13px] transition-colors'
 
 /** Renders differently per model: hidden, an on/off toggle, an effort menu, or a fixed badge. */
-export function ThinkingControl({ profile, value, onChange }: { profile: ThinkProfile; value: ThinkSetting | null; onChange: (v: ThinkSetting) => void }) {
+export function ThinkingControl({
+  profile,
+  value,
+  onChange
+}: {
+  profile: ThinkProfile
+  value: ThinkSetting | null
+  onChange: (v: ThinkSetting) => void
+}) {
   const setting = normalizeThinkSetting(profile, value)
 
   if (profile.kind === 'none') return null
@@ -54,7 +62,11 @@ export function ThinkingControl({ profile, value, onChange }: { profile: ThinkPr
       <MenuContent side="top">
         <MenuLabel>Reasoning effort</MenuLabel>
         {options.map((o) => (
-          <MenuItem key={o.value} onSelect={() => onChange(o.value)} icon={o.value === setting ? <Check className="size-4 text-accent" /> : null}>
+          <MenuItem
+            key={o.value}
+            onSelect={() => onChange(o.value)}
+            icon={o.value === setting ? <Check className="size-4 text-accent" /> : null}
+          >
             <span className="flex-1">
               <span className="block">{o.label}</span>
               <span className="block text-xs text-subtle">{o.hint}</span>

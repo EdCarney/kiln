@@ -113,7 +113,9 @@ export async function listModels(refresh = false): Promise<ModelListResult> {
       try {
         return toModelInfo(name, await fetchInfo(name, refresh), installed)
       } catch {
-        return installed ? toModelInfo(name, { capabilities: ['completion'], contextLength: null, family: null, parameterSize: null }, true) : null
+        return installed
+          ? toModelInfo(name, { capabilities: ['completion'], contextLength: null, family: null, parameterSize: null }, true)
+          : null
       }
     })
   )

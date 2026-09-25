@@ -31,7 +31,10 @@ Answer with exactly one haiku (three lines, 5-7-5 syllables).
 After the haiku, on its own line, sign it exactly: — Kiln Poetry Desk
 `
 )
-writeFileSync(join(fixtures, 'brief.txt'), 'Project brief. The internal codename for this project is BLUE HERON. Launch is planned for March.')
+writeFileSync(
+  join(fixtures, 'brief.txt'),
+  'Project brief. The internal codename for this project is BLUE HERON. Launch is planned for March.'
+)
 
 // Stand-in for ollama.com/api/usage (undocumented): weekly usage 40%, then a drop that looks like a reset.
 let mockWeekly = 0.4
@@ -42,7 +45,11 @@ const usageServer = createServer((req, res) => {
   res.writeHead(200, { 'content-type': 'application/json' })
   res.end(
     JSON.stringify({
-      activity: { cost: '3.21000', models: [], period: { type: 'last_4_weeks', starting_at: '2026-08-26T00:00:00Z', ending_at: '2026-09-23T00:00:00Z' } },
+      activity: {
+        cost: '3.21000',
+        models: [],
+        period: { type: 'last_4_weeks', starting_at: '2026-08-26T00:00:00Z', ending_at: '2026-09-23T00:00:00Z' }
+      },
       limits: { session: { usage: 0.05, models: [] }, weekly: { usage: mockWeekly, models: [] } }
     })
   )
@@ -114,9 +121,18 @@ try {
   const frame = win.frames().find((f) => f.url().startsWith('artifact://'))
   check('HTML artifact renders in a sandboxed frame', !!frame)
   if (frame) {
-    const heading = await frame.locator('h1').first().innerText().catch(() => '')
+    const heading = await frame
+      .locator('h1')
+      .first()
+      .innerText()
+      .catch(() => '')
     check('artifact content is visible', /sandbox test/i.test(heading), heading)
-    const net = await frame.evaluate(() => fetch('https://example.com').then(() => 'reached', () => 'blocked'))
+    const net = await frame.evaluate(() =>
+      fetch('https://example.com').then(
+        () => 'reached',
+        () => 'blocked'
+      )
+    )
     check('artifact cannot make network requests', net === 'blocked', net)
     const parent = await frame.evaluate(() => {
       try {
@@ -128,7 +144,10 @@ try {
     check('artifact cannot reach the app bridge', parent === 'blocked', parent)
   }
   await win.screenshot({ path: join(SHOTS, 'artifact.png') })
-  await win.locator('aside button[aria-label="Close"]').click().catch(() => {})
+  await win
+    .locator('aside button[aria-label="Close"]')
+    .click()
+    .catch(() => {})
 
   // 3. Manual skill via the / picker
   await newChat(win)
@@ -179,29 +198,46 @@ try {
   // 8. Account quota: prompt for a key, then show usage and date a reset from a drop
   const before = await win.locator('button[aria-label^="Ollama usage"]').innerText()
   check('quota chip asks for an API key first', /Quota/.test(before), before)
-  await win.getByRole('button', { name: /Set your name|Settings/ }).last().click()
+  await win
+    .getByRole('button', { name: /Set your name|Settings/ })
+    .last()
+    .click()
   await win.getByRole('button', { name: 'Usage & cost' }).click()
   await win.fill('input[placeholder="Paste your API key"]', 'kiln-e2e-key')
   await win.getByRole('button', { name: 'Save', exact: true }).click()
-  await win.waitForFunction(() => /40\.0%/.test(document.querySelector('button[aria-label^="Ollama usage"]')?.textContent ?? ''), null, { timeout: 10000 })
+  await win.waitForFunction(() => /40\.0%/.test(document.querySelector('button[aria-label^="Ollama usage"]')?.textContent ?? ''), null, {
+    timeout: 10000
+  })
   check('quota chip shows weekly usage', true, await win.locator('button[aria-label^="Ollama usage"]').innerText())
   const unknownPace = await win.locator('button[aria-label^="Ollama usage"]').getAttribute('aria-label')
   check('pace is unknown until the reset time is known', /pace unknown/.test(unknownPace), unknownPace)
   check('API key is sent as a bearer token', mockAuth === 'Bearer kiln-e2e-key')
   mockWeekly = 0.02
   await win.getByRole('button', { name: 'Check now' }).click()
-  await win.waitForFunction(() => /2\.0% · 6d 2\dh left/.test(document.querySelector('button[aria-label^="Ollama usage"]')?.textContent ?? ''), null, { timeout: 10000 })
+  await win.waitForFunction(
+    () => /2\.0% · 6d 2\dh left/.test(document.querySelector('button[aria-label^="Ollama usage"]')?.textContent ?? ''),
+    null,
+    { timeout: 10000 }
+  )
   check('a usage drop dates the weekly reset', true, await win.locator('button[aria-label^="Ollama usage"]').innerText())
   const underPace = await win.locator('button[aria-label^="Ollama usage"]').getAttribute('aria-label')
   check('light usage early in the week is under pace', /under pace/.test(underPace), underPace)
   // Half the allowance gone moments into the week: on course to run out long before the reset.
   mockWeekly = 0.5
   await win.getByRole('button', { name: 'Check now' }).click()
-  await win.waitForFunction(() => /over pace/.test(document.querySelector('button[aria-label^="Ollama usage"]')?.getAttribute('aria-label') ?? ''), null, { timeout: 10000 })
+  await win.waitForFunction(
+    () => /over pace/.test(document.querySelector('button[aria-label^="Ollama usage"]')?.getAttribute('aria-label') ?? ''),
+    null,
+    { timeout: 10000 }
+  )
   await win.click('button[aria-label^="Ollama usage"]')
   await win.waitForTimeout(500)
   const banner = await win.locator('[data-radix-popper-content-wrapper]').innerText()
-  check('heavy usage is over pace with a run-out estimate', /Over pace/.test(banner) && /hit the limit in about/.test(banner), banner.split('\n').slice(1, 4).join(' | '))
+  check(
+    'heavy usage is over pace with a run-out estimate',
+    /Over pace/.test(banner) && /hit the limit in about/.test(banner),
+    banner.split('\n').slice(1, 4).join(' | ')
+  )
   await win.screenshot({ path: join(SHOTS, 'usage-over-pace.png') })
   await win.keyboard.press('Escape')
   mockWeekly = 0.3
@@ -214,7 +250,10 @@ try {
   await win.screenshot({ path: join(SHOTS, 'usage-settings.png') })
 
   // 9. Theme + mode persist across restarts
-  await win.getByRole('button', { name: /Set your name|Settings/ }).last().click()
+  await win
+    .getByRole('button', { name: /Set your name|Settings/ })
+    .last()
+    .click()
   await win.getByRole('button', { name: 'Appearance' }).click()
   await win.getByRole('button', { name: 'Dark' }).click()
   await win.getByRole('button', { name: 'Use Nord theme' }).click()
@@ -248,7 +287,10 @@ await second.win.screenshot({ path: join(SHOTS, 'home-nord-dark.png') })
         hackLoaded: [...document.fonts].some((f) => f.family.replace(/"/g, '') === 'Hack' && f.status === 'loaded')
       }
     })
-  await w.getByRole('button', { name: /Set your name|Settings/ }).last().click()
+  await w
+    .getByRole('button', { name: /Set your name|Settings/ })
+    .last()
+    .click()
   await w.getByRole('button', { name: 'Appearance' }).click()
   await w.getByRole('button', { name: 'Light', exact: true }).click()
   await w.getByRole('button', { name: 'Use Hack theme' }).click()
@@ -264,9 +306,17 @@ await second.win.screenshot({ path: join(SHOTS, 'home-nord-dark.png') })
   await w.getByRole('button', { name: 'Dark', exact: true }).click()
   await w.waitForTimeout(300)
   const mocha = await themeState()
-  check('Catppuccin follows the mode (Latte / Mocha)', !latte.dark && latte.canvas === '#eff1f5' && mocha.dark && mocha.canvas === '#1e1e2e', `${latte.canvas} / ${mocha.canvas}`)
+  check(
+    'Catppuccin follows the mode (Latte / Mocha)',
+    !latte.dark && latte.canvas === '#eff1f5' && mocha.dark && mocha.canvas === '#1e1e2e',
+    `${latte.canvas} / ${mocha.canvas}`
+  )
   // Mocha's red is light, so text on a Delete button switches to the theme's dark ink.
-  check('danger buttons pick readable text per theme', latte.dangerFg === '#ffffff' && mocha.dangerFg === '#1e1e2e', `${latte.dangerFg} / ${mocha.dangerFg}`)
+  check(
+    'danger buttons pick readable text per theme',
+    latte.dangerFg === '#ffffff' && mocha.dangerFg === '#1e1e2e',
+    `${latte.dangerFg} / ${mocha.dangerFg}`
+  )
 }
 await second.app.close()
 
@@ -280,13 +330,19 @@ const fakeOllama = createServer(async (req, res) => {
   const body = raw ? JSON.parse(raw) : {}
   const json = (obj) => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(obj))
   if (req.url === '/api/tags') return json({ models: [{ name: 'mock-tools:latest' }] })
-  if (req.url === '/api/show') return json({ capabilities: ['completion', 'tools'], model_info: { 'mock.context_length': 32768 }, details: {} })
+  if (req.url === '/api/show')
+    return json({ capabilities: ['completion', 'tools'], model_info: { 'mock.context_length': 32768 }, details: {} })
   if (req.url !== '/api/chat') return res.writeHead(404).end()
   // Non-streaming: title requests (no tools) get a title; debugger replays of a tool round get its tool call.
   if (!body.stream) {
     if (body.tools?.length) {
       mockChats.push({ toolNames: body.tools.map((t) => t.function.name), toolResults: [], system: body.messages[0].content, replay: true })
-      return json({ message: { role: 'assistant', content: '', tool_calls: [{ function: { name: 'web_search', arguments: { query: 'replayed' } } }] }, done: true, prompt_eval_count: 100, eval_count: 5 })
+      return json({
+        message: { role: 'assistant', content: '', tool_calls: [{ function: { name: 'web_search', arguments: { query: 'replayed' } } }] },
+        done: true,
+        prompt_eval_count: 100,
+        eval_count: 5
+      })
     }
     return json({ message: { role: 'assistant', content: 'Mock title' }, done: true, prompt_eval_count: 10, eval_count: 2 })
   }
@@ -297,15 +353,27 @@ const fakeOllama = createServer(async (req, res) => {
   if (toolNames.includes('web_search')) {
     message =
       toolResults.length === 0
-        ? { role: 'assistant', content: '', tool_calls: [{ function: { name: 'web_search', arguments: { query: 'top headlines today' } } }] }
+        ? {
+            role: 'assistant',
+            content: '',
+            tool_calls: [{ function: { name: 'web_search', arguments: { query: 'top headlines today' } } }]
+          }
         : toolResults.length === 1
-          ? { role: 'assistant', content: '', tool_calls: [{ function: { name: 'browser.open', arguments: { id: 'https://news.example.com/story' } } }] }
+          ? {
+              role: 'assistant',
+              content: '',
+              tool_calls: [{ function: { name: 'browser.open', arguments: { id: 'https://news.example.com/story' } } }]
+            }
           : {
               role: 'assistant',
               content: `The lead story is KILN-WEB-OK on Sept\u202F23, per [Example News](https://news.example.com/story).\n\nMore: [preview test](${pageUrl}) and [paypal.com](https://evil.example/login).`
             }
   } else if (toolNames.length) {
-    message = { role: 'assistant', content: '', tool_calls: [{ function: { name: 'web.run', arguments: { url: 'https://news.google.com' } } }] }
+    message = {
+      role: 'assistant',
+      content: '',
+      tool_calls: [{ function: { name: 'web.run', arguments: { url: 'https://news.google.com' } } }]
+    }
   } else {
     message = { role: 'assistant', content: "I can't browse the web from Kiln, so I can't fetch today's headlines." }
   }
@@ -337,34 +405,64 @@ const fakeWeb = createServer(async (req, res) => {
   webCalls.push({ path: req.url, auth: req.headers.authorization, body: raw ? JSON.parse(raw) : {} })
   res.writeHead(200, { 'content-type': 'application/json' })
   if (req.url === '/api/web_search')
-    return res.end(JSON.stringify({ results: [{ title: 'Example News', url: 'https://news.example.com/story', content: 'Top story snippet' }] }))
-  res.end(JSON.stringify({ title: 'Example story', content: 'Full article text KILN-WEB-MARKER', links: ['https://news.example.com/other'] }))
+    return res.end(
+      JSON.stringify({ results: [{ title: 'Example News', url: 'https://news.example.com/story', content: 'Top story snippet' }] })
+    )
+  res.end(
+    JSON.stringify({ title: 'Example story', content: 'Full article text KILN-WEB-MARKER', links: ['https://news.example.com/other'] })
+  )
 })
 await new Promise((r) => fakeOllama.listen(0, '127.0.0.1', r))
 await new Promise((r) => fakeWeb.listen(0, '127.0.0.1', r))
 const mockUserData = mkdtempSync(join(tmpdir(), 'kiln-e2e-tools-'))
 mkdirSync(join(mockUserData, 'skills', 'news-helper'), { recursive: true })
-writeFileSync(join(mockUserData, 'skills', 'news-helper', 'SKILL.md'), '---\nname: news-helper\ndescription: Summarise news.\n---\n\nSummarise.\n')
+writeFileSync(
+  join(mockUserData, 'skills', 'news-helper', 'SKILL.md'),
+  '---\nname: news-helper\ndescription: Summarise news.\n---\n\nSummarise.\n'
+)
 {
   const app = await electron.launch({
     args: [ROOT],
-    env: { ...process.env, KILN_USER_DATA: mockUserData, KILN_WEB_URL: `http://127.0.0.1:${fakeWeb.address().port}`, KILN_ALLOW_PRIVATE_PREVIEWS: '1' }
+    env: {
+      ...process.env,
+      KILN_USER_DATA: mockUserData,
+      KILN_WEB_URL: `http://127.0.0.1:${fakeWeb.address().port}`,
+      KILN_ALLOW_PRIVATE_PREVIEWS: '1'
+    }
   })
   const win = await app.firstWindow()
   await win.waitForSelector('textarea', { timeout: 20000 })
-  await win.evaluate((host) => window.kiln.settings.update({ connection: { mode: 'local', host }, showCloudCatalog: false }), `http://127.0.0.1:${fakeOllama.address().port}`)
+  await win.evaluate(
+    (host) => window.kiln.settings.update({ connection: { mode: 'local', host }, showCloudCatalog: false }),
+    `http://127.0.0.1:${fakeOllama.address().port}`
+  )
   await win.reload()
   await win.waitForSelector('textarea')
   await win.waitForTimeout(1500)
   try {
     // Without an API key: no web tools, and the model is told why.
     const reply = await send(win, "Get me today's top headlines.")
-    check('without a key, web tools are not offered', !mockChats[0].toolNames.includes('web_search') && /Settings → Usage & cost/.test(mockChats[0].system), mockChats[0].toolNames.join(', '))
-    check('an invented tool gets one explanation, then tools are withdrawn', mockChats.length === 2 && mockChats[0].toolNames.length > 0 && !mockChats[1].toolNames.length, `${mockChats.length} requests`)
+    check(
+      'without a key, web tools are not offered',
+      !mockChats[0].toolNames.includes('web_search') && /Settings → Usage & cost/.test(mockChats[0].system),
+      mockChats[0].toolNames.join(', ')
+    )
+    check(
+      'an invented tool gets one explanation, then tools are withdrawn',
+      mockChats.length === 2 && mockChats[0].toolNames.length > 0 && !mockChats[1].toolNames.length,
+      `${mockChats.length} requests`
+    )
     check('the explanation says Kiln has no internet access', /no internet access/.test(mockChats[1]?.toolResults[0] ?? ''))
     check('the turn still ends with an answer', /can't browse the web/.test(reply), reply.slice(0, 60))
-    const note = await win.locator('text=Tried unavailable').innerText().catch(() => '')
-    check('the UI labels it as an unavailable tool, not a file error', /web\.run/.test(note) && (await win.locator("text=Couldn't read file").count()) === 0, note)
+    const note = await win
+      .locator('text=Tried unavailable')
+      .innerText()
+      .catch(() => '')
+    check(
+      'the UI labels it as an unavailable tool, not a file error',
+      /web\.run/.test(note) && (await win.locator("text=Couldn't read file").count()) === 0,
+      note
+    )
     await win.screenshot({ path: join(SHOTS, 'unknown-tool.png') })
 
     // With a key: search, an aliased page read, and a cited answer.
@@ -373,9 +471,19 @@ writeFileSync(join(mockUserData, 'skills', 'news-helper', 'SKILL.md'), '---\nnam
     await win.getByRole('button', { name: 'New chat' }).first().click()
     await win.waitForSelector('textarea[placeholder="How can I help you today?"]')
     const webReply = await send(win, "What's the top news today?")
-    check('with a key, web tools are offered and the prompt explains them', mockChats[0].toolNames.includes('web_fetch') && /<web>/.test(mockChats[0].system))
-    check('web requests carry the API key as a bearer token', webCalls.length === 2 && webCalls.every((c) => c.auth === 'Bearer mock-web-key'), `${webCalls.length} calls`)
-    check('gpt-oss-style browser.open is routed to web_fetch', webCalls[1]?.path === '/api/web_fetch' && webCalls[1]?.body.url === 'https://news.example.com/story')
+    check(
+      'with a key, web tools are offered and the prompt explains them',
+      mockChats[0].toolNames.includes('web_fetch') && /<web>/.test(mockChats[0].system)
+    )
+    check(
+      'web requests carry the API key as a bearer token',
+      webCalls.length === 2 && webCalls.every((c) => c.auth === 'Bearer mock-web-key'),
+      `${webCalls.length} calls`
+    )
+    check(
+      'gpt-oss-style browser.open is routed to web_fetch',
+      webCalls[1]?.path === '/api/web_fetch' && webCalls[1]?.body.url === 'https://news.example.com/story'
+    )
     const pageResult = mockChats[2]?.toolResults[1] ?? ''
     check('page content reaches the model framed as untrusted', /KILN-WEB-MARKER/.test(pageResult) && /untrusted data/.test(pageResult))
     check('the answer cites the page', /KILN-WEB-OK/.test(webReply), webReply.slice(0, 70))
@@ -395,7 +503,11 @@ writeFileSync(join(mockUserData, 'skills', 'news-helper', 'SKILL.md'), '---\nnam
     })
     check('narrow no-break spaces render as visible spaces', spaceWidth > 2, `${spaceWidth.toFixed(1)}px`)
     const badges = await win.locator('.mb-3.flex.flex-wrap').last().innerText()
-    check('badges show the search and the page read', /Searched the web:\s+top headlines today\s+· 1 result\b/.test(badges) && /Read\s*Example story/.test(badges), badges.replace(/\s+/g, ' '))
+    check(
+      'badges show the search and the page read',
+      /Searched the web:\s+top headlines today\s+· 1 result\b/.test(badges) && /Read\s*Example story/.test(badges),
+      badges.replace(/\s+/g, ' ')
+    )
     await win.screenshot({ path: join(SHOTS, 'web-tools.png') })
 
     // 12. The debugger window shows the exact requests behind that turn, and can replay one.
@@ -403,15 +515,24 @@ writeFileSync(join(mockUserData, 'skills', 'news-helper', 'SKILL.md'), '---\nnam
     await dbg.waitForSelector('text=chat · round 1', { timeout: 10000 })
     await dbg.waitForTimeout(800)
     const list = await dbg.locator('.w-\\[420px\\]').innerText()
-    const sequence = ['chat · round 1', 'web_search', 'chat · round 2', 'web_fetch', 'chat · round 3', 'title'].every((s) => list.includes(s))
+    const sequence = ['chat · round 1', 'web_search', 'chat · round 2', 'web_fetch', 'chat · round 3', 'title'].every((s) =>
+      list.includes(s)
+    )
     check('debugger lists every request in the turn, in order', sequence, list.replace(/\s+/g, ' ').slice(0, 160))
     await dbg.locator('button', { hasText: '→ web_search' }).first().click()
     await dbg.waitForSelector('text=Tools offered')
     const overview = await dbg.locator('dl').first().innerText()
-    check('overview shows the model, think setting and tools offered', /mock-tools:latest/.test(overview) && /web_search/.test(overview), overview.replace(/\s+/g, ' ').slice(0, 120))
+    check(
+      'overview shows the model, think setting and tools offered',
+      /mock-tools:latest/.test(overview) && /web_search/.test(overview),
+      overview.replace(/\s+/g, ' ').slice(0, 120)
+    )
     await dbg.getByRole('button', { name: 'Prompt anatomy' }).click()
     const anatomyText = await dbg.locator('text=Where the tokens go').locator('..').locator('..').innerText()
-    check('prompt anatomy breaks the request into its parts', /Web tool guidance/.test(anatomyText) && /Tool definitions \(\d\)/.test(anatomyText) && /Base instructions/.test(anatomyText))
+    check(
+      'prompt anatomy breaks the request into its parts',
+      /Web tool guidance/.test(anatomyText) && /Tool definitions \(\d\)/.test(anatomyText) && /Base instructions/.test(anatomyText)
+    )
     await dbg.getByRole('button', { name: 'Request', exact: true }).click()
     const requestJson = await dbg.locator('.code-body').first().innerText()
     check('request tab shows the exact JSON sent', /"model": "mock-tools:latest"/.test(requestJson) && /"stream": true/.test(requestJson))
@@ -428,18 +549,29 @@ writeFileSync(join(mockUserData, 'skills', 'news-helper', 'SKILL.md'), '---\nnam
     // an opt-in page preview.
     const newsLink = win.locator('.prose-kiln a[href="https://news.example.com/story"]').last()
     const cursors = await newsLink.evaluate((a) => ({ link: getComputedStyle(a).cursor, text: getComputedStyle(a.closest('p')).cursor }))
-    check('links get the hand cursor; surrounding text keeps the text cursor', cursors.link === 'pointer' && cursors.text === 'auto', JSON.stringify(cursors))
+    check(
+      'links get the hand cursor; surrounding text keeps the text cursor',
+      cursors.link === 'pointer' && cursors.text === 'auto',
+      JSON.stringify(cursors)
+    )
     await newsLink.hover()
     const card = win.locator('[data-testid="link-card"]')
     await card.waitFor({ timeout: 5000 })
     const cardText = await card.innerText()
-    check('hovering a link shows where it goes', /news\.example\.com/.test(cardText) && /https:\/\/news\.example\.com\/story/.test(cardText) && /Opens in your browser/.test(cardText), cardText.replace(/\s+/g, ' '))
+    check(
+      'hovering a link shows where it goes',
+      /news\.example\.com/.test(cardText) && /https:\/\/news\.example\.com\/story/.test(cardText) && /Opens in your browser/.test(cardText),
+      cardText.replace(/\s+/g, ' ')
+    )
     check('no page is fetched while previews are off', (await card.locator('img').count()) === 0)
     await win.mouse.move(5, 5)
     await card.waitFor({ state: 'detached', timeout: 5000 })
     await win.locator('.prose-kiln a[href="https://evil.example/login"]').last().hover()
     await card.waitFor({ timeout: 5000 })
-    check('a link whose text names another domain gets a warning', /The link text says paypal\.com, but it opens evil\.example/.test(await card.innerText()))
+    check(
+      'a link whose text names another domain gets a warning',
+      /The link text says paypal\.com, but it opens evil\.example/.test(await card.innerText())
+    )
     await win.mouse.move(5, 5)
     await card.waitFor({ state: 'detached', timeout: 5000 })
 
@@ -450,9 +582,17 @@ writeFileSync(join(mockUserData, 'skills', 'news-helper', 'SKILL.md'), '---\nnam
     await win.waitForSelector(`.prose-kiln a[href="${pageUrl}"]`)
     await win.locator(`.prose-kiln a[href="${pageUrl}"]`).last().hover()
     await card.waitFor({ timeout: 5000 })
-    await win.waitForFunction(() => /Preview Title KILN/.test(document.querySelector('[data-testid="link-card"]')?.textContent ?? ''), null, { timeout: 8000 })
+    await win.waitForFunction(
+      () => /Preview Title KILN/.test(document.querySelector('[data-testid="link-card"]')?.textContent ?? ''),
+      null,
+      { timeout: 8000 }
+    )
     const imgs = await card.locator('img').evaluateAll((els) => els.map((e) => e.getAttribute('src')?.slice(0, 15)))
-    check('with previews on, the card shows the page title and image', imgs.length === 2 && imgs.every((s) => s === 'data:image/png;'), imgs.join(', '))
+    check(
+      'with previews on, the card shows the page title and image',
+      imgs.length === 2 && imgs.every((s) => s === 'data:image/png;'),
+      imgs.join(', ')
+    )
     await win.screenshot({ path: join(SHOTS, 'link-preview.png') })
 
     // The card's title and URL act as the link; the excerpt doesn't. Record opens instead of launching a browser.
@@ -475,7 +615,11 @@ writeFileSync(join(mockUserData, 'skills', 'news-helper', 'SKILL.md'), '---\nnam
     await reopenCard()
     await card.getByText(pageUrl).click()
     const urls = await opened()
-    check('clicking the card title or URL opens the link, then the card closes', urls.length === 2 && urls.every((u) => u === pageUrl) && closedAfterClick, `${urls.length} opens, closed=${closedAfterClick}`)
+    check(
+      'clicking the card title or URL opens the link, then the card closes',
+      urls.length === 2 && urls.every((u) => u === pageUrl) && closedAfterClick,
+      `${urls.length} opens, closed=${closedAfterClick}`
+    )
   } catch (err) {
     check('tool runs completed without errors', false, err.message.split('\n')[0])
     await win.screenshot({ path: join(SHOTS, 'tools-failure.png') }).catch(() => {})

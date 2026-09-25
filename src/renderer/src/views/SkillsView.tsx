@@ -127,7 +127,9 @@ export function SkillsView({ selectedId }: { selectedId?: string }) {
                 ))}
               </div>
             ))}
-            {!skills.length && <p className="px-3 py-6 text-sm text-subtle">No skills yet. Create one, or add SKILL.md folders to ~/.ollama/skills.</p>}
+            {!skills.length && (
+              <p className="px-3 py-6 text-sm text-subtle">No skills yet. Create one, or add SKILL.md folders to ~/.ollama/skills.</p>
+            )}
           </div>
           <div className="border-t border-line p-2">
             <Button size="sm" variant="ghost" className="w-full justify-start" onClick={() => api.skills.reveal(null)}>
@@ -168,7 +170,10 @@ export function SkillsView({ selectedId }: { selectedId?: string }) {
                     </Button>
                   ) : (
                     <>
-                      <Button size="sm" onClick={() => setDraft({ id: detail.id, name: detail.name, description: detail.description, body: detail.body })}>
+                      <Button
+                        size="sm"
+                        onClick={() => setDraft({ id: detail.id, name: detail.name, description: detail.description, body: detail.body })}
+                      >
                         Edit
                       </Button>
                       <Button size="sm" variant="ghost" onClick={() => setDeleting(true)} aria-label="Delete skill">
@@ -194,8 +199,8 @@ export function SkillsView({ selectedId }: { selectedId?: string }) {
             </div>
           ) : (
             <EmptyState icon={<Sparkles className="size-5" />} title="Teach the model a workflow">
-              Skills are reusable instructions. Turn one on in a chat with the + menu or by typing /, or let models that support tools load them
-              automatically when a task matches.
+              Skills are reusable instructions. Turn one on in a chat with the + menu or by typing /, or let models that support tools load
+              them automatically when a task matches.
             </EmptyState>
           )}
         </div>
@@ -234,18 +239,47 @@ export function SkillsView({ selectedId }: { selectedId?: string }) {
   )
 }
 
-function SkillEditor({ draft, onChange, onCancel, onSave, saving }: { draft: Draft; onChange: (d: Draft) => void; onCancel: () => void; onSave: () => void; saving: boolean }) {
+function SkillEditor({
+  draft,
+  onChange,
+  onCancel,
+  onSave,
+  saving
+}: {
+  draft: Draft
+  onChange: (d: Draft) => void
+  onCancel: () => void
+  onSave: () => void
+  saving: boolean
+}) {
   const [preview, setPreview] = useState(false)
   const nameOk = /^[a-z0-9]+(-[a-z0-9]+)*$/.test(draft.name)
   return (
     <div className="mx-auto flex h-full max-w-3xl flex-col px-8 py-6">
       <h2 className="mb-4 text-lg font-semibold">{draft.id ? 'Edit skill' : 'New skill'}</h2>
       <div className="space-y-4">
-        <Field label="Name" hint={draft.name && !nameOk ? 'Use lowercase letters, numbers and single hyphens.' : 'Lowercase with hyphens, e.g. weekly-report. You can type /name in a chat to use it.'}>
-          <TextField value={draft.name} onChange={(e) => onChange({ ...draft, name: e.target.value.toLowerCase().replace(/\s+/g, '-') })} placeholder="my-skill" className="font-mono" />
+        <Field
+          label="Name"
+          hint={
+            draft.name && !nameOk
+              ? 'Use lowercase letters, numbers and single hyphens.'
+              : 'Lowercase with hyphens, e.g. weekly-report. You can type /name in a chat to use it.'
+          }
+        >
+          <TextField
+            value={draft.name}
+            onChange={(e) => onChange({ ...draft, name: e.target.value.toLowerCase().replace(/\s+/g, '-') })}
+            placeholder="my-skill"
+            className="font-mono"
+          />
         </Field>
         <Field label="Description" hint="Say what the skill does and when to use it. Models read this to decide when to load the skill.">
-          <TextArea rows={2} value={draft.description} onChange={(e) => onChange({ ...draft, description: e.target.value })} placeholder="Draft release notes from a list of changes. Use when the user asks for a changelog or release notes." />
+          <TextArea
+            rows={2}
+            value={draft.description}
+            onChange={(e) => onChange({ ...draft, description: e.target.value })}
+            placeholder="Draft release notes from a list of changes. Use when the user asks for a changelog or release notes."
+          />
         </Field>
       </div>
       <div className="mt-4 flex min-h-0 flex-1 flex-col">
@@ -253,7 +287,11 @@ function SkillEditor({ draft, onChange, onCancel, onSave, saving }: { draft: Dra
           <span className="text-sm font-medium">Instructions</span>
           <div className="flex rounded-lg bg-hover p-0.5 text-xs">
             {['Write', 'Preview'].map((t) => (
-              <button key={t} onClick={() => setPreview(t === 'Preview')} className={cn('rounded-md px-2.5 py-1', preview === (t === 'Preview') ? 'bg-panel text-fg shadow-sm' : 'text-muted')}>
+              <button
+                key={t}
+                onClick={() => setPreview(t === 'Preview')}
+                className={cn('rounded-md px-2.5 py-1', preview === (t === 'Preview') ? 'bg-panel text-fg shadow-sm' : 'text-muted')}
+              >
                 {t}
               </button>
             ))}
@@ -264,7 +302,11 @@ function SkillEditor({ draft, onChange, onCancel, onSave, saving }: { draft: Dra
             <Markdown text={draft.body} />
           </div>
         ) : (
-          <TextArea value={draft.body} onChange={(e) => onChange({ ...draft, body: e.target.value })} className="min-h-[320px] flex-1 font-mono text-[13px]" />
+          <TextArea
+            value={draft.body}
+            onChange={(e) => onChange({ ...draft, body: e.target.value })}
+            className="min-h-[320px] flex-1 font-mono text-[13px]"
+          />
         )}
       </div>
       <div className="mt-4 flex justify-end gap-2">

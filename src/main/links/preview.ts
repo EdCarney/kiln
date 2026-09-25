@@ -19,7 +19,11 @@ const USER_AGENT = 'Mozilla/5.0 (Macintosh) KilnLinkPreview/1.0'
 const allowPrivate = !!process.env.KILN_ALLOW_PRIVATE_PREVIEWS
 
 type LookupCallback = (err: NodeJS.ErrnoException | null, address: string | LookupAddress[], family?: number) => void
-type Resolver = (hostname: string, options: LookupOptions & { all: true }, callback: (err: NodeJS.ErrnoException | null, addresses: LookupAddress[]) => void) => void
+type Resolver = (
+  hostname: string,
+  options: LookupOptions & { all: true },
+  callback: (err: NodeJS.ErrnoException | null, addresses: LookupAddress[]) => void
+) => void
 
 /**
  * A `lookup` for http(s).request that refuses local-network and loopback addresses. It runs when the socket

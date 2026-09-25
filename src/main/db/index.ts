@@ -50,13 +50,19 @@ export function transaction<T>(fn: () => T, d: DatabaseSync = getDb()): T {
 type Param = string | number | bigint | null | Uint8Array
 
 export function all<T>(sql: string, ...params: Param[]): T[] {
-  return getDb().prepare(sql).all(...params) as T[]
+  return getDb()
+    .prepare(sql)
+    .all(...params) as T[]
 }
 
 export function get<T>(sql: string, ...params: Param[]): T | undefined {
-  return getDb().prepare(sql).get(...params) as T | undefined
+  return getDb()
+    .prepare(sql)
+    .get(...params) as T | undefined
 }
 
 export function run(sql: string, ...params: Param[]): void {
-  getDb().prepare(sql).run(...params)
+  getDb()
+    .prepare(sql)
+    .run(...params)
 }

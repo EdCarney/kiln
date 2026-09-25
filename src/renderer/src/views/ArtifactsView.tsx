@@ -71,7 +71,9 @@ export function ArtifactsView() {
                     </span>
                     <span className="truncate text-sm font-medium">{a.title}</span>
                     <span className="mt-0.5 truncate text-xs text-subtle">
-                      {[ARTIFACT_META[a.type].label, a.language, a.versionCount > 1 && `${a.versionCount} versions`].filter(Boolean).join(' · ')}
+                      {[ARTIFACT_META[a.type].label, a.language, a.versionCount > 1 && `${a.versionCount} versions`]
+                        .filter(Boolean)
+                        .join(' · ')}
                     </span>
                     <span className="mt-3 truncate text-xs text-muted">
                       From “{a.conversationTitle}” · {relativeTime(a.updatedAt)}

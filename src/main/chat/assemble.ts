@@ -110,9 +110,7 @@ function turnToMessages(turn: HistoryTurn): OllamaMessage[] {
     return [...calls, { role: 'assistant', content: turn.content }]
   }
   const docs = turn.documents.map((d) => documentBlock(d.name, d.text, 'attachment'))
-  const hidden = turn.hiddenImages.map(
-    (n) => `[The user attached an image, “${n}”, but the current model can't see images.]`
-  )
+  const hidden = turn.hiddenImages.map((n) => `[The user attached an image, “${n}”, but the current model can't see images.]`)
   const content = [...docs, ...hidden, turn.content].filter(Boolean).join('\n\n')
   return [turn.images.length ? { role: 'user', content, images: turn.images } : { role: 'user', content }]
 }
@@ -135,7 +133,9 @@ const attr = (v: string) => v.replace(/"/g, "'")
  * Turns without a superseded artifact are passed through untouched.
  */
 export function collapseSupersededArtifacts(history: HistoryTurn[]): HistoryTurn[] {
-  const parsed = history.map((t) => (t.role === 'assistant' && /<(artifact|antArtifact)\b/i.test(t.content) ? parseMessage(t.content) : null))
+  const parsed = history.map((t) =>
+    t.role === 'assistant' && /<(artifact|antArtifact)\b/i.test(t.content) ? parseMessage(t.content) : null
+  )
   const latest = new Map<string, { turn: number; segment: number }>()
   parsed.forEach((segments, turn) =>
     segments?.forEach((s, segment) => {
@@ -154,7 +154,8 @@ export function collapseSupersededArtifacts(history: HistoryTurn[]): HistoryTurn
     const content = segments
       .map((s, i) => {
         if (s.kind === 'text') return s.text
-        if (superseded(i)) return `\n[Earlier version of the artifact "${attr(s.title)}" (identifier ${s.identifier}), omitted: a later version appears further on in this conversation.]\n`
+        if (superseded(i))
+          return `\n[Earlier version of the artifact "${attr(s.title)}" (identifier ${s.identifier}), omitted: a later version appears further on in this conversation.]\n`
         const language = s.language ? ` language="${attr(s.language)}"` : ''
         return `<artifact identifier="${attr(s.identifier)}" type="${s.type}" title="${attr(s.title)}"${language}>\n${s.content}\n</artifact>`
       })

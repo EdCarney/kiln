@@ -27,10 +27,7 @@ export function applyTheme(theme: ThemeDef, appearance: Settings['appearance']):
   root.style.setProperty('--k-radius', `${theme.radius}px`)
   root.style.setProperty('--k-font-size', `${appearance.fontSize}px`)
   root.style.setProperty('--k-chat-width', `${appearance.chatWidth}px`)
-  root.style.setProperty(
-    '--k-response-font',
-    appearance.responseFont === 'reading' ? 'var(--k-font-reading)' : 'var(--k-font-ui)'
-  )
+  root.style.setProperty('--k-response-font', appearance.responseFont === 'reading' ? 'var(--k-font-reading)' : 'var(--k-font-ui)')
   root.classList.toggle('dark', dark)
   root.style.colorScheme = dark ? 'dark' : 'light'
   return palette.canvas

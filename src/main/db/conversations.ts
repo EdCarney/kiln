@@ -36,11 +36,7 @@ const toConversation = (r: ConversationRow): Conversation => ({
 export function listConversations(opts: { projectId?: string; limit?: number } = {}): Conversation[] {
   const limit = opts.limit ?? 200
   const rows = opts.projectId
-    ? all<ConversationRow>(
-        'SELECT * FROM conversations WHERE project_id = ? ORDER BY updated_at DESC LIMIT ?',
-        opts.projectId,
-        limit
-      )
+    ? all<ConversationRow>('SELECT * FROM conversations WHERE project_id = ? ORDER BY updated_at DESC LIMIT ?', opts.projectId, limit)
     : all<ConversationRow>('SELECT * FROM conversations ORDER BY updated_at DESC LIMIT ?', limit)
   return rows.map(toConversation)
 }
@@ -73,10 +69,7 @@ export function createConversation(input: {
   return getConversation(id)!
 }
 
-export function updateConversation(
-  id: string,
-  patch: ConversationPatch & { touch?: boolean; autoSkills?: string[] }
-): Conversation {
+export function updateConversation(id: string, patch: ConversationPatch & { touch?: boolean; autoSkills?: string[] }): Conversation {
   const c = getConversation(id)
   if (!c) throw new Error('Conversation not found')
   const next = {
@@ -174,9 +167,7 @@ export function listMessages(conversationId: string): Message[] {
 export function getMessage(id: string): Message | null {
   const row = get<MessageRow>('SELECT * FROM messages WHERE id = ?', id)
   if (!row) return null
-  const atts = all<AttachmentRow>('SELECT * FROM attachments WHERE message_id = ? ORDER BY created_at', id).map(
-    toAttachment
-  )
+  const atts = all<AttachmentRow>('SELECT * FROM attachments WHERE message_id = ? ORDER BY created_at', id).map(toAttachment)
   return toMessage(row, atts)
 }
 
@@ -235,7 +226,13 @@ export function updateMessage(
  * main thread, and search indexing waits for the final save (updateMessage).
  */
 export function checkpointMessage(id: string, patch: { content: string; thinking: string | null; toolEvents: ToolEvent[] }): void {
-  run('UPDATE messages SET content = ?, thinking = ?, tool_events = ? WHERE id = ?', patch.content, patch.thinking, JSON.stringify(patch.toolEvents), id)
+  run(
+    'UPDATE messages SET content = ?, thinking = ?, tool_events = ? WHERE id = ?',
+    patch.content,
+    patch.thinking,
+    JSON.stringify(patch.toolEvents),
+    id
+  )
 }
 
 /**
@@ -326,10 +323,7 @@ export function deletePendingAttachment(id: string): string | null {
 
 /** Uploads that were never sent. */
 export function staleAttachmentPaths(olderThan: number): string[] {
-  const rows = all<{ id: string; path: string }>(
-    'SELECT id, path FROM attachments WHERE message_id IS NULL AND created_at < ?',
-    olderThan
-  )
+  const rows = all<{ id: string; path: string }>('SELECT id, path FROM attachments WHERE message_id IS NULL AND created_at < ?', olderThan)
   transaction(() => {
     for (const r of rows) run('DELETE FROM attachments WHERE id = ?', r.id)
   })

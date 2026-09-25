@@ -14,12 +14,12 @@ export const FONT_CHOICES = {
     { label: 'New York (system serif)', value: "ui-serif, 'New York', Georgia, serif" },
     { label: 'Charter', value: "Charter, 'Bitstream Charter', Georgia, serif" },
     { label: 'Inter', value: "'Inter Variable', system-ui, sans-serif" },
-    { label: 'System (SF Pro)', value: "system-ui, -apple-system, sans-serif" },
+    { label: 'System (SF Pro)', value: 'system-ui, -apple-system, sans-serif' },
     { label: 'Hack', value: "Hack, 'JetBrains Mono Variable', ui-monospace, monospace" }
   ],
   mono: [
     { label: 'JetBrains Mono', value: "'JetBrains Mono Variable', ui-monospace, monospace" },
-    { label: 'SF Mono / Menlo', value: "ui-monospace, SFMono-Regular, Menlo, monospace" },
+    { label: 'SF Mono / Menlo', value: 'ui-monospace, SFMono-Regular, Menlo, monospace' },
     { label: 'Hack', value: "Hack, 'JetBrains Mono Variable', ui-monospace, monospace" }
   ]
 } as const

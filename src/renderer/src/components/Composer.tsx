@@ -105,9 +105,7 @@ export function Composer({ conversation, draftKey, streaming, onSubmit, onStop, 
   const model = findModel(models, settings.model)
   const profile = thinkProfileFor(models, settings.model)
   const enabledSkills = allSkills.filter((s) => s.enabled)
-  const activeSkills = settings.skills
-    .map((id) => allSkills.find((s) => s.id === id))
-    .filter((s): s is Skill => !!s)
+  const activeSkills = settings.skills.map((id) => allSkills.find((s) => s.id === id)).filter((s): s is Skill => !!s)
 
   const uploading = pending.some((p) => !p.attachment)
   const hasImages = pending.some((p) => p.attachment?.kind === 'image')
@@ -115,31 +113,41 @@ export function Composer({ conversation, draftKey, streaming, onSubmit, onStop, 
   const canSend = !!settings.model && !uploading && !submitting && (text.trim().length > 0 || pending.length > 0)
 
   // ---- attachments ----
-  const addFiles = useCallback(async (sources: FileSource[], names: string[]) => {
-    if (!sources.length) return
-    const keys = names.map((n, i) => ({ key: `${Date.now()}-${i}-${n}`, name: n }))
-    setPending((p) => [...p, ...keys.map((k) => ({ ...k, attachment: null }))])
-    try {
-      const { added, errors } = await api.attachments.ingest(sources)
-      errors.forEach((e) => reportError(e))
-      setPending((p) => {
-        const rest = p.filter((x) => !keys.some((k) => k.key === x.key))
-        return [...rest, ...added.map((a) => ({ key: a.id, name: a.name, attachment: a }))]
-      })
-    } catch (err) {
-      reportError(err)
-      setPending((p) => p.filter((x) => !keys.some((k) => k.key === x.key)))
-    }
-  }, [setPending])
+  const addFiles = useCallback(
+    async (sources: FileSource[], names: string[]) => {
+      if (!sources.length) return
+      const keys = names.map((n, i) => ({ key: `${Date.now()}-${i}-${n}`, name: n }))
+      setPending((p) => [...p, ...keys.map((k) => ({ ...k, attachment: null }))])
+      try {
+        const { added, errors } = await api.attachments.ingest(sources)
+        errors.forEach((e) => reportError(e))
+        setPending((p) => {
+          const rest = p.filter((x) => !keys.some((k) => k.key === x.key))
+          return [...rest, ...added.map((a) => ({ key: a.id, name: a.name, attachment: a }))]
+        })
+      } catch (err) {
+        reportError(err)
+        setPending((p) => p.filter((x) => !keys.some((k) => k.key === x.key)))
+      }
+    },
+    [setPending]
+  )
 
   const addFileObjects = useCallback(
-    async (files: File[]) => addFiles(await toSources(files), files.map((f) => f.name || 'Pasted image')),
+    async (files: File[]) =>
+      addFiles(
+        await toSources(files),
+        files.map((f) => f.name || 'Pasted image')
+      ),
     [addFiles]
   )
 
   const pickFiles = async () => {
     const sources = await api.attachments.pick()
-    await addFiles(sources, sources.map((s) => ('path' in s ? s.path.split('/').pop()! : s.name)))
+    await addFiles(
+      sources,
+      sources.map((s) => ('path' in s ? s.path.split('/').pop()! : s.name))
+    )
   }
 
   const removePending = (p: PendingFile) => {
@@ -301,7 +309,10 @@ export function Composer({ conversation, draftKey, streaming, onSubmit, onStop, 
         {(pending.length > 0 || activeSkills.length > 0) && (
           <div className="flex flex-wrap gap-2 px-3 pt-3">
             {activeSkills.map((s) => (
-              <span key={s.id} className="flex h-7 items-center gap-1.5 rounded-lg bg-accent-soft pl-2 pr-1 text-xs font-medium text-accent">
+              <span
+                key={s.id}
+                className="flex h-7 items-center gap-1.5 rounded-lg bg-accent-soft pl-2 pr-1 text-xs font-medium text-accent"
+              >
                 <Sparkles className="size-3.5" /> {s.name}
                 <button
                   aria-label={`Remove skill ${s.name}`}
@@ -344,7 +355,10 @@ export function Composer({ conversation, draftKey, streaming, onSubmit, onStop, 
         <div className="flex items-center gap-1 px-2.5 pb-2.5">
           <Menu>
             <MenuTrigger asChild>
-              <button aria-label="Add" className="flex size-8 items-center justify-center rounded-lg border border-line text-muted hover:bg-hover hover:text-fg">
+              <button
+                aria-label="Add"
+                className="flex size-8 items-center justify-center rounded-lg border border-line text-muted hover:bg-hover hover:text-fg"
+              >
                 <Plus className="size-4" />
               </button>
             </MenuTrigger>
@@ -404,7 +418,8 @@ export function Composer({ conversation, draftKey, streaming, onSubmit, onStop, 
       {visionMissing && (
         <p className="mt-2 flex items-center gap-1.5 px-2 text-xs text-muted">
           <TriangleAlert className="size-3.5 text-danger" />
-          {model ? `${model.name.replace(/(:|-)cloud$/, '')} can't see images.` : ''} Only the file name will be sent. Pick a model with the eye icon to include them.
+          {model ? `${model.name.replace(/(:|-)cloud$/, '')} can't see images.` : ''} Only the file name will be sent. Pick a model with the
+          eye icon to include them.
         </p>
       )}
     </div>

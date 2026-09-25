@@ -3,7 +3,9 @@ import { normalizeCitations } from '@shared/citations'
 
 describe('normalizeCitations', () => {
   it('turns gpt-oss URL citations into markdown links', () => {
-    expect(normalizeCitations('The title is X.【https://www.ollama.com/blog】')).toBe('The title is X. ([ollama.com](https://www.ollama.com/blog))')
+    expect(normalizeCitations('The title is X.【https://www.ollama.com/blog】')).toBe(
+      'The title is X. ([ollama.com](https://www.ollama.com/blog))'
+    )
   })
 
   it('drops cursor-style citations that point nowhere', () => {

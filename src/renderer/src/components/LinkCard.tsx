@@ -94,10 +94,17 @@ export function LinkCard({ href, text, children }: { href: string; text: string;
               ) : (
                 <Globe className="size-4 shrink-0 text-subtle" />
               )}
-              <span className="truncate font-medium group-hover/site:underline">{rich?.siteName ?? host ?? (mail ? href.slice(7) : href)}</span>
+              <span className="truncate font-medium group-hover/site:underline">
+                {rich?.siteName ?? host ?? (mail ? href.slice(7) : href)}
+              </span>
             </CardLink>
             {rich?.title && (
-              <CardLink href={href} openable={openable} onFollow={follow} className="line-clamp-2 text-[13px] font-semibold leading-snug hover:text-accent hover:underline">
+              <CardLink
+                href={href}
+                openable={openable}
+                onFollow={follow}
+                className="line-clamp-2 text-[13px] font-semibold leading-snug hover:text-accent hover:underline"
+              >
                 {rich.title}
               </CardLink>
             )}
@@ -108,7 +115,12 @@ export function LinkCard({ href, text, children }: { href: string; text: string;
                 <div className="h-3 w-1/2 animate-pulse rounded bg-hover" />
               </div>
             )}
-            <CardLink href={href} openable={openable} onFollow={follow} className="break-all font-mono text-[11px] leading-snug text-subtle hover:text-accent hover:underline">
+            <CardLink
+              href={href}
+              openable={openable}
+              onFollow={follow}
+              className="break-all font-mono text-[11px] leading-snug text-subtle hover:text-accent hover:underline"
+            >
               {middleTruncate(href, 110)}
             </CardLink>
             {mismatch && (
@@ -119,7 +131,12 @@ export function LinkCard({ href, text, children }: { href: string; text: string;
                 </span>
               </div>
             )}
-            <CardLink href={href} openable={openable} onFollow={follow} className="flex w-fit items-center gap-1 pt-0.5 text-[11px] text-subtle hover:text-accent">
+            <CardLink
+              href={href}
+              openable={openable}
+              onFollow={follow}
+              className="flex w-fit items-center gap-1 pt-0.5 text-[11px] text-subtle hover:text-accent"
+            >
               <ExternalLink className="size-3" />
               {mail ? 'Opens your mail app' : isWeb(href) ? 'Opens in your browser' : "This link can't be opened"}
             </CardLink>

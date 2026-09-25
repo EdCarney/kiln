@@ -69,7 +69,10 @@ export function ChatsView() {
               <ul className="divide-y divide-line">
                 {hits.map((h) => (
                   <li key={h.conversationId}>
-                    <button onClick={() => navigate({ name: 'chat', id: h.conversationId })} className="w-full rounded-lg px-3 py-3 text-left hover:bg-hover">
+                    <button
+                      onClick={() => navigate({ name: 'chat', id: h.conversationId })}
+                      className="w-full rounded-lg px-3 py-3 text-left hover:bg-hover"
+                    >
                       <div className="text-sm font-medium">{h.title}</div>
                       <div className="mt-0.5 line-clamp-2 text-[13px] text-muted">
                         <Snippet text={h.snippet} />

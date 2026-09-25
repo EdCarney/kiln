@@ -53,7 +53,13 @@ export function CommandPalette() {
       ]
     const projectItems = projects
       .filter((p) => p.name.toLowerCase().includes(q))
-      .map((p) => ({ key: p.id, icon: <FolderClosed className="size-4" />, label: p.name, detail: 'Project', route: { name: 'project', id: p.id } as Route }))
+      .map((p) => ({
+        key: p.id,
+        icon: <FolderClosed className="size-4" />,
+        label: p.name,
+        detail: 'Project',
+        route: { name: 'project', id: p.id } as Route
+      }))
     const chatItems = hits.map((h) => ({
       key: h.conversationId,
       icon: <MessageSquare className="size-4" />,

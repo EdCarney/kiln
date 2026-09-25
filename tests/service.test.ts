@@ -29,7 +29,8 @@ const { openDatabase } = await import('../src/main/db/index')
 const { updateSettings, setApiKey } = await import('../src/main/settings')
 const service = await import('../src/main/chat/service')
 const { listTraces } = await import('../src/main/debug/traces')
-const { deleteConversation, getMessage, insertMessage, createConversation, search, updateConversation, updateMessage } = await import('../src/main/db/conversations')
+const { deleteConversation, getMessage, insertMessage, createConversation, search, updateConversation, updateMessage } =
+  await import('../src/main/db/conversations')
 
 type ChatHandler = (body: Record<string, unknown>, res: ServerResponse, call: number) => unknown
 let chat: ChatHandler
@@ -64,11 +65,17 @@ beforeEach(() => {
   web = (_p, res) => res.writeHead(404).end()
 })
 
-const reply = (text: string): ChatHandler => (_b, res) =>
-  streamChunks(res, [line({ message: { role: 'assistant', content: text }, done: false }), line({ done: true, done_reason: 'stop', prompt_eval_count: 10, eval_count: 3 })]).then(() => res.end())
+const reply =
+  (text: string): ChatHandler =>
+  (_b, res) =>
+    streamChunks(res, [
+      line({ message: { role: 'assistant', content: text }, done: false }),
+      line({ done: true, done_reason: 'stop', prompt_eval_count: 10, eval_count: 3 })
+    ]).then(() => res.end())
 
 const toolCall = (name: string, args: Record<string, unknown>) =>
-  line({ message: { role: 'assistant', content: '', tool_calls: [{ function: { name, arguments: args } }] }, done: false }) + line({ done: true })
+  line({ message: { role: 'assistant', content: '', tool_calls: [{ function: { name, arguments: args } }] }, done: false }) +
+  line({ done: true })
 
 function start(content = 'hello') {
   return service.send({ conversationId: null, projectId: null, content, attachmentIds: [], model: 'llama3.2', think: null, skills: [] })
@@ -105,9 +112,10 @@ describe('reply loop', () => {
 
   it('records when a reply was cut off by the length limit', async () => {
     chat = (_b, res) =>
-      streamChunks(res, [line({ message: { role: 'assistant', content: 'The list goes on: one, two, thr' }, done: false }), line({ done: true, done_reason: 'length', eval_count: 4096 })]).then(() =>
-        res.end()
-      )
+      streamChunks(res, [
+        line({ message: { role: 'assistant', content: 'The list goes on: one, two, thr' }, done: false }),
+        line({ done: true, done_reason: 'length', eval_count: 4096 })
+      ]).then(() => res.end())
     const r = start()
     const done = await doneEvent(r.conversation.id)
     expect(done.message.stats?.doneReason).toBe('length')
@@ -120,14 +128,23 @@ describe('reply loop', () => {
     await doneEvent(r.conversation.id)
     updateConversation(r.conversation.id, { instructions: 'Answer like a pirate.' })
     events.length = 0
-    service.send({ conversationId: r.conversation.id, projectId: null, content: 'hi again', attachmentIds: [], model: 'llama3.2', think: null, skills: [] })
+    service.send({
+      conversationId: r.conversation.id,
+      projectId: null,
+      content: 'hi again',
+      attachmentIds: [],
+      model: 'llama3.2',
+      think: null,
+      skills: []
+    })
     await doneEvent(r.conversation.id)
     const system = (chatCalls.at(-1)!.messages as Array<{ role: string; content: string }>)[0]
     expect(system.content).toContain('Answer like a pirate.')
   })
 
   it('saves a failed stream with its partial text and an error', async () => {
-    chat = (_b, res) => streamChunks(res, [line({ message: { role: 'assistant', content: 'Half an ans' }, done: false })]).then(() => res.end())
+    chat = (_b, res) =>
+      streamChunks(res, [line({ message: { role: 'assistant', content: 'Half an ans' }, done: false })]).then(() => res.end())
     const r = start()
     const done = await doneEvent(r.conversation.id)
     expect(done.message.content).toBe('Half an ans')
@@ -185,9 +202,19 @@ describe('reply loop', () => {
     // regenerate() awaits file cleanup before registering its reply; a send() landing in that gap
     // registers its own reply first. The regenerated reply streams and then hangs.
     chat = (_b, res, n) =>
-      n === 2 ? reply('sent reply')(_b, res, n) : streamChunks(res, [line({ message: { role: 'assistant', content: 'regenerated' }, done: false })])
+      n === 2
+        ? reply('sent reply')(_b, res, n)
+        : streamChunks(res, [line({ message: { role: 'assistant', content: 'regenerated' }, done: false })])
     const regen = service.regenerate(r.conversation.id, { model: 'llama3.2', think: null })
-    service.send({ conversationId: r.conversation.id, projectId: null, content: 'again', attachmentIds: [], model: 'llama3.2', think: null, skills: [] })
+    service.send({
+      conversationId: r.conversation.id,
+      projectId: null,
+      content: 'again',
+      attachmentIds: [],
+      model: 'llama3.2',
+      think: null,
+      skills: []
+    })
     const second = await regen
     await doneEvent(r.conversation.id) // the send's reply finished
     expect(service.isReplying()).toBe(true) // the regenerated reply is still tracked…
@@ -226,7 +253,10 @@ describe('reply loop', () => {
 
   it('remembers earlier search results on the next turn', async () => {
     setApiKey('test-key')
-    chat = (b, res, n) => (n === 1 ? void res.writeHead(200).end(toolCall('web_search', { query: 'kiln news' })) : reply(n === 2 ? 'Two stories today.' : 'Opening it.')(b, res, n))
+    chat = (b, res, n) =>
+      n === 1
+        ? void res.writeHead(200).end(toolCall('web_search', { query: 'kiln news' }))
+        : reply(n === 2 ? 'Two stories today.' : 'Opening it.')(b, res, n)
     web = (_p, res) =>
       res.writeHead(200).end(
         JSON.stringify({
@@ -240,17 +270,28 @@ describe('reply loop', () => {
     const first = await doneEvent(r.conversation.id)
     expect(first.message.toolEvents[0].record).toContain('2. Pottery prices — https://b.example/pots')
     events.length = 0
-    service.send({ conversationId: r.conversation.id, projectId: null, content: 'open the second one', attachmentIds: [], model: 'llama3.2', think: null, skills: [] })
+    service.send({
+      conversationId: r.conversation.id,
+      projectId: null,
+      content: 'open the second one',
+      attachmentIds: [],
+      model: 'llama3.2',
+      think: null,
+      skills: []
+    })
     await doneEvent(r.conversation.id)
     const followUp = chatCalls[2].messages as Array<{ role: string; content: string; tool_calls?: unknown[] }>
     const replayed = followUp.find((m) => m.role === 'tool')
     expect(replayed?.content).toContain('https://b.example/pots')
-    expect(followUp.find((m) => m.tool_calls)?.tool_calls).toEqual([{ function: { name: 'web_search', arguments: { query: 'kiln news' } } }])
+    expect(followUp.find((m) => m.tool_calls)?.tool_calls).toEqual([
+      { function: { name: 'web_search', arguments: { query: 'kiln news' } } }
+    ])
   })
 
   it('ends a tool-happy model with a tool-free final round', async () => {
     setApiKey('test-key')
-    chat = (b, res, n) => (b.tools ? void res.writeHead(200).end(toolCall('web_search', { query: `q${n}` })) : reply('Final answer')(b, res, n))
+    chat = (b, res, n) =>
+      b.tools ? void res.writeHead(200).end(toolCall('web_search', { query: `q${n}` })) : reply('Final answer')(b, res, n)
     web = (_p, res) => res.writeHead(200).end(JSON.stringify({ results: [{ title: 't', url: 'https://t.io', content: 'c' }] }))
     const r = start('research this')
     const done = await doneEvent(r.conversation.id)

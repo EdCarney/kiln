@@ -52,12 +52,7 @@ export function listArtifacts(conversationId: string): Artifact[] {
      WHERE a.conversation_id = ? ORDER BY v.version`,
     conversationId
   )
-  return rows.map((r) =>
-    toArtifact(
-      r,
-      versions.filter((v) => v.artifact_id === r.id).map(toVersion)
-    )
-  )
+  return rows.map((r) => toArtifact(r, versions.filter((v) => v.artifact_id === r.id).map(toVersion)))
 }
 
 export function getArtifact(id: string): Artifact | null {
@@ -78,11 +73,7 @@ export function addArtifactVersion(input: {
   content: string
 }): string {
   const t = now()
-  let row = get<ArtifactRow>(
-    'SELECT * FROM artifacts WHERE conversation_id = ? AND identifier = ?',
-    input.conversationId,
-    input.identifier
-  )
+  let row = get<ArtifactRow>('SELECT * FROM artifacts WHERE conversation_id = ? AND identifier = ?', input.conversationId, input.identifier)
   if (!row) {
     const id = uid()
     run(
@@ -108,8 +99,7 @@ export function addArtifactVersion(input: {
       row.id
     )
   }
-  const next =
-    (get<{ v: number | null }>('SELECT MAX(version) AS v FROM artifact_versions WHERE artifact_id = ?', row.id)?.v ?? 0) + 1
+  const next = (get<{ v: number | null }>('SELECT MAX(version) AS v FROM artifact_versions WHERE artifact_id = ?', row.id)?.v ?? 0) + 1
   run(
     `INSERT INTO artifact_versions (id, artifact_id, message_id, version, content, created_at)
      VALUES (?, ?, ?, ?, ?, ?)`,

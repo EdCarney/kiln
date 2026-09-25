@@ -4,9 +4,7 @@ import { EVENT_CHANNELS, INVOKE_CHANNELS, type KilnApi } from '@shared/ipc'
 // Build the invoke-style groups from the channel table so the bridge can't drift from main.
 const api: Record<string, unknown> = {}
 for (const [group, methods] of Object.entries(INVOKE_CHANNELS)) {
-  api[group] = Object.fromEntries(
-    methods.map((m) => [m, (...args: unknown[]) => ipcRenderer.invoke(`${group}:${m}`, ...args)])
-  )
+  api[group] = Object.fromEntries(methods.map((m) => [m, (...args: unknown[]) => ipcRenderer.invoke(`${group}:${m}`, ...args)]))
 }
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {

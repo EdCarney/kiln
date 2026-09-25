@@ -72,10 +72,7 @@ export function createProject(input: { name: string; description?: string }): Pr
   return getProject(id)!
 }
 
-export function updateProject(
-  id: string,
-  patch: Partial<Pick<Project, 'name' | 'description' | 'instructions' | 'pinned'>>
-): Project {
+export function updateProject(id: string, patch: Partial<Pick<Project, 'name' | 'description' | 'instructions' | 'pinned'>>): Project {
   const p = getProject(id)
   if (!p) throw new Error('Project not found')
   run(
@@ -112,9 +109,7 @@ export function deleteProject(id: string): string[] {
 }
 
 export function listProjectFiles(projectId: string): ProjectFile[] {
-  return all<ProjectFileRow>('SELECT * FROM project_files WHERE project_id = ? ORDER BY created_at', projectId).map(
-    toFile
-  )
+  return all<ProjectFileRow>('SELECT * FROM project_files WHERE project_id = ? ORDER BY created_at', projectId).map(toFile)
 }
 
 /** Files with their extracted text, for prompt assembly. */

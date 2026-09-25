@@ -5,7 +5,10 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../src/main/settings', () => ({ getSettings: () => ({ links: { previews: true } }) }))
 
-const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154789c6360000002000154a24f5d0000000049454e44ae426082', 'hex')
+const PNG = Buffer.from(
+  '89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154789c6360000002000154a24f5d0000000049454e44ae426082',
+  'hex'
+)
 
 // A copy of the module loaded without the test override, so the lookup applies its real checks.
 delete process.env.KILN_ALLOW_PRIVATE_PREVIEWS

@@ -90,10 +90,11 @@ export function TraceView({ trace, conversationId }: { trace: TraceDetail; conve
       ]
     : [['overview', 'Overview']]
 
-  const curl = isModelCall ? toCurl(trace.endpoint, trace.request, !!target?.needsKey && trace.endpoint.startsWith('https://ollama.com')) : ''
+  const curl = isModelCall
+    ? toCurl(trace.endpoint, trace.request, !!target?.needsKey && trace.endpoint.startsWith('https://ollama.com'))
+    : ''
   const final = (trace.response.final ?? {}) as Record<string, unknown>
-  const estimateDelta =
-    anatomy && trace.promptTokens ? Math.round(((anatomy.total - trace.promptTokens) / trace.promptTokens) * 100) : null
+  const estimateDelta = anatomy && trace.promptTokens ? Math.round(((anatomy.total - trace.promptTokens) / trace.promptTokens) * 100) : null
 
   return (
     <div className="flex h-full flex-col">
@@ -110,7 +111,10 @@ export function TraceView({ trace, conversationId }: { trace: TraceDetail; conve
             <button
               key={id}
               onClick={() => setTab(id)}
-              className={cn('-mb-px border-b-2 px-2.5 pb-2', tab === id ? 'border-accent text-fg' : 'border-transparent text-muted hover:text-fg')}
+              className={cn(
+                '-mb-px border-b-2 px-2.5 pb-2',
+                tab === id ? 'border-accent text-fg' : 'border-transparent text-muted hover:text-fg'
+              )}
             >
               {label}
             </button>
@@ -138,7 +142,10 @@ export function TraceView({ trace, conversationId }: { trace: TraceDetail; conve
                 <Text value={trace.response.error} />
               </Section>
             )}
-            <Section title="Returned to the model" actions={trace.response.result ? <CopyButton text={trace.response.result} /> : undefined}>
+            <Section
+              title="Returned to the model"
+              actions={trace.response.result ? <CopyButton text={trace.response.result} /> : undefined}
+            >
               <Text value={trace.response.result ?? '(nothing yet)'} />
             </Section>
           </>
@@ -175,8 +182,18 @@ export function TraceView({ trace, conversationId }: { trace: TraceDetail; conve
                   ['Time to first token', ms(trace.timing.firstTokenMs)],
                   ['Total', ms(trace.timing.totalMs)],
                   ['Ollama: model load', ollamaMs(trace.timing.loadMs)],
-                  ['Ollama: prompt processing', trace.timing.promptEvalMs == null ? ollamaMs(null) : `${ms(trace.timing.promptEvalMs)} · ${perSecond(trace.promptTokens, trace.timing.promptEvalMs)}`],
-                  ['Ollama: generation', trace.timing.evalMs == null ? ollamaMs(null) : `${ms(trace.timing.evalMs)} · ${perSecond(trace.completionTokens, trace.timing.evalMs)}`]
+                  [
+                    'Ollama: prompt processing',
+                    trace.timing.promptEvalMs == null
+                      ? ollamaMs(null)
+                      : `${ms(trace.timing.promptEvalMs)} · ${perSecond(trace.promptTokens, trace.timing.promptEvalMs)}`
+                  ],
+                  [
+                    'Ollama: generation',
+                    trace.timing.evalMs == null
+                      ? ollamaMs(null)
+                      : `${ms(trace.timing.evalMs)} · ${perSecond(trace.completionTokens, trace.timing.evalMs)}`
+                  ]
                 ]}
               />
             </Section>
@@ -204,7 +221,9 @@ export function TraceView({ trace, conversationId }: { trace: TraceDetail; conve
           </>
         )}
 
-        {tab === 'prompt' && anatomy && <Anatomy request={request} anatomy={anatomy} actualTokens={trace.promptTokens} model={trace.model} />}
+        {tab === 'prompt' && anatomy && (
+          <Anatomy request={request} anatomy={anatomy} actualTokens={trace.promptTokens} model={trace.model} />
+        )}
 
         {tab === 'request' && (
           <Section

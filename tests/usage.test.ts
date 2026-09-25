@@ -86,14 +86,23 @@ describe('prices', () => {
 describe('account usage', () => {
   it('reads limit windows and spend from /api/usage', () => {
     const parsed = parseUsageResponse({
-      activity: { cost: '1.23450', models: [{ model: 'glm-5.3', cost: '1.2' }], period: { type: 'last_4_weeks', starting_at: '2026-08-26T00:00:00Z', ending_at: '2026-09-23T00:00:00Z' } },
+      activity: {
+        cost: '1.23450',
+        models: [{ model: 'glm-5.3', cost: '1.2' }],
+        period: { type: 'last_4_weeks', starting_at: '2026-08-26T00:00:00Z', ending_at: '2026-09-23T00:00:00Z' }
+      },
       limits: { weekly: { usage: 0.335, models: {} }, session: { usage: 0.025, models: {} } }
     })
     expect(parsed.windows).toEqual([
       { id: 'session', usage: 0.025, models: [] },
       { id: 'weekly', usage: 0.335, models: [] }
     ])
-    expect(parsed.spend).toMatchObject({ cost: 1.2345, label: 'Last 4 weeks', source: 'activity', models: [{ model: 'glm-5.3', cost: 1.2 }] })
+    expect(parsed.spend).toMatchObject({
+      cost: 1.2345,
+      label: 'Last 4 weeks',
+      source: 'activity',
+      models: [{ model: 'glm-5.3', cost: 1.2 }]
+    })
   })
 
   // Shape returned for a credit-based Pro plan (numbers made up): no dollar figure, a monthly share,
@@ -115,9 +124,9 @@ describe('account usage', () => {
   it('reads per-model request counts, busiest first', () => {
     const [monthly] = parseUsageResponse(creditPlan).windows
     expect(monthly.models.map((m) => m.name)).toEqual(['gpt-oss:120b', 'kimi-k3', 'web search'])
-    expect(parseUsageResponse({ limits: { weekly: { usage: 0.1, models: { 'glm-5.3': { request_count: 4 } } } } }).windows[0].models).toEqual([
-      { name: 'glm-5.3', requests: 4 }
-    ])
+    expect(
+      parseUsageResponse({ limits: { weekly: { usage: 0.1, models: { 'glm-5.3': { request_count: 4 } } } } }).windows[0].models
+    ).toEqual([{ name: 'glm-5.3', requests: 4 }])
   })
 
   it('works out credit-plan spend from the share of the monthly pool', () => {
@@ -137,7 +146,9 @@ describe('account usage', () => {
 
   it('tolerates unexpected shapes', () => {
     expect(parseUsageResponse(null)).toEqual({ windows: [], spend: null })
-    expect(parseUsageResponse({ limits: { monthly: { usage: '0.5' }, junk: 3 } }).windows).toEqual([{ id: 'monthly', usage: 0.5, models: [] }])
+    expect(parseUsageResponse({ limits: { monthly: { usage: '0.5' }, junk: 3 } }).windows).toEqual([
+      { id: 'monthly', usage: 0.5, models: [] }
+    ])
   })
 })
 

@@ -44,14 +44,25 @@ function Row({ label, hint, children }: { label: string; hint?: ReactNode; child
   )
 }
 
-function Segmented<T extends string>({ value, options, onChange }: { value: T; options: Array<{ value: T; label: string; icon?: ReactNode }>; onChange: (v: T) => void }) {
+function Segmented<T extends string>({
+  value,
+  options,
+  onChange
+}: {
+  value: T
+  options: Array<{ value: T; label: string; icon?: ReactNode }>
+  onChange: (v: T) => void
+}) {
   return (
     <div className="inline-flex rounded-lg bg-hover p-0.5 text-[13px]">
       {options.map((o) => (
         <button
           key={o.value}
           onClick={() => onChange(o.value)}
-          className={cn('flex items-center gap-1.5 rounded-md px-3 py-1', value === o.value ? 'bg-panel text-fg shadow-sm' : 'text-muted hover:text-fg')}
+          className={cn(
+            'flex items-center gap-1.5 rounded-md px-3 py-1',
+            value === o.value ? 'bg-panel text-fg shadow-sm' : 'text-muted hover:text-fg'
+          )}
         >
           {o.icon}
           {o.label}
@@ -62,14 +73,32 @@ function Segmented<T extends string>({ value, options, onChange }: { value: T; o
 }
 
 /** Text input that saves on blur, so typing doesn't write settings on every keystroke. */
-function BlurField({ value, onSave, multiline, ...rest }: { value: string; onSave: (v: string) => void; multiline?: boolean; placeholder?: string; type?: string; rows?: number }) {
+function BlurField({
+  value,
+  onSave,
+  multiline,
+  ...rest
+}: {
+  value: string
+  onSave: (v: string) => void
+  multiline?: boolean
+  placeholder?: string
+  type?: string
+  rows?: number
+}) {
   const [local, setLocal] = useState(value)
   useEffect(() => setLocal(value), [value])
   const commit = () => local !== value && onSave(local)
   return multiline ? (
     <TextArea value={local} onChange={(e) => setLocal(e.target.value)} onBlur={commit} {...rest} />
   ) : (
-    <TextField value={local} onChange={(e) => setLocal(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === 'Enter' && commit()} {...rest} />
+    <TextField
+      value={local}
+      onChange={(e) => setLocal(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => e.key === 'Enter' && commit()}
+      {...rest}
+    />
   )
 }
 
@@ -92,7 +121,10 @@ export function SettingsView({ tab = 'general' }: { tab?: SettingsTab }) {
               <button
                 key={t.id}
                 onClick={() => navigate({ name: 'settings', tab: t.id })}
-                className={cn('flex h-8 w-full items-center rounded-lg px-2 text-left text-[13px]', tab === t.id ? 'bg-hover font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg')}
+                className={cn(
+                  'flex h-8 w-full items-center rounded-lg px-2 text-left text-[13px]',
+                  tab === t.id ? 'bg-hover font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'
+                )}
               >
                 {t.label}
               </button>
@@ -134,11 +166,30 @@ function GeneralTab({ settings }: { settings: Settings }) {
   )
 }
 
-function ThemeSwatch({ theme, dark, selected, onSelect, onEdit, onDelete }: { theme: ThemeDef; dark: boolean; selected: boolean; onSelect: () => void; onEdit: () => void; onDelete?: () => void }) {
+function ThemeSwatch({
+  theme,
+  dark,
+  selected,
+  onSelect,
+  onEdit,
+  onDelete
+}: {
+  theme: ThemeDef
+  dark: boolean
+  selected: boolean
+  onSelect: () => void
+  onEdit: () => void
+  onDelete?: () => void
+}) {
   const p = dark ? theme.dark : theme.light
   const font = theme.fonts.ui
   return (
-    <div className={cn('group overflow-hidden rounded-kiln-lg border-2 transition-colors', selected ? 'border-accent' : 'border-line hover:border-line-strong')}>
+    <div
+      className={cn(
+        'group overflow-hidden rounded-kiln-lg border-2 transition-colors',
+        selected ? 'border-accent' : 'border-line hover:border-line-strong'
+      )}
+    >
       <button onClick={onSelect} className="block w-full text-left" aria-label={`Use ${theme.name} theme`}>
         <div className="flex h-20" style={{ background: p.canvas }}>
           <div className="w-1/4 border-r" style={{ background: p.sidebar, borderColor: p.line }} />
@@ -193,15 +244,13 @@ function AppearanceTab({ settings }: { settings: Settings }) {
         />
         {current?.only && (
           <p className="text-xs text-subtle">
-            {current.name} has only a {current.only} palette, so it stays {current.only} whatever the mode. Other themes follow this setting.
+            {current.name} has only a {current.only} palette, so it stays {current.only} whatever the mode. Other themes follow this
+            setting.
           </p>
         )}
       </Section>
 
-      <Section
-        title="Theme"
-        description="Pick a theme, or customize any of them: colours, fonts and corner radius."
-      >
+      <Section title="Theme" description="Pick a theme, or customize any of them: colours, fonts and corner radius.">
         <div className="grid grid-cols-3 gap-3">
           {themes.map((t) => (
             <ThemeSwatch
@@ -263,10 +312,25 @@ function AppearanceTab({ settings }: { settings: Settings }) {
           />
         </Row>
         <Row label={`Text size: ${a.fontSize}px`}>
-          <input type="range" min={13} max={20} value={a.fontSize} onChange={(e) => setAppearance({ fontSize: Number(e.target.value) })} className="w-48 accent-[var(--k-accent)]" />
+          <input
+            type="range"
+            min={13}
+            max={20}
+            value={a.fontSize}
+            onChange={(e) => setAppearance({ fontSize: Number(e.target.value) })}
+            className="w-48 accent-[var(--k-accent)]"
+          />
         </Row>
         <Row label={`Chat width: ${a.chatWidth}px`}>
-          <input type="range" min={600} max={1100} step={20} value={a.chatWidth} onChange={(e) => setAppearance({ chatWidth: Number(e.target.value) })} className="w-48 accent-[var(--k-accent)]" />
+          <input
+            type="range"
+            min={600}
+            max={1100}
+            step={20}
+            value={a.chatWidth}
+            onChange={(e) => setAppearance({ chatWidth: Number(e.target.value) })}
+            className="w-48 accent-[var(--k-accent)]"
+          />
         </Row>
       </Section>
 
@@ -300,7 +364,12 @@ function ApiKeyField({ hasKey, onSaved }: { hasKey: boolean; onSaved?: () => voi
       }
     >
       <div className="flex gap-2">
-        <TextField type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={hasKey ? '••••••••••••' : 'Paste your API key'} />
+        <TextField
+          type="password"
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+          placeholder={hasKey ? '••••••••••••' : 'Paste your API key'}
+        />
         <Button
           disabled={!apiKey.trim()}
           onClick={async () => {
@@ -344,7 +413,9 @@ function RawUsage({ refreshKey }: { refreshKey: number }) {
   if (!raw) return null
   return (
     <details className="-mt-2 mb-2 text-xs text-subtle">
-      <summary className="cursor-pointer select-none hover:text-fg">Raw response from ollama.com ({new Date(raw.at).toLocaleString()})</summary>
+      <summary className="cursor-pointer select-none hover:text-fg">
+        Raw response from ollama.com ({new Date(raw.at).toLocaleString()})
+      </summary>
       <pre className="selectable mt-2 max-h-72 overflow-auto rounded-kiln border border-line bg-code p-3 font-mono text-[11px] text-muted">
         {JSON.stringify(raw.json, null, 2)}
       </pre>
@@ -481,7 +552,10 @@ function UsageTab({ settings }: { settings: Settings }) {
       </Section>
 
       {activity.length > 0 && (
-        <Section title="Ollama activity, all apps" description="Requests per model as reported by ollama.com, including apps other than Kiln.">
+        <Section
+          title="Ollama activity, all apps"
+          description="Requests per model as reported by ollama.com, including apps other than Kiln."
+        >
           {activity.map((w) => (
             <table key={w.id} className="w-full text-[13px] tabular-nums">
               <thead>
@@ -507,7 +581,10 @@ function UsageTab({ settings }: { settings: Settings }) {
         </Section>
       )}
 
-      <Section title="Spend in Kiln, last 30 days" description="From token counts Kiln recorded. Other apps using your Ollama account aren't included.">
+      <Section
+        title="Spend in Kiln, last 30 days"
+        description="From token counts Kiln recorded. Other apps using your Ollama account aren't included."
+      >
         {summary && summary.total.requests > 0 ? (
           <table className="w-full text-[13px] tabular-nums">
             <thead>
@@ -671,7 +748,11 @@ function ModelsTab({ settings }: { settings: Settings }) {
   }
 
   const modelSelect = (value: string | null, onChange: (v: string | null) => void, emptyLabel: string) => (
-    <select value={value ?? ''} onChange={(e) => onChange(e.target.value || null)} className="h-9 w-64 rounded-kiln border border-line bg-canvas px-2 text-sm outline-none">
+    <select
+      value={value ?? ''}
+      onChange={(e) => onChange(e.target.value || null)}
+      className="h-9 w-64 rounded-kiln border border-line bg-canvas px-2 text-sm outline-none"
+    >
       <option value="">{emptyLabel}</option>
       {models.map((m) => (
         <option key={m.name} value={m.name}>
@@ -684,7 +765,10 @@ function ModelsTab({ settings }: { settings: Settings }) {
 
   return (
     <>
-      <Section title="Connection" description="Kiln talks to Ollama. Cloud models work through the Ollama app once you've run `ollama signin`.">
+      <Section
+        title="Connection"
+        description="Kiln talks to Ollama. Cloud models work through the Ollama app once you've run `ollama signin`."
+      >
         <Segmented
           value={conn.mode}
           onChange={(mode) => saveConnection({ mode })}
@@ -702,7 +786,13 @@ function ModelsTab({ settings }: { settings: Settings }) {
         )}
         {conn.mode === 'local' && (
           <Row label="Show the Ollama cloud catalog" hint="List every cloud model, not only ones you've pulled.">
-            <Switch checked={settings.showCloudCatalog} onChange={async (v) => { await updateSettings({ showCloudCatalog: v }); await loadModels(true) }} />
+            <Switch
+              checked={settings.showCloudCatalog}
+              onChange={async (v) => {
+                await updateSettings({ showCloudCatalog: v })
+                await loadModels(true)
+              }}
+            />
           </Row>
         )}
       </Section>
@@ -715,7 +805,11 @@ function ModelsTab({ settings }: { settings: Settings }) {
           {modelSelect(settings.titleModel, (titleModel) => updateSettings({ titleModel }), 'Same as the chat')}
         </Row>
         <Row label="Context window for local models" hint="Ollama's num_ctx. Bigger remembers more but uses more memory.">
-          <select value={settings.localNumCtx} onChange={(e) => updateSettings({ localNumCtx: Number(e.target.value) })} className="h-9 rounded-kiln border border-line bg-canvas px-2 text-sm outline-none">
+          <select
+            value={settings.localNumCtx}
+            onChange={(e) => updateSettings({ localNumCtx: Number(e.target.value) })}
+            className="h-9 rounded-kiln border border-line bg-canvas px-2 text-sm outline-none"
+          >
             {[8192, 16384, 32768, 65536, 131072].map((n) => (
               <option key={n} value={n}>
                 {formatContext(n)}
@@ -751,7 +845,9 @@ function ModelsTab({ settings }: { settings: Settings }) {
                 model={m}
                 onChange={(updated) => {
                   setList((l) => l.map((x) => (x.name === updated.name ? { ...updated, installed: x.installed } : x)))
-                  useApp.setState((s) => ({ models: s.models.map((x) => (x.name === updated.name ? { ...updated, installed: x.installed } : x)) }))
+                  useApp.setState((s) => ({
+                    models: s.models.map((x) => (x.name === updated.name ? { ...updated, installed: x.installed } : x))
+                  }))
                 }}
               />
             ))}
@@ -789,7 +885,10 @@ function FeaturesTab({ settings }: { settings: Settings }) {
             ) : (
               <>
                 Needs an ollama.com API key.{' '}
-                <button className="text-accent hover:underline" onClick={() => useApp.getState().navigate({ name: 'settings', tab: 'usage' })}>
+                <button
+                  className="text-accent hover:underline"
+                  onClick={() => useApp.getState().navigate({ name: 'settings', tab: 'usage' })}
+                >
                   Add one in Usage & cost
                 </button>
               </>
@@ -806,14 +905,26 @@ function FeaturesTab({ settings }: { settings: Settings }) {
         </Row>
       </Section>
       <Section title="Skills">
-        <Row label="Load skills automatically" hint="Models that support tools can load a matching skill on their own. You can still add skills with / or the + menu.">
+        <Row
+          label="Load skills automatically"
+          hint="Models that support tools can load a matching skill on their own. You can still add skills with / or the + menu."
+        >
           <Switch checked={settings.skills.autoLoad} onChange={(autoLoad) => update({ skills: { autoLoad } })} />
         </Row>
         <Row label="Include Ollama skills" hint="Read-only, from ~/.ollama/skills">
-          <Switch checked={settings.skills.sources.ollama} onChange={(ollama) => update({ skills: { sources: { ...settings.skills.sources, ollama } } })} />
+          <Switch
+            checked={settings.skills.sources.ollama}
+            onChange={(ollama) => update({ skills: { sources: { ...settings.skills.sources, ollama } } })}
+          />
         </Row>
-        <Row label="Include Claude skills" hint="Read-only, from ~/.claude/skills. Each starts switched off, since many rely on tools only Claude has. Turn on the ones you want on the Skills page.">
-          <Switch checked={settings.skills.sources.claude} onChange={(claude) => update({ skills: { sources: { ...settings.skills.sources, claude } } })} />
+        <Row
+          label="Include Claude skills"
+          hint="Read-only, from ~/.claude/skills. Each starts switched off, since many rely on tools only Claude has. Turn on the ones you want on the Skills page."
+        >
+          <Switch
+            checked={settings.skills.sources.claude}
+            onChange={(claude) => update({ skills: { sources: { ...settings.skills.sources, claude } } })}
+          />
         </Row>
       </Section>
     </>
@@ -828,39 +939,39 @@ function DataTab() {
   }, [])
   return (
     <>
-    <Section
-      title="Debugger"
-      description="Kiln can record every request it sends (each chat round, tool call and title) so you can inspect it in the debugger window. Traces include your messages and are stored locally; deleting a chat deletes its traces, and only the newest 500 are kept."
-    >
-      <Row label="Record requests for the debugger">
-        <Switch checked={!!settings?.debug.record} onChange={(record) => updateSettings({ debug: { record } })} />
-      </Row>
-      <div className="flex gap-2">
-        <Button size="sm" onClick={() => api.debug.open(null)}>
-          Open debugger
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={async () => {
-            await api.debug.clear(null)
-            toast('Debug traces cleared')
-          }}
-        >
-          Clear all traces
-        </Button>
-      </div>
-    </Section>
-    <Section title="Your data" description="Everything stays on this Mac: chats, projects and files live in a local SQLite database.">
-      <Row label="Data folder" hint={<span className="font-mono">{info?.dataDir}</span>}>
-        <Button size="sm" onClick={() => api.app.openDataFolder()}>
-          Open
-        </Button>
-      </Row>
-      <Row label="Version">
-        <span className="text-sm text-muted">{info?.version}</span>
-      </Row>
-    </Section>
+      <Section
+        title="Debugger"
+        description="Kiln can record every request it sends (each chat round, tool call and title) so you can inspect it in the debugger window. Traces include your messages and are stored locally; deleting a chat deletes its traces, and only the newest 500 are kept."
+      >
+        <Row label="Record requests for the debugger">
+          <Switch checked={!!settings?.debug.record} onChange={(record) => updateSettings({ debug: { record } })} />
+        </Row>
+        <div className="flex gap-2">
+          <Button size="sm" onClick={() => api.debug.open(null)}>
+            Open debugger
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={async () => {
+              await api.debug.clear(null)
+              toast('Debug traces cleared')
+            }}
+          >
+            Clear all traces
+          </Button>
+        </div>
+      </Section>
+      <Section title="Your data" description="Everything stays on this Mac: chats, projects and files live in a local SQLite database.">
+        <Row label="Data folder" hint={<span className="font-mono">{info?.dataDir}</span>}>
+          <Button size="sm" onClick={() => api.app.openDataFolder()}>
+            Open
+          </Button>
+        </Row>
+        <Row label="Version">
+          <span className="text-sm text-muted">{info?.version}</span>
+        </Row>
+      </Section>
     </>
   )
 }
