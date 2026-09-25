@@ -29,6 +29,7 @@ import {
   updateProject
 } from './db/projects'
 import { ingestAll, removeFiles } from './files/ingest'
+import { appPages, isAppFrame } from './ipcSender'
 import { getModelInfo, listModels, setModelOverrides } from './ollama/models'
 import { paths } from './paths'
 import { stageArtifact } from './protocols'
@@ -287,9 +288,19 @@ const impl: Impl = {
 }
 
 export function registerIpc(): void {
+  const pages = appPages(app.isPackaged)
   for (const [group, methods] of Object.entries(impl)) {
     for (const [name, fn] of Object.entries(methods as Record<string, (...args: unknown[]) => unknown>)) {
-      ipcMain.handle(`${group}:${name}`, (_event, ...args) => fn(...args))
+      const channel = `${group}:${name}`
+      ipcMain.handle(channel, (event, ...args) => {
+        // Only Kiln's own windows may call in (see isAppFrame).
+        if (!isAppFrame(event.senderFrame, pages)) {
+          const from = event.senderFrame?.url || 'a frame that has gone'
+          console.warn(`Kiln: refused ${channel} from ${from}`)
+          throw new Error(`Kiln refused ${channel}: the call didn't come from one of its own windows.`)
+        }
+        return fn(...args)
+      })
     }
   }
   watchSkills(broadcastSkillsChanged)

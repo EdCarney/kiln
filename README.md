@@ -46,7 +46,8 @@ Your data lives in `~/Library/Application Support/Kiln/`: a SQLite database (`ki
 ```
 src/main/        Electron main process: SQLite (node:sqlite), Ollama client, prompt assembly,
                  streaming + tool loop, file extraction, skills library, artifact:// and kiln:// protocols
-src/preload/     typed contextBridge exposing window.kiln (contract in src/shared/ipc.ts)
+src/preload/     typed contextBridge exposing window.kiln (contract in src/shared/ipc.ts); main answers
+                 only Kiln's own windows (src/main/ipcSender.ts)
 src/shared/      types, artifact parser, thinking profiles, built-in themes (used by both sides)
 src/renderer/    React UI: views/, components/, stores/ (zustand), theme/
 tests/           Vitest unit tests      e2e/   live Playwright run against real models

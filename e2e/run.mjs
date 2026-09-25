@@ -149,6 +149,31 @@ try {
     .click()
     .catch(() => {})
 
+  // 2b. The main process only answers Kiln's own pages: a window showing anything else gets nothing back,
+  // even with Kiln's preload. (Electron doesn't report a window's preload, so the built path is passed in.)
+  const ipcFromOtherPage = await app.evaluate(
+    async ({ BrowserWindow }, preload) => {
+      const other = new BrowserWindow({ show: false, webPreferences: { preload, sandbox: true, contextIsolation: true } })
+      try {
+        await other.loadURL('data:text/html,<p>Not Kiln</p>')
+        return await other.webContents.executeJavaScript(
+          'window.kiln ? window.kiln.app.info().then(() => "answered", (e) => "refused: " + e.message) : "no bridge"'
+        )
+      } finally {
+        other.destroy()
+      }
+    },
+    join(ROOT, 'out', 'preload', 'index.js')
+  )
+  check('IPC from a page that is not Kiln is refused', ipcFromOtherPage.startsWith('refused'), ipcFromOtherPage.slice(0, 100))
+  const ipcFromApp = await win.evaluate(() =>
+    window.kiln.app.info().then(
+      () => 'answered',
+      (e) => `refused: ${e.message}`
+    )
+  )
+  check("IPC from Kiln's own window is answered", ipcFromApp === 'answered', ipcFromApp)
+
   // 3. Manual skill via the / picker
   await newChat(win)
   await win.fill('textarea', '/haiku')
