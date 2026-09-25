@@ -14,6 +14,14 @@ curl -fsSL https://raw.githubusercontent.com/EdCarney/kiln/main/scripts/install.
 
 This downloads the right build from the latest [release](https://github.com/EdCarney/kiln/releases/latest), installs it as `/Applications/Kiln.app` (quitting and replacing any older copy), and opens it. Run it again to upgrade. You'll also need the [Ollama app](https://ollama.com) running; for cloud models, run `ollama signin` once.
 
+To install somewhere else, such as your own `~/Applications` (which doesn't need an administrator account), set `KILN_INSTALL_DIR`. The folder is created if it doesn't exist:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/EdCarney/kiln/main/scripts/install.sh | KILN_INSTALL_DIR=~/Applications bash
+```
+
+Use the same setting when you upgrade. The script only replaces the copy in the folder it installs to, so if you switch folders, delete the old `Kiln.app` yourself.
+
 - **Why `curl`.** Kiln isn't signed with an Apple Developer ID. Browsers mark downloads as quarantined, and macOS won't open a quarantined unsigned app: it says Kiln "can't be verified" or "is damaged". `curl` doesn't add that mark. If you downloaded the `.dmg` or `.zip` from the releases page in a browser, either allow it in System Settings → Privacy & Security → Open Anyway, or run `xattr -dr com.apple.quarantine /Applications/Kiln.app`.
 - **Each Mac has its own data.** Chats, projects and skills live in `~/Library/Application Support/Kiln/` and don't sync. Upgrading leaves them alone.
 - **The ollama.com API key is per Mac.** It's encrypted with that Mac's Keychain, so enter it on each machine. After an upgrade, macOS may ask to let Kiln use "Kiln Safe Storage"; choose Always Allow.
@@ -28,7 +36,7 @@ npm install
 npm run dev        # development, with hot reload
 npm run build      # production bundle in out/
 npm run dist       # Kiln-arm64/x64 .dmg and .zip in dist/  (or: npx electron-builder --mac --dir  for just the .app)
-npm run install:mac  # build, then install/replace /Applications/Kiln.app and open it
+npm run install:mac  # build, then install/replace /Applications/Kiln.app and open it (KILN_INSTALL_DIR to change the folder)
 ```
 
 Your data lives in `~/Library/Application Support/Kiln/`: a SQLite database (`kiln.db`), uploaded files, and your own skills (`skills/`).
