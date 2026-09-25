@@ -81,27 +81,38 @@ function stripFences(content: string, complete: boolean): string {
  * during streaming the renderer re-parses the accumulated text each frame, which is
  * cheap and avoids an incremental state machine drifting out of sync.
  */
+/** A segment plus where it came from in the raw message, so tool calls can be placed between or inside segments. */
+export type RangedSegment = Segment & { start: number; end: number }
+
 export function parseMessage(input: string, streaming = false): Segment[] {
-  const segments: Segment[] = []
+  return parseMessageRanges(input, streaming).map(({ start: _start, end: _end, ...segment }) => segment as Segment)
+}
+
+/** parseMessage, keeping each segment's [start, end) range in `input` (text may be trimmed within it). */
+export function parseMessageRanges(input: string, streaming = false): RangedSegment[] {
+  const segments: RangedSegment[] = []
   const counters = new Map<string, number>()
   let rest = input
 
-  const pushText = (text: string) => {
+  const pushText = (text: string, start: number) => {
     if (!text) return
     const last = segments[segments.length - 1]
-    if (last && last.kind === 'text') last.text += text
-    else segments.push({ kind: 'text', text })
+    if (last && last.kind === 'text') {
+      last.text += text
+      last.end = start + text.length
+    } else segments.push({ kind: 'text', text, start, end: start + text.length })
   }
 
   while (rest.length) {
+    const offset = input.length - rest.length
     const open = OPEN_RE.exec(rest)
     if (!open) {
       let text = rest
       if (streaming) text = text.replace(PARTIAL_OPEN_RE, '')
-      pushText(text)
+      pushText(text, offset)
       break
     }
-    pushText(rest.slice(0, open.index))
+    pushText(rest.slice(0, open.index), offset)
 
     const tagName = open[1]
     const attrs = parseAttrs(open[2])
@@ -122,7 +133,19 @@ export function parseMessage(input: string, streaming = false): Segment[] {
       if (n > 1) identifier = `${identifier}-${n}`
     }
 
-    segments.push({ kind: 'artifact', identifier, type, title, language, content: stripFences(body, complete), complete })
+    const tagStart = offset + open.index
+    const afterOpenStart = tagStart + open[0].length
+    segments.push({
+      kind: 'artifact',
+      identifier,
+      type,
+      title,
+      language,
+      content: stripFences(body, complete),
+      complete,
+      start: tagStart,
+      end: close ? afterOpenStart + close.index + close[0].length : input.length
+    })
     rest = close ? afterOpen.slice(close.index + close[0].length) : ''
   }
 
@@ -130,7 +153,7 @@ export function parseMessage(input: string, streaming = false): Segment[] {
 }
 
 /** Remove the stray ``` left behind when a model wraps the whole artifact tag in a code fence. */
-function tidyFenceWrappers(segments: Segment[]): Segment[] {
+function tidyFenceWrappers<T extends Segment>(segments: T[]): T[] {
   for (let i = 0; i < segments.length; i++) {
     const seg = segments[i]
     if (seg.kind !== 'artifact') continue
