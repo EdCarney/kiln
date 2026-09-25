@@ -360,8 +360,9 @@ const fakeOllama = createServer(async (req, res) => {
           }
         : toolResults.length === 1
           ? {
+              // Text before the call, so the UI has to show the page read mid-answer.
               role: 'assistant',
-              content: '',
+              content: 'Found a likely story. Opening it.',
               tool_calls: [{ function: { name: 'browser.open', arguments: { id: 'https://news.example.com/story' } } }]
             }
           : {
@@ -502,12 +503,21 @@ writeFileSync(
       return -1
     })
     check('narrow no-break spaces render as visible spaces', spaceWidth > 2, `${spaceWidth.toFixed(1)}px`)
-    const badges = await win.locator('.mb-3.flex.flex-wrap').last().innerText()
+    const groups = await win.locator('[data-testid="tool-group"]').allInnerTexts()
+    const [searchBadge, readBadge] = groups.slice(-2)
     check(
       'badges show the search and the page read',
-      /Searched the web:\s+top headlines today\s+· 1 result\b/.test(badges) && /Read\s*Example story/.test(badges),
-      badges.replace(/\s+/g, ' ')
+      /Searched the web:\s+top headlines today\s+· 1 result\b/.test(searchBadge) && /Read\s*Example story/.test(readBadge),
+      groups.join(' | ').replace(/\s+/g, ' ')
     )
+    const readSitsMidAnswer = await win.evaluate(() => {
+      const read = [...document.querySelectorAll('[data-testid="tool-group"]')].at(-1)
+      return (
+        /Opening it/.test(read?.previousElementSibling?.textContent ?? '') &&
+        /KILN-WEB-OK/.test(read?.nextElementSibling?.textContent ?? '')
+      )
+    })
+    check('a call made mid-answer shows where it happened', readSitsMidAnswer)
     await win.screenshot({ path: join(SHOTS, 'web-tools.png') })
 
     // 12. The debugger window shows the exact requests behind that turn, and can replay one.

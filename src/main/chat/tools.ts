@@ -141,6 +141,10 @@ function unknownToolMessage(name: string, ctx: ToolContext, grants: ReadonlySet<
   return `Error: there is no tool named "${name}". ${list} ${limits} Don't try other tool names. Answer the user directly and tell them plainly what you can't do.`
 }
 
+// What a tool card can show of a result: enough to see what came back, without storing whole pages per call.
+const PREVIEW_CHARS = 1500
+const preview = (content: string) => (content.length > PREVIEW_CHARS ? `${content.slice(0, PREVIEW_CHARS)}…` : content)
+
 /** A call that was still running when the reply stopped: show it as stopped, not spinning forever. */
 export function settleToolEvent(e: ToolEvent): ToolEvent {
   return e.pending ? { ...e, pending: false, ok: false, summary: `${e.summary} (stopped)` } : e
@@ -150,7 +154,7 @@ export function settleToolEvent(e: ToolEvent): ToolEvent {
 export function pendingEvent(call: ToolCall, ctx: ToolContext): ToolEvent {
   const resolved = resolveCall(call, ctx)
   if (resolved) return resolved.provider.pending(resolved)
-  return { tool: call.function.name, args: argsOf(call), ok: true, pending: true, summary: call.function.name }
+  return { tool: call.function.name, args: argsOf(call), ok: true, pending: true, summary: call.function.name, unknown: true }
 }
 
 export async function runTool(call: ToolCall, ctx: ToolContext): Promise<ToolResult> {
@@ -160,17 +164,19 @@ export async function runTool(call: ToolCall, ctx: ToolContext): Promise<ToolRes
     const name = call.function.name
     return {
       content: unknownToolMessage(name, ctx, grants),
-      event: { tool: name, args: argsOf(call), ok: false, summary: name },
+      event: { tool: name, args: argsOf(call), ok: false, summary: name, unknown: true },
       unknown: true
     }
   }
+  let result: ToolResult
   try {
-    return await resolved.provider.run(resolved, { ...ctx, grants })
+    result = await resolved.provider.run(resolved, { ...ctx, grants })
   } catch (err) {
     if (ctx.signal?.aborted) throw err
     const message = errorMessage(err)
-    return { content: `Error: ${message}`, event: { tool: resolved.name, args: resolved.args, ok: false, summary: message } }
+    result = { content: `Error: ${message}`, event: { tool: resolved.name, args: resolved.args, ok: false, summary: message } }
   }
+  return { ...result, event: { preview: preview(result.content), ...result.event } }
 }
 
 /** The finished calls behind a reply that later turns keep, in brief, as each tool's provider decides. */

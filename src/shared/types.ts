@@ -69,6 +69,12 @@ export interface ToolEvent {
    * the model on later turns so follow-ups like "open the third result" still work.
    */
   record?: string
+  /** How long the reply's text was when the call was made, so the UI shows it there. Unset on older replies. */
+  at?: number
+  /** The start of what the tool returned to the model, for the tool's card. */
+  preview?: string
+  /** No tool by this name was offered (the model invented it). Unset on older replies. */
+  unknown?: boolean
 }
 
 export interface MessageStats {

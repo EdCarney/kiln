@@ -248,7 +248,35 @@ describe('reply loop', () => {
     expect(done.message.content).toBe('2')
     expect(chatCalls).toHaveLength(2)
     expect(chatCalls[1].tools).toBeUndefined()
-    expect(done.message.toolEvents[0]).toMatchObject({ tool: 'python', ok: false })
+    expect(done.message.toolEvents[0]).toMatchObject({ tool: 'python', ok: false, unknown: true })
+  })
+
+  it('records where in the reply each tool call happened, with a preview of its result', async () => {
+    setApiKey('test-key')
+    chat = (b, res, n) =>
+      n === 1
+        ? void res
+            .writeHead(200)
+            .end(
+              line({ message: { role: 'assistant', content: 'Let me check.' }, done: false }) + toolCall('web_search', { query: 'kiln' })
+            )
+        : reply('Found it.')(b, res, n)
+    web = (_p, res) => res.writeHead(200).end(JSON.stringify({ results: [{ title: 'Kilns', url: 'https://k.io', content: 'hot' }] }))
+    const r = start('look it up')
+    const done = await doneEvent(r.conversation.id)
+    expect(done.message.content).toBe('Let me check.\n\nFound it.')
+    const [event] = done.message.toolEvents
+    expect(event).toMatchObject({ tool: 'web_search', ok: true, at: 'Let me check.'.length })
+    expect(event.preview).toContain('https://k.io')
+    expect(event.unknown).toBeUndefined()
+    // The live events carry the position too, while pending and once finished.
+    const live = events.filter(
+      (e): e is Extract<ChatEvent, { type: 'tool' }> => e.type === 'tool' && e.conversationId === r.conversation.id
+    )
+    expect(live.map((e) => [e.event.pending ?? false, e.event.at])).toEqual([
+      [true, 13],
+      [false, 13]
+    ])
   })
 
   it('remembers earlier search results on the next turn', async () => {

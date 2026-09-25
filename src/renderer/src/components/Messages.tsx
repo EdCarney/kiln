@@ -1,6 +1,21 @@
-import { Ban, Check, Copy, FileText, Globe, LoaderCircle, Pencil, RotateCcw, Search, Sparkles, TriangleAlert } from 'lucide-react'
+import {
+  Ban,
+  Check,
+  ChevronRight,
+  Copy,
+  FileText,
+  Globe,
+  LoaderCircle,
+  Pencil,
+  RotateCcw,
+  Search,
+  Sparkles,
+  TriangleAlert,
+  Wrench
+} from 'lucide-react'
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
-import { parseMessage, type Segment, typeForCodeLanguage } from '@shared/artifactParser'
+import { parseMessage, parseMessageRanges, typeForCodeLanguage } from '@shared/artifactParser'
+import { type IndexedToolEvent, interleave } from '@shared/timeline'
 import type { Artifact, Message, ToolEvent } from '@shared/types'
 import { formatCost } from '@shared/usage'
 import { api } from '@/lib/api'
@@ -162,49 +177,100 @@ function WebEvent({ e }: { e: ToolEvent }) {
   )
 }
 
-function ToolEvents({ events }: { events: ToolEvent[] }) {
-  if (!events.length) return null
-  const skillEvents = events.filter((e) => SKILL_TOOL_NAMES.has(e.tool))
-  const webEvents = events.filter((e) => WEB_TOOL_NAMES.has(e.tool))
-  // Tools the model invented (web.run, python…) collapse into one note instead of a row of errors.
-  const unavailable = [
-    ...new Set(events.filter((e) => !SKILL_TOOL_NAMES.has(e.tool) && !WEB_TOOL_NAMES.has(e.tool) && !e.pending).map((e) => e.tool))
-  ]
+/**
+ * The model called a tool nothing offered (web.run, python…). Older replies have no flag; back then any tool
+ * other than the built-in ones had been invented.
+ */
+const isUnavailable = (e: ToolEvent) => e.unknown ?? (e.at === undefined && !SKILL_TOOL_NAMES.has(e.tool) && !WEB_TOOL_NAMES.has(e.tool))
+
+function SkillEvent({ e }: { e: ToolEvent }) {
   return (
-    <div className="mb-3 flex flex-wrap gap-1.5">
-      {webEvents.map((e, i) => (
-        <WebEvent key={`w${i}`} e={e} />
-      ))}
-      {skillEvents.map((e, i) => (
-        <span
-          key={i}
-          className={cn(
-            'flex items-center gap-1.5 rounded-lg border px-2 py-1 font-ui text-xs',
-            e.ok ? 'border-line text-muted' : 'border-danger/40 text-danger'
-          )}
-        >
-          {e.pending ? <LoaderCircle className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
-          {e.pending ? (
-            e.tool === 'load_skill' ? (
-              `Loading skill ${e.summary}…`
-            ) : (
-              'Reading skill file…'
-            )
-          ) : e.tool === 'load_skill' ? (
-            e.ok ? (
-              <>
-                Using skill <b className="font-medium text-fg">{e.summary}</b>
-              </>
-            ) : (
-              `Skill failed: ${e.summary}`
-            )
-          ) : e.ok ? (
-            `Read ${e.summary}`
-          ) : (
-            `Couldn't read file: ${e.summary}`
-          )}
-        </span>
-      ))}
+    <span className={cn(pill, e.ok ? 'border-line text-muted' : 'border-danger/40 text-danger')}>
+      {e.pending ? <LoaderCircle className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
+      {e.pending ? (
+        e.tool === 'load_skill' ? (
+          `Loading skill ${e.summary}…`
+        ) : (
+          'Reading skill file…'
+        )
+      ) : e.tool === 'load_skill' ? (
+        e.ok ? (
+          <>
+            Using skill <b className="font-medium text-fg">{e.summary}</b>
+          </>
+        ) : (
+          `Skill failed: ${e.summary}`
+        )
+      ) : e.ok ? (
+        `Read ${e.summary}`
+      ) : (
+        `Couldn't read file: ${e.summary}`
+      )}
+    </span>
+  )
+}
+
+function Detail({ label, text }: { label: string; text: string }) {
+  return (
+    <div>
+      <div className="mb-1 text-subtle">{label}</div>
+      <pre className="selectable max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md border border-line bg-code p-2 font-mono text-[11px] text-fg">
+        {text}
+      </pre>
+    </div>
+  )
+}
+
+/** Any tool without its own badge (MCP servers and the like): its name, and on click what it was given and returned. */
+function ToolCard({ e }: { e: ToolEvent }) {
+  const [open, setOpen] = useState(false)
+  const Icon = e.pending ? LoaderCircle : Wrench
+  const args = Object.keys(e.args).length ? JSON.stringify(e.args, null, 2) : null
+  const expandable = !e.pending && !!(args || e.preview)
+  return (
+    <div className={cn('max-w-full', open && 'basis-full')}>
+      <button
+        onClick={() => setOpen(!open)}
+        disabled={!expandable}
+        aria-expanded={expandable ? open : undefined}
+        className={cn(
+          pill,
+          e.ok ? 'border-line text-muted' : 'border-danger/40 text-danger',
+          expandable && 'hover:border-line-strong hover:text-fg'
+        )}
+      >
+        <Icon className={cn('size-3.5 shrink-0', e.pending && 'animate-spin')} />
+        <span className="shrink-0 font-mono text-fg">{e.tool}</span>
+        {e.summary && e.summary !== e.tool && <span className="truncate">{e.summary}</span>}
+        {expandable && <ChevronRight className={cn('size-3 shrink-0 transition-transform', open && 'rotate-90')} />}
+      </button>
+      {open && (
+        <div className="mt-1.5 space-y-2 rounded-kiln border border-line bg-panel p-2.5 font-ui text-xs">
+          {args && <Detail label="Arguments" text={args} />}
+          {e.preview && <Detail label={e.ok ? 'Result' : 'Error'} text={e.preview} />}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Tool calls made at one point in a reply, in the order they were made. */
+function ToolGroup({ events }: { events: IndexedToolEvent[] }) {
+  const shown = events.filter(({ event }) => !isUnavailable(event))
+  // Tools the model invented collapse into one note instead of a row of errors.
+  const unavailable = [...new Set(events.filter(({ event }) => isUnavailable(event) && !event.pending).map(({ event }) => event.tool))]
+  if (!shown.length && !unavailable.length) return null
+  return (
+    <div data-testid="tool-group" className="my-3 flex flex-wrap gap-1.5 first:mt-0">
+      {shown.map(({ event: e, index }) =>
+        WEB_TOOL_NAMES.has(e.tool) ? (
+          <WebEvent key={index} e={e} />
+        ) : SKILL_TOOL_NAMES.has(e.tool) ? (
+          <SkillEvent key={index} e={e} />
+        ) : (
+          <ToolCard key={index} e={e} />
+        )
+      )}
       {unavailable.length > 0 && (
         <Tooltip content="The model tried tools that aren't available in this chat.">
           <span className="flex items-center gap-1.5 rounded-lg border border-line px-2 py-1 font-ui text-xs text-muted">
@@ -254,7 +320,9 @@ export const AssistantMessage = memo(function AssistantMessage({
   const content = stream ? stream.content : message.content
   const thinking = stream ? stream.thinking : (message.thinking ?? '')
   const toolEvents = stream ? stream.toolEvents : message.toolEvents
-  const segments = useMemo(() => parseMessage(content, streaming), [content, streaming])
+  const segments = useMemo(() => parseMessageRanges(content, streaming), [content, streaming])
+  // Tool calls sit where they happened in the text.
+  const timeline = useMemo(() => interleave(segments, toolEvents), [segments, toolEvents])
   const [copied, copy] = useCopy()
   const conversationId = message.conversationId
   const openLive = useArtifactPanel((s) => s.openLive)
@@ -299,7 +367,9 @@ export const AssistantMessage = memo(function AssistantMessage({
     : (message.stats?.thinkingMs ?? null)
 
   const occurrences = new Map<string, number>()
-  const rendered = segments.map((seg: Segment, i) => {
+  const rendered = timeline.map((item, i) => {
+    if (item.kind === 'tools') return <ToolGroup key={`t${item.events[0].index}`} events={item.events} />
+    const seg = item.segment
     if (seg.kind === 'text') return <Markdown key={i} text={seg.text} onOpenAsArtifact={streaming ? undefined : openAsArtifact} />
     const n = occurrences.get(seg.identifier) ?? 0
     occurrences.set(seg.identifier, n + 1)
@@ -309,7 +379,6 @@ export const AssistantMessage = memo(function AssistantMessage({
   return (
     <div className="group">
       <ThinkingBlock thinking={thinking} active={thinkingActive && !!(thinking || streaming)} durationMs={thinkingMs} />
-      <ToolEvents events={toolEvents} />
       {rendered}
       {streaming && !content && !thinking && <div className="stream-caret h-6" aria-label="Waiting for reply" />}
       {streaming && content && <span className="stream-caret" />}

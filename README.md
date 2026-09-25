@@ -72,7 +72,7 @@ tests/           Vitest unit tests      e2e/   live Playwright run against real 
 - **Web search.** When an ollama.com API key is saved (Settings → Usage & cost), models that support tools get `web_search` and `web_fetch`. These call Ollama's web API, so pages are fetched by ollama.com and not your Mac. Searches count toward your Ollama usage.
   - The key stays in the main process and never enters a prompt.
   - Web content is marked as untrusted data, so the model is told not to follow instructions found in pages.
-  - Every search and page read shows as a badge in the chat. Click a page badge to open it in your browser.
+  - Every search and page read shows as a badge in the reply, at the point where the model made it. Click a page badge to open it in your browser.
   - gpt-oss-style names (`browser.open`, `web.run`, …) are routed to the real tools, but only when no offered tool has that name. Tools come from providers registered in `src/main/chat/tools.ts` (skills and web today), and an exact name always wins over an alias.
   - Tools a model invents get one explanation, then they're withdrawn so the turn still ends with an answer.
 - **Links.** Hovering a link in a reply shows a card with its destination: site, full URL, and whether it opens in your browser. It warns when the link text names a different domain than the real destination.

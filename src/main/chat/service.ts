@@ -377,7 +377,8 @@ async function generate(
       let onlyUnknown = true
       for (const call of calls) {
         const index = toolEvents.length
-        const pending = pendingEvent(call, toolContext)
+        // `at` places the call in the reply's text, where the UI shows it.
+        const pending = { ...pendingEvent(call, toolContext), at: content.length }
         toolEvents.push(pending)
         emit({ type: 'tool', conversationId, messageId, index, event: pending })
         const toolTrace = startTrace({
@@ -408,8 +409,8 @@ async function generate(
         })
         if (result.unknown) triedUnknown.push(call.function.name)
         else onlyUnknown = false
-        toolEvents[index] = result.event
-        emit({ type: 'tool', conversationId, messageId, index, event: result.event })
+        toolEvents[index] = { ...result.event, at: pending.at }
+        emit({ type: 'tool', conversationId, messageId, index, event: toolEvents[index] })
         if (result.loadedSkillId && !loadedIds.includes(result.loadedSkillId)) {
           // Remember it for later turns so it doesn't have to be reloaded.
           loadedIds = [...loadedIds, result.loadedSkillId]
