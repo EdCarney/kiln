@@ -90,6 +90,10 @@ export interface MessageStats {
   costUsd?: number | null
   /** Token counts were estimated (e.g. the reply was stopped). */
   estimated?: boolean
+  /** The model was still calling tools when the reply ran out of rounds (this many), so it had to answer. */
+  toolRoundLimit?: number
+  /** Earlier tool results from this reply that were cut to a note to fit the context window. */
+  shortenedToolResults?: number
 }
 
 export interface Message {

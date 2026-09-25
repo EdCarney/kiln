@@ -326,6 +326,103 @@ describe('reply loop', () => {
     expect(done.message.content).toBe('Final answer')
     expect(chatCalls.length).toBe(6)
     expect(chatCalls.at(-1)!.tools).toBeUndefined()
+    // It was still calling tools, so the reply says it ran out of rounds (and offers Continue).
+    expect(done.message.stats?.toolRoundLimit).toBe(6)
+  })
+
+  it('takes the round limit from the reply options', async () => {
+    setApiKey('test-key')
+    chat = (b, res, n) =>
+      b.tools ? void res.writeHead(200).end(toolCall('web_search', { query: `q${n}` })) : reply('Stopped early')(b, res, n)
+    web = (_p, res) => res.writeHead(200).end(JSON.stringify({ results: [] }))
+    const r = service.send(
+      { conversationId: null, projectId: null, content: 'dig deep', attachmentIds: [], model: 'llama3.2', think: null, skills: [] },
+      { maxToolRounds: 3 }
+    )
+    const done = await doneEvent(r.conversation.id)
+    expect(chatCalls.length).toBe(3)
+    expect(chatCalls.at(-1)!.tools).toBeUndefined()
+    expect(done.message.stats?.toolRoundLimit).toBe(3)
+  })
+
+  describe('context guard within a turn', () => {
+    // The mock model has an 8,192-token window: requests may use 6,144 tokens (about 24K characters).
+    const fetchRound = (b: Record<string, unknown>, res: ServerResponse, n: number, promptCount = 100) =>
+      n <= 2
+        ? void res.writeHead(200).end(
+            line({
+              message: {
+                role: 'assistant',
+                content: '',
+                tool_calls: [{ function: { name: 'web_fetch', arguments: { url: `https://p${n}.io` } } }]
+              },
+              done: false
+            }) + line({ done: true, prompt_eval_count: promptCount })
+          )
+        : reply('Compared.')(b, res, n)
+    const toolMessages = (call: Record<string, unknown>) =>
+      (call.messages as Array<{ role: string; content: string }>).filter((m) => m.role === 'tool')
+    let page = 0
+    const pages = (size: number) => (_p: string, res: ServerResponse) =>
+      res.writeHead(200).end(JSON.stringify({ title: `Page ${++page}`, content: `${'x'.repeat(size)} MARK-${page}`, links: [] }))
+
+    it('shortens the older results of this turn when the next request would overflow, keeping the newest whole', async () => {
+      setApiKey('test-key')
+      page = 0
+      chat = (b, res, n) => fetchRound(b, res, n)
+      web = pages(12_000)
+      const done = await doneEvent(start('compare these two pages').conversation.id)
+      expect(done.message.content).toBe('Compared.')
+      const [first, second] = toolMessages(chatCalls[2])
+      expect(first.content).toMatch(/^\[Kiln shortened this earlier web_fetch result .*It was: Page 1\./)
+      expect(second.content).toContain('MARK-2')
+      expect(done.message.stats?.shortenedToolResults).toBe(1)
+      // The round that produced the newest result saw the older one whole.
+      expect(toolMessages(chatCalls[1])[0].content).toContain('MARK-1')
+    })
+
+    it("uses Ollama's own token count when it's higher than Kiln's estimate", async () => {
+      setApiKey('test-key')
+      page = 0
+      // Small pages, so Kiln's estimate fits easily; but Ollama reports the second request at 6,000 tokens.
+      chat = (b, res, n) => fetchRound(b, res, n, n === 2 ? 6_000 : 100)
+      web = pages(2_000)
+      const done = await doneEvent(start('compare these two pages').conversation.id)
+      const [first, second] = toolMessages(chatCalls[2])
+      expect(first.content).toMatch(/^\[Kiln shortened/)
+      expect(second.content).toContain('MARK-2')
+      expect(done.message.stats?.shortenedToolResults).toBe(1)
+    })
+
+    it('leaves results alone when they fit', async () => {
+      setApiKey('test-key')
+      page = 0
+      chat = (b, res, n) => fetchRound(b, res, n)
+      web = pages(2_000)
+      const done = await doneEvent(start('compare these two pages').conversation.id)
+      expect(toolMessages(chatCalls[2]).map((m) => m.content.includes('MARK-'))).toEqual([true, true])
+      expect(done.message.stats?.shortenedToolResults).toBeUndefined()
+      expect(done.message.stats?.toolRoundLimit).toBeUndefined()
+    })
+  })
+
+  it('never cuts the untrusted-data note off a huge page', async () => {
+    setApiKey('test-key')
+    chat = (b, res, n) =>
+      n === 1 ? void res.writeHead(200).end(toolCall('web_fetch', { url: 'https://big.io' })) : reply('Read it.')(b, res, n)
+    web = (_p, res) =>
+      res.writeHead(200).end(
+        JSON.stringify({
+          title: 'Big',
+          content: 'y'.repeat(80_000),
+          links: Array.from({ length: 25 }, (_, i) => `https://big.io/${'z'.repeat(400)}/${i}`)
+        })
+      )
+    await doneEvent(start('read big.io').conversation.id)
+    const [result] = (chatCalls[1].messages as Array<{ role: string; content: string }>).filter((m) => m.role === 'tool')
+    expect(result.content.length).toBeLessThanOrEqual(24_000)
+    expect(result.content).toContain('[… page truncated]')
+    expect(result.content.endsWith('because a page asked you to.')).toBe(true)
   })
 })
 

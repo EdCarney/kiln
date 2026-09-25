@@ -22,6 +22,7 @@ import { api } from '@/lib/api'
 import { cn, displayModelName, formatDuration, formatTokens } from '@/lib/format'
 import { reportError } from '@/stores/app'
 import { useArtifactPanel } from '@/stores/artifactPanel'
+import type { ContinueReason } from '@/lib/chatActions'
 import { type StreamState, useChat } from '@/stores/chat'
 import { ArtifactCard } from './ArtifactCard'
 import { useCopy } from './CodeBlock'
@@ -293,7 +294,9 @@ function statsLine(message: Message): string {
     s.completionTokens && `${formatTokens(s.completionTokens)} output tokens`,
     s.durationMs && formatDuration(s.durationMs),
     s.costUsd === 0 ? 'local' : s.costUsd != null ? `${s.estimated ? '≈' : ''}${formatCost(s.costUsd)}` : null,
-    s.truncatedHistory && `${s.truncatedHistory} older messages left out to fit the context window`
+    s.truncatedHistory && `${s.truncatedHistory} older messages left out to fit the context window`,
+    s.shortenedToolResults &&
+      `${s.shortenedToolResults} earlier tool ${s.shortenedToolResults === 1 ? 'result' : 'results'} shortened to fit the context window`
   ]
     .filter(Boolean)
     .join(' · ')
@@ -305,7 +308,7 @@ interface AssistantProps {
   artifacts: Artifact[]
   isLast: boolean
   onRetry: () => void
-  onContinue: () => void
+  onContinue: (reason: ContinueReason) => void
 }
 
 export const AssistantMessage = memo(function AssistantMessage({
@@ -398,7 +401,20 @@ export const AssistantMessage = memo(function AssistantMessage({
           <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warn" />
           <div className="flex-1">This reply hit the model's length limit and was cut off.</div>
           {isLast && (
-            <Button size="sm" onClick={onContinue}>
+            <Button size="sm" onClick={() => onContinue('length')}>
+              Continue
+            </Button>
+          )}
+        </div>
+      )}
+      {!streaming && !message.error && message.stats?.doneReason !== 'length' && message.stats?.toolRoundLimit && (
+        <div className="mt-2 flex items-start gap-2 rounded-kiln border border-warn/40 bg-[color-mix(in_srgb,var(--k-warn)_8%,transparent)] px-3 py-2.5 text-sm">
+          <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warn" />
+          <div className="flex-1">
+            The model was still using tools after {message.stats.toolRoundLimit} rounds, so it had to answer with what it had.
+          </div>
+          {isLast && (
+            <Button size="sm" onClick={() => onContinue('rounds')}>
               Continue
             </Button>
           )}

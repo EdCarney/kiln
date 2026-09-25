@@ -34,7 +34,7 @@ import { getSkill, listSkills } from '../skills/library'
 import { conversationUsage, insertUsageEvent } from '../db/usage'
 import { requestCost } from '../usage/pricing'
 import { errorMessage, estimateTokens } from '../util'
-import { assemble, type HistoryTurn } from './assemble'
+import { assemble, type HistoryTurn, promptBudget } from './assemble'
 import { TITLE_PROMPT } from './prompts'
 import {
   missingAbilities,
@@ -49,8 +49,14 @@ import {
 } from './tools'
 import type { WebStatus } from './prompts'
 
-// Room for a search, a few page reads and a skill load; the last round is always tool-free.
-const MAX_TOOL_ROUNDS = 6
+/** Requests a chat reply may make: room for a search, a few page reads and a skill load. The last is tool-free. */
+export const DEFAULT_TOOL_ROUNDS = 6
+
+/** Settings for one reply, for callers in the main process (the renderer can't set them). */
+export interface ReplyOptions {
+  /** Requests the reply may make, the last of them without tools. Defaults to DEFAULT_TOOL_ROUNDS. */
+  maxToolRounds?: number
+}
 // How often a streaming reply is saved, so a quit or crash loses at most this much.
 const CHECKPOINT_MS = 1500
 
@@ -73,7 +79,7 @@ function assertIdle(conversationId: string): void {
   if (active.has(conversationId)) throw new Error('Kiln is still responding in this chat.')
 }
 
-export function send(req: SendRequest): SendResult {
+export function send(req: SendRequest, reply: ReplyOptions = {}): SendResult {
   if (!req.content.trim() && !req.attachmentIds.length) throw new Error('Message is empty')
   let conversation: Conversation | null
   if (req.conversationId) {
@@ -88,20 +94,29 @@ export function send(req: SendRequest): SendResult {
   const user = insertMessage({ conversationId: conversation.id, parentId: previous?.id ?? null, role: 'user', content: req.content })
   linkAttachments(req.attachmentIds, user.id)
   if (conversation.projectId) touchProject(conversation.projectId)
-  return startAssistant(conversation, getMessage(user.id)!, req.model, req.think)
+  return startAssistant(conversation, getMessage(user.id)!, req.model, req.think, reply)
 }
 
-export async function regenerate(conversationId: string, opts: { model: string; think: ThinkSetting | null }): Promise<SendResult> {
+export async function regenerate(
+  conversationId: string,
+  opts: { model: string; think: ThinkSetting | null },
+  reply: ReplyOptions = {}
+): Promise<SendResult> {
   assertIdle(conversationId)
   const messages = listMessages(conversationId)
   const lastUserIndex = messages.findLastIndex((m) => m.role === 'user')
   if (lastUserIndex < 0) throw new Error('Nothing to retry')
   await dropAfter(conversationId, messages, lastUserIndex)
   const conversation = updateConversation(conversationId, { model: opts.model, think: opts.think, touch: true })
-  return startAssistant(conversation, messages[lastUserIndex], opts.model, opts.think)
+  return startAssistant(conversation, messages[lastUserIndex], opts.model, opts.think, reply)
 }
 
-export async function edit(messageId: string, content: string, opts: { model: string; think: ThinkSetting | null }): Promise<SendResult> {
+export async function edit(
+  messageId: string,
+  content: string,
+  opts: { model: string; think: ThinkSetting | null },
+  reply: ReplyOptions = {}
+): Promise<SendResult> {
   const original = getMessage(messageId)
   if (!original || original.role !== 'user') throw new Error('Only your own messages can be edited')
   assertIdle(original.conversationId)
@@ -113,7 +128,7 @@ export async function edit(messageId: string, content: string, opts: { model: st
   )
   const user = updateMessage(messageId, { content })
   const conversation = updateConversation(original.conversationId, { model: opts.model, think: opts.think, touch: true })
-  return startAssistant(conversation, user, opts.model, opts.think)
+  return startAssistant(conversation, user, opts.model, opts.think, reply)
 }
 
 /**
@@ -163,11 +178,17 @@ async function dropAfter(conversationId: string, messages: Message[], index: num
   pruneEmptyArtifacts(conversationId)
 }
 
-function startAssistant(conversation: Conversation, parent: Message, model: string, think: ThinkSetting | null): SendResult {
+function startAssistant(
+  conversation: Conversation,
+  parent: Message,
+  model: string,
+  think: ThinkSetting | null,
+  reply: ReplyOptions
+): SendResult {
   const assistant = insertMessage({ conversationId: conversation.id, parentId: parent.id, role: 'assistant', content: '', model })
   const controller = new AbortController()
   const flags = { quiet: false }
-  const settled = generate(conversation.id, assistant.id, model, think, controller, flags)
+  const settled = generate(conversation.id, assistant.id, model, think, controller, flags, reply)
     .catch((err) => console.error('Kiln: a reply failed to finish', err))
     .finally(() => {
       // Only remove our own entry: a reply that overlapped this one must stay stoppable.
@@ -203,7 +224,8 @@ async function generate(
   modelName: string,
   think: ThinkSetting | null,
   controller: AbortController,
-  flags: Run['flags']
+  flags: Run['flags'],
+  reply: ReplyOptions
 ): Promise<void> {
   let content = ''
   let thinking = ''
@@ -251,6 +273,8 @@ async function generate(
     const vision = model.capabilities.includes('vision')
     const toolsCapable = model.capabilities.includes('tools')
     const numCtx = effectiveContext(model, settings.localNumCtx)
+    const maxRounds = Math.max(1, reply.maxToolRounds ?? DEFAULT_TOOL_ROUNDS)
+    const budget = promptBudget(numCtx)
     const autoSkills = settings.skills.autoLoad && toolsCapable && model.overrides.autoSkills !== false
     const web: WebStatus = !settings.web.enabled ? 'off' : !toolsCapable ? 'unsupported' : webAvailable() ? 'on' : 'no-key'
 
@@ -304,9 +328,31 @@ async function generate(
     }
 
     const triedUnknown: string[] = []
-    for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+    // This turn's tool results, oldest first: when the request outgrows the context window, the oldest are shortened.
+    const turnResults: Array<{ index: number; round: number; note: string }> = []
+    // Ollama's token count for the last request, and what we estimated it at, to correct later estimates.
+    let lastCount: { actual: number; estimated: number } | null = null
+    const promptTokens = () => {
+      const estimate = estimatePrompt(body)
+      // Ollama's count plus our estimate of what's been added since, but never below our own estimate: a local
+      // model that reused its cache can report fewer tokens than the request holds.
+      return lastCount ? Math.max(estimate, lastCount.actual + estimate - lastCount.estimated) : estimate
+    }
+
+    for (let round = 0; round < maxRounds; round++) {
       // The last round never offers tools, so every turn ends with an answer in words.
-      if (round === MAX_TOOL_ROUNDS - 1) body.tools = undefined
+      if (round === maxRounds - 1 && body.tools) {
+        body.tools = undefined
+        // The model called tools in every round so far: the reply shows that it ran out, and offers Continue.
+        if (round > 0) stats.toolRoundLimit = maxRounds
+      }
+      // assemble() fitted the history; since then each round has added tool results. Keep the newest round's
+      // whole and shorten older ones until the request fits (Ollama would otherwise cut the prompt silently).
+      while (turnResults.length && turnResults[0].round < round - 1 && promptTokens() > budget) {
+        const r = turnResults.shift()!
+        body.messages[r.index] = { ...body.messages[r.index], content: r.note }
+        stats.shortenedToolResults = (stats.shortenedToolResults ?? 0) + 1
+      }
       debugLog(body)
       const calls: ToolCall[] = []
       let roundContent = ''
@@ -350,6 +396,7 @@ async function generate(
         if (chunk.done) final = chunk
         checkpoint()
       }
+      if (final?.prompt_eval_count) lastCount = { actual: final.prompt_eval_count, estimated: openRound.promptEstimate }
       const billed = recordRound(final)
       // The last round's reason is the reply's: "length" means the model was cut off mid-answer.
       if (final?.done_reason) stats.doneReason = final.done_reason
@@ -417,6 +464,8 @@ async function generate(
           updateConversation(conversationId, { autoSkills: loadedIds })
         }
         body.messages.push({ role: 'tool', content: result.content, tool_name: call.function.name })
+        const note = `[Kiln shortened this earlier ${call.function.name} result to make room in the context window. It was: ${result.event.summary}. Call the tool again if you need it in full.]`
+        if (result.content.length > note.length) turnResults.push({ index: body.messages.length - 1, round, note })
         checkpoint()
         // Checked only after the result is recorded, so a call that finished isn't saved as stopped.
         controller.signal.throwIfAborted()

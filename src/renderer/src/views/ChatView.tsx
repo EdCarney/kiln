@@ -112,9 +112,9 @@ export function ChatView({ id }: { id: string }) {
                   artifacts={artifacts}
                   isLast={i === messages.length - 1}
                   onRetry={() => retryLast(id, messages)}
-                  onContinue={() => {
+                  onContinue={(reason) => {
                     pinned.current = true
-                    void continueReply(id)
+                    void continueReply(id, reason)
                   }}
                 />
               )

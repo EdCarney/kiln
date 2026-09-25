@@ -79,6 +79,12 @@ export interface Assembled {
 const IMAGE_TOKENS = 1600
 const DEFAULT_CONTEXT = 128_000
 
+/** How many tokens a request may use: the context window less room for the reply. Unknown windows count as 128K. */
+export function promptBudget(contextLength: number | null): number {
+  const context = contextLength ?? DEFAULT_CONTEXT
+  return context - Math.min(16_000, Math.floor(context / 4))
+}
+
 export function buildSystemPrompt(input: AssembleInput): string {
   const parts = [basePrompt({ userName: input.userName, model: input.model, date: input.date, web: input.web, grants: input.grants })]
   if (input.web === 'on') parts.push(webPrompt())
@@ -169,9 +175,7 @@ export function collapseSupersededArtifacts(history: HistoryTurn[]): HistoryTurn
 export function assemble(input: AssembleInput): Assembled {
   const system = buildSystemPrompt(input)
   const history = collapseSupersededArtifacts(input.history).map((t) => (input.pastTools || !t.tools ? t : { ...t, tools: undefined }))
-  const context = input.contextLength ?? DEFAULT_CONTEXT
-  const reserve = Math.min(16_000, Math.floor(context / 4))
-  const budget = context - reserve - estimateTokens(system)
+  const budget = promptBudget(input.contextLength) - estimateTokens(system)
 
   // Walk backwards so the newest turns always survive; always keep the final user turn.
   const kept: HistoryTurn[] = []

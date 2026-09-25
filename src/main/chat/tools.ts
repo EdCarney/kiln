@@ -2,6 +2,7 @@ import type { ToolEvent } from '@shared/types'
 import type { OllamaTool, ToolCall } from '../ollama/client'
 import { errorMessage } from '../util'
 import type { PastToolCall } from './assemble'
+import { capText, TOOL_RESULT_CHARS } from './results'
 import { skillTools } from './skillTools'
 import { webTools } from './webTools'
 
@@ -176,7 +177,7 @@ export async function runTool(call: ToolCall, ctx: ToolContext): Promise<ToolRes
     const message = errorMessage(err)
     result = { content: `Error: ${message}`, event: { tool: resolved.name, args: resolved.args, ok: false, summary: message } }
   }
-  return { ...result, event: { preview: preview(result.content), ...result.event } }
+  return { ...result, content: capText(result.content, TOOL_RESULT_CHARS), event: { preview: preview(result.content), ...result.event } }
 }
 
 /** The finished calls behind a reply that later turns keep, in brief, as each tool's provider decides. */

@@ -105,6 +105,17 @@ describe('tool registry', () => {
     await expect(runTool(call('boom'), ctx({ signal: stop.signal }))).rejects.toThrow('disk full')
   })
 
+  it('caps any tool result, but keeps the whole start of it as the preview', async () => {
+    register(
+      fake('big', ['dump'], {
+        run: async () => ({ content: 'a'.repeat(30_000), event: { tool: 'dump', args: {}, ok: true, summary: 'dump' } })
+      })
+    )
+    const result = await runTool(call('dump'), ctx())
+    expect(result.content).toBe(`${'a'.repeat(24_000)}\n[… 6000 more characters cut]`)
+    expect(result.event.preview).toBe(`${'a'.repeat(1500)}…`)
+  })
+
   it("tells the model a skill's scripts can't run, unless a provider can run code", async () => {
     const without = await runTool(call('load_skill', { name: 'pdf' }), ctx({ skills: true }))
     expect(without.loadedSkillId).toBe('app:pdf')
