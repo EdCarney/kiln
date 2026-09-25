@@ -116,7 +116,7 @@ The e2e run checks:
 - project knowledge
 - theme persistence
 
-Screenshots go to `e2e/shots/`. Set `KILN_DEBUG=1` to log every request Kiln sends to Ollama to `debug.log` in the data folder.
+Screenshots go to `e2e/shots/`. Set `KILN_DEBUG=1` to log every request Kiln sends to Ollama to `debug.log` in the data folder, along with the PATH Kiln gives processes it starts. Apps opened from the Dock get a bare PATH, so Kiln reads the one your login shell sets up.
 
 ## Releasing
 

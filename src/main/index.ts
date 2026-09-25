@@ -1,9 +1,11 @@
+import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, BrowserWindow, Menu, type MenuItemConstructorOptions, nativeTheme, shell } from 'electron'
 import { EVENT_CHANNELS } from '@shared/ipc'
 import { currentBackground, currentThemeSource } from './background'
 import { isReplying, markInterruptedReplies, stopAll } from './chat/service'
 import { openDatabase } from './db/index'
+import { childPath } from './env'
 import { settleStaleTraces } from './debug/traces'
 import { staleAttachmentPaths } from './db/conversations'
 import { removeFiles } from './files/ingest'
@@ -125,6 +127,11 @@ app.whenReady().then(async () => {
   if (!hasLock) return
   initPaths()
   openDatabase(paths.db)
+  // Ask the login shell for its PATH now, so a tool Kiln starts later doesn't wait for it.
+  void childPath().then((path) => {
+    if (process.env.KILN_DEBUG)
+      appendFileSync(join(paths.data, 'debug.log'), `${new Date().toISOString()} PATH for spawned tools: ${path}\n`)
+  })
   markInterruptedReplies()
   settleStaleTraces()
   await removeFiles(staleAttachmentPaths(Date.now() - 24 * 60 * 60 * 1000))
