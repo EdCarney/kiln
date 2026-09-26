@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { elapsedMs, hasChildren, spawnGroup, stopAllGroups, trackProcesses } from '../src/main/processes'
+import { elapsedMs, hasChildren, isKilnsGroup, parsePs, spawnGroup, stopAllGroups, trackProcesses } from '../src/main/processes'
 
 const alive = (pid: number) => {
   try {
@@ -89,7 +89,7 @@ describe('cleaning up after a crash', () => {
   it('stops the groups an earlier run recorded and left running', async () => {
     const left = await orphan()
     const file = join(dir, 'crashed.json')
-    writeFileSync(file, JSON.stringify([{ pgid: left.pgid, startedAt: Date.now() - 2_000, command: 'sh' }]))
+    writeFileSync(file, JSON.stringify([{ pgid: left.pgid, startedAt: Date.now(), command: 'sh' }]))
     expect(await trackProcesses(file)).toBe(1)
     expect(await until(() => !left.pids.some(alive))).toBe(true)
     expect(recorded(file)).toEqual([])
@@ -109,6 +109,61 @@ describe('cleaning up after a crash', () => {
     expect(await trackProcesses(file)).toBe(0)
     expect(other.pids.every(alive)).toBe(true)
     process.kill(-other.pgid, 'SIGKILL')
+  })
+
+  // #70: a group id is its leader's pid, and pids are reused.
+  it('leaves alone a newer group that reuses a recorded id', async () => {
+    const other = await orphan()
+    const file = join(dir, 'reused.json')
+    // Kiln's group with this id was recorded 30 s before the group now using it started.
+    writeFileSync(file, JSON.stringify([{ pgid: other.pgid, startedAt: Date.now() - 30_000, command: 'sh' }]))
+    expect(await trackProcesses(file)).toBe(0)
+    expect(other.pids.every(alive)).toBe(true)
+    process.kill(-other.pgid, 'SIGKILL')
+  })
+
+  it('keeps the records until they are cleaned up', async () => {
+    const file = join(dir, 'kept.json')
+    const records = [{ pgid: 999_999, startedAt: Date.now(), command: 'sh' }]
+    writeFileSync(file, JSON.stringify(records))
+    const cleaning = trackProcesses(file)
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual(records)
+    expect(await cleaning).toBe(0)
+    expect(recorded(file)).toEqual([])
+  })
+
+  describe("telling Kiln's group from another with the same id", () => {
+    const t = 1_700_000_000_000
+    const record = { pgid: 500, startedAt: t, command: 'npx -y server' }
+    const rows = (...ps: Array<[pid: number, pgid: number, startedAt: number]>) =>
+      ps.map(([pid, pgid, startedAt]) => ({ pid, pgid, startedAt }))
+
+    it('is Kiln’s when its leader started when Kiln recorded it', () => {
+      expect(isKilnsGroup(record, rows([500, 500, t + 800], [501, 500, t + 5_000]), 0)).toBe(true)
+      expect(isKilnsGroup(record, rows([500, 500, t - 1_000]), 0)).toBe(true)
+    })
+
+    it('isn’t when its leader is newer or older, however new its other processes', () => {
+      expect(isKilnsGroup(record, rows([500, 500, t + 60_000], [501, 500, t + 61_000]), 0)).toBe(false)
+      expect(isKilnsGroup(record, rows([500, 500, t - 60_000], [501, 500, t + 1_000]), 0)).toBe(false)
+    })
+
+    it('with its leader gone, is Kiln’s only when its oldest process started just after the record', () => {
+      expect(isKilnsGroup(record, rows([501, 500, t + 2_000], [502, 500, t + 90_000]), 0)).toBe(true)
+      expect(isKilnsGroup(record, rows([501, 500, t + 120_000]), 0)).toBe(false)
+      expect(isKilnsGroup(record, rows([501, 500, t - 10_000]), 0)).toBe(false)
+    })
+
+    it('isn’t when recorded before the Mac started, or when nothing is in the group', () => {
+      expect(isKilnsGroup(record, rows([500, 500, t]), t + 1)).toBe(false)
+      expect(isKilnsGroup(record, rows([600, 600, t]), 0)).toBe(false)
+    })
+
+    it("reads ps's table", () => {
+      expect(parsePs('  500   500      00:05\n  501   500 1-00:00:00\n\n', t)).toEqual(
+        rows([500, 500, t - 5_000], [501, 500, t - 86_400_000])
+      )
+    })
   })
 
   it("reads ps's elapsed times", () => {

@@ -12,7 +12,7 @@ const DEFAULT_GRACE_MS = 2_000
 const live = new Map<number, GroupRecord>()
 
 /** What the pidfile keeps of a group, so a later start can find it if Kiln died without stopping it. */
-interface GroupRecord {
+export interface GroupRecord {
   startedAt: number
   command: string
 }
@@ -119,11 +119,49 @@ export function elapsedMs(etime: string): number {
   return (((Number(days) * 24 + h) * 60 + m) * 60 + sec) * 1000
 }
 
+/** A row of `ps -A -o pid=,pgid=,etime=`, with when the process started. */
+export interface PsRow {
+  pid: number
+  pgid: number
+  startedAt: number
+}
+
+/** How far a group leader's start (ps has whole seconds) may be from the time Kiln recorded when it spawned it. */
+const LEADER_SLACK_MS = 3_000
+/** How soon after the record the oldest process of a group whose leader has exited must have started. */
+const LEADERLESS_WINDOW_MS = 60_000
+
 /**
- * Start recording live groups in `file`, first stopping any a previous run recorded and left behind. A recorded
- * group id is only acted on when it can still be Kiln's: recorded since this Mac started, and with a process in it
- * that started no earlier than the record (a pid reused by something older isn't touched). Returns how many groups
- * were stopped.
+ * Whether a recorded group id still names the group Kiln started (#70). Process ids are reused, and a group id is
+ * its leader's pid, so a newer unrelated group can have it: it's only Kiln's when recorded since this Mac started,
+ * and its leader started when Kiln recorded it. A group id isn't reused while any process is in the group, so one
+ * whose leader has exited is Kiln's when its oldest process started just after the record (a reused id would need
+ * Kiln's group gone, the id taken by a new leader, and that leader gone too, all within the window).
+ */
+export function isKilnsGroup(r: GroupRecord & { pgid: number }, rows: PsRow[], booted: number): boolean {
+  if (r.startedAt <= booted) return false
+  const group = rows.filter((p) => p.pgid === r.pgid)
+  if (!group.length) return false
+  const leader = group.find((p) => p.pid === r.pgid)
+  if (leader) return Math.abs(leader.startedAt - r.startedAt) <= LEADER_SLACK_MS
+  const oldest = Math.min(...group.map((p) => p.startedAt))
+  return oldest >= r.startedAt - LEADER_SLACK_MS && oldest <= r.startedAt + LEADERLESS_WINDOW_MS
+}
+
+/** Parse `ps -A -o pid=,pgid=,etime=` output, taken at `now`. */
+export function parsePs(table: string, now: number): PsRow[] {
+  return table
+    .trim()
+    .split('\n')
+    .map((line) => line.trim().split(/\s+/))
+    .filter((cols) => cols.length === 3)
+    .map(([pid, pgid, etime]) => ({ pid: Number(pid), pgid: Number(pgid), startedAt: now - elapsedMs(etime) }))
+}
+
+/**
+ * Start recording live groups in `file`, first stopping any a previous run recorded and left behind, when each is
+ * still Kiln's (see isKilnsGroup). The file keeps the old records until then, so a crash during cleanup doesn't lose
+ * them. Returns how many groups were stopped.
  */
 export async function trackProcesses(file: string): Promise<number> {
   let recorded: Array<GroupRecord & { pgid: number }> = []
@@ -132,26 +170,21 @@ export async function trackProcesses(file: string): Promise<number> {
   } catch {
     // No file (a clean exit), or an unreadable one.
   }
+  const orphans = recorded.length ? await findOrphans(recorded) : []
+  await Promise.all(orphans.map((r) => stopGroup(r.pgid, 1_000)))
   pidFile = file
   persist()
-  if (!recorded.length) return 0
+  return orphans.length
+}
 
+async function findOrphans(recorded: Array<GroupRecord & { pgid: number }>): Promise<Array<GroupRecord & { pgid: number }>> {
   const booted = await bootTime()
   let table: string
   try {
     table = (await run('/bin/ps', ['-A', '-o', 'pid=,pgid=,etime='])).stdout
   } catch {
-    return 0
+    return []
   }
-  const now = Date.now()
-  const rows = table
-    .trim()
-    .split('\n')
-    .map((line) => line.trim().split(/\s+/))
-    .map(([pid, pgid, etime]) => ({ pid: Number(pid), pgid: Number(pgid), startedAt: now - elapsedMs(etime) }))
-  const orphans = recorded.filter(
-    (r) => r.startedAt > booted && !live.has(r.pgid) && rows.some((p) => p.pgid === r.pgid && p.startedAt >= r.startedAt - 5_000)
-  )
-  await Promise.all(orphans.map((r) => stopGroup(r.pgid, 1_000)))
-  return orphans.length
+  const rows = parsePs(table, Date.now())
+  return recorded.filter((r) => !live.has(r.pgid) && isKilnsGroup(r, rows, booted))
 }
