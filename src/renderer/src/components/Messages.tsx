@@ -3,7 +3,10 @@ import {
   Check,
   ChevronRight,
   Copy,
+  Download,
+  ExternalLink,
   FileText,
+  FolderOpen,
   Globe,
   Hand,
   LoaderCircle,
@@ -11,6 +14,7 @@ import {
   RotateCcw,
   Search,
   Sparkles,
+  SquareTerminal,
   TriangleAlert,
   Wrench
 } from 'lucide-react'
@@ -18,15 +22,16 @@ import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { parseMessage, parseMessageRanges, typeForCodeLanguage } from '@shared/artifactParser'
 import { type IndexedToolEvent, interleave } from '@shared/timeline'
 import type { Artifact, Message, ToolDecision, ToolEvent } from '@shared/types'
+import { IMAGE_FILE, OPENABLE_FILE } from '@shared/workspace'
 import { formatCost } from '@shared/usage'
 import { api } from '@/lib/api'
-import { cn, displayModelName, formatDuration, formatTokens } from '@/lib/format'
+import { cn, displayModelName, formatBytes, formatDuration, formatTokens } from '@/lib/format'
 import { reportError } from '@/stores/app'
 import { useArtifactPanel } from '@/stores/artifactPanel'
 import type { ContinueReason } from '@/lib/chatActions'
 import { type StreamState, useChat } from '@/stores/chat'
 import { ArtifactCard } from './ArtifactCard'
-import { useCopy } from './CodeBlock'
+import { CodeBlock, useCopy } from './CodeBlock'
 import { Markdown } from './Markdown'
 import { ThinkingBlock } from './ThinkingBlock'
 import { Button, IconButton, TextArea, Tooltip } from './ui'
@@ -264,10 +269,93 @@ function ToolCard({ e }: { e: ToolEvent }) {
   )
 }
 
+const runLanguage = (e: ToolEvent) => (e.args.language === 'bash' ? 'bash' : 'python')
+
+/** The files a code run wrote: images shown, and every file can be opened (documents), shown in Finder or saved. */
+function RunFiles({ e, conversationId }: { e: ToolEvent; conversationId: string }) {
+  if (!e.files?.length) return null
+  const act = (fn: () => Promise<unknown>) => () => void fn().catch(reportError)
+  return (
+    <div data-testid="run-files" className="basis-full space-y-2">
+      {e.files
+        .filter((f) => IMAGE_FILE.test(f.path))
+        .map((f) => (
+          <img
+            key={`img-${f.path}`}
+            src={`kiln://workspace/${conversationId}/${f.path.split('/').map(encodeURIComponent).join('/')}`}
+            alt={f.path}
+            className="max-h-72 max-w-full rounded-kiln border border-line bg-white"
+          />
+        ))}
+      <div className="flex flex-wrap gap-1.5">
+        {e.files.map((f) => (
+          <span
+            key={f.path}
+            className="flex items-center gap-1 rounded-lg border border-line py-0.5 pl-2 pr-0.5 font-ui text-xs text-muted"
+          >
+            <span className="font-mono text-fg">{f.path}</span>
+            <span className="text-subtle">{formatBytes(f.size)}</span>
+            {OPENABLE_FILE.test(f.path) && (
+              <IconButton label={`Open ${f.path}`} size="sm" onClick={act(() => api.runner.openFile(conversationId, f.path))}>
+                <ExternalLink className="size-3" />
+              </IconButton>
+            )}
+            <IconButton label={`Show ${f.path} in Finder`} size="sm" onClick={act(() => api.runner.revealFile(conversationId, f.path))}>
+              <FolderOpen className="size-3" />
+            </IconButton>
+            <IconButton label={`Save a copy of ${f.path}`} size="sm" onClick={act(() => api.runner.saveFile(conversationId, f.path))}>
+              <Download className="size-3" />
+            </IconButton>
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** A run of the code runner: the language and first line; on click, the code and what it printed. */
+function CodeRunCard({ e, conversationId }: { e: ToolEvent; conversationId: string }) {
+  const [open, setOpen] = useState(false)
+  const language = runLanguage(e)
+  const name = language === 'bash' ? 'bash' : 'Python'
+  const label = e.pending ? `Running ${name}…` : e.declined ? `Didn't run ${name}` : e.ok ? `Ran ${name}` : `${name} failed`
+  return (
+    <>
+      <div className={cn('max-w-full', open && 'basis-full')}>
+        <button
+          onClick={() => setOpen(!open)}
+          disabled={e.pending}
+          aria-expanded={open}
+          className={cn(
+            pill,
+            e.ok || e.declined || e.pending ? 'border-line text-muted' : 'border-danger/40 text-danger',
+            !e.pending && 'hover:border-line-strong hover:text-fg'
+          )}
+        >
+          {e.pending ? <LoaderCircle className="size-3.5 shrink-0 animate-spin" /> : <SquareTerminal className="size-3.5 shrink-0" />}
+          <span className="shrink-0">{label}</span>
+          {e.summary && <span className="truncate font-mono text-fg">{e.summary}</span>}
+          {!e.pending && <ChevronRight className={cn('size-3 shrink-0 transition-transform', open && 'rotate-90')} />}
+        </button>
+        {open && (
+          <div className="mt-1.5 space-y-2 rounded-kiln border border-line bg-panel p-2.5 font-ui text-xs">
+            <div className="max-h-80 overflow-auto">
+              <CodeBlock code={String(e.args.code ?? '')} lang={language} />
+            </div>
+            {e.preview && <Detail label="Output" text={e.preview} />}
+          </div>
+        )}
+      </div>
+      <RunFiles e={e} conversationId={conversationId} />
+    </>
+  )
+}
+
 /** A call waiting for your answer: what the model wants to run, and Deny / Allow for this chat / Allow once. */
 function ApprovalCard({ e, conversationId, messageId, index }: { e: ToolEvent; conversationId: string; messageId: string; index: number }) {
   const [answering, setAnswering] = useState(false)
   const args = argsText(e)
+  const code = e.tool === 'run_code' ? String(e.args.code ?? '') : null
   const answer = async (decision: ToolDecision) => {
     setAnswering(true)
     try {
@@ -282,21 +370,35 @@ function ApprovalCard({ e, conversationId, messageId, index }: { e: ToolEvent; c
       <div className="flex items-center gap-2">
         <Hand className="size-4 shrink-0 text-warn" />
         <span className="min-w-0 flex-1">
-          Allow the model to use <span className="font-mono font-medium text-fg">{toolName(e)}</span>
-          {e.source && (
+          {code !== null ? (
+            <>Run this {runLanguage(e) === 'bash' ? 'bash script' : 'Python'} in the sandbox?</>
+          ) : (
             <>
-              {' '}
-              from <span className="font-medium text-fg">{e.source}</span>
+              Allow the model to use <span className="font-mono font-medium text-fg">{toolName(e)}</span>
+              {e.source && (
+                <>
+                  {' '}
+                  from <span className="font-medium text-fg">{e.source}</span>
+                </>
+              )}
+              ?
             </>
           )}
-          ?
         </span>
       </div>
-      {e.summary && e.summary !== e.tool && <div className="mt-1 truncate pl-6 text-xs text-muted">{e.summary}</div>}
-      {args && (
-        <div className="mt-2">
-          <Detail label="Arguments" text={args} />
+      {code !== null ? (
+        <div className="mt-2 max-h-96 overflow-auto">
+          <CodeBlock code={code} lang={runLanguage(e)} />
         </div>
+      ) : (
+        <>
+          {e.summary && e.summary !== e.tool && <div className="mt-1 truncate pl-6 text-xs text-muted">{e.summary}</div>}
+          {args && (
+            <div className="mt-2">
+              <Detail label="Arguments" text={args} />
+            </div>
+          )}
+        </>
       )}
       {e.everyTime && (
         <div className="mt-2 text-xs text-muted">
@@ -331,6 +433,8 @@ function ToolGroup({ events, conversationId, messageId }: { events: IndexedToolE
       {shown.map(({ event: e, index }) =>
         e.awaiting ? (
           <ApprovalCard key={index} e={e} conversationId={conversationId} messageId={messageId} index={index} />
+        ) : e.tool === 'run_code' ? (
+          <CodeRunCard key={index} e={e} conversationId={conversationId} />
         ) : WEB_TOOL_NAMES.has(e.tool) ? (
           <WebEvent key={index} e={e} />
         ) : SKILL_TOOL_NAMES.has(e.tool) ? (

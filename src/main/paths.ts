@@ -6,7 +6,11 @@ export const paths = {
   data: '',
   db: '',
   files: '',
-  skills: ''
+  skills: '',
+  /** Each chat's folder for code runs: <workspaces>/<conversation id>. */
+  workspaces: '',
+  /** The code runner's own files (its Python environment). */
+  runner: ''
 }
 
 export function initPaths(): void {
@@ -14,5 +18,7 @@ export function initPaths(): void {
   paths.db = join(paths.data, 'kiln.db')
   paths.files = join(paths.data, 'files')
   paths.skills = join(paths.data, 'skills')
+  paths.workspaces = join(paths.data, 'workspaces')
+  paths.runner = join(paths.data, 'runner')
   for (const dir of [paths.files, paths.skills]) mkdirSync(dir, { recursive: true })
 }

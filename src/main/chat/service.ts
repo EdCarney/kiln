@@ -43,6 +43,9 @@ import { getSettings } from '../settings'
 import { getSkill, listSkills } from '../skills/library'
 import { ensure as ensureServers, readyTools } from '../mcp/manager'
 import { MCP_SOURCE } from '../mcp/provider'
+import { CODE_SOURCE } from '../runner/provider'
+import { runnerStatus } from '../runner/status'
+import { prepareWorkspace } from '../runner/workspace'
 import { conversationUsage, insertUsageEvent } from '../db/usage'
 import { requestCost } from '../usage/pricing'
 import { errorMessage, estimateTokens } from '../util'
@@ -331,14 +334,27 @@ async function generate(
     const serverIds = sources.filter((s) => s.startsWith(MCP_SOURCE)).map((s) => s.slice(MCP_SOURCE.length))
     const unavailable = serverIds.length ? await ensureServers(serverIds, SERVER_WAIT_MS) : []
     if (!toolsCapable && conversation.toolSources.length)
-      unavailable.push(`${modelName} can't use tools, so this chat's MCP servers weren't used.`)
+      unavailable.push(`${modelName} can't use tools, so this chat's tools weren't used.`)
+
+    // The code runner: this chat's folder is readied (its attachments copied in) only when code may run.
+    let workspace: string | null = null
+    let codeRunner: { pypi: boolean; timeoutSec: number; uploads: string[] } | null = null
+    if (sources.includes(CODE_SOURCE) && settings.runner.mode !== 'off') {
+      const runner = await runnerStatus()
+      if (!runner.available) unavailable.push(`The code runner isn't available: ${runner.reason}`)
+      else {
+        const ws = await prepareWorkspace(conversationId)
+        workspace = ws.dir
+        codeRunner = { pypi: settings.runner.pypi, timeoutSec: settings.runner.timeoutSec, uploads: ws.uploads }
+      }
+    }
     if (unavailable.length) stats.unavailableTools = unavailable
 
     const toolContext: ToolContext = {
       skills: skillIndex.length > 0,
       web: web === 'on',
       sources,
-      workspace: null,
+      workspace,
       signal: controller.signal
     }
     const grants = toolGrants(toolContext)
@@ -366,6 +382,7 @@ async function generate(
       web,
       grants: [...grants],
       mcpServers: servers,
+      codeRunner,
       toolTokens: toolsTokens(tools),
       pastTools: toolsCapable,
       project: project ? { name: project.name, instructions: project.instructions } : null,

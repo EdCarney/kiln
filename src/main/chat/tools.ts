@@ -4,6 +4,7 @@ import { errorMessage } from '../util'
 import type { PastToolCall } from './assemble'
 import { capText, TOOL_RESULT_CHARS } from './results'
 import { mcpTools } from '../mcp/provider'
+import { runnerTools } from '../runner/provider'
 import { skillTools } from './skillTools'
 import { webTools } from './webTools'
 
@@ -92,7 +93,7 @@ export interface ToolProvider {
 }
 
 // In order: a name offered by two providers belongs to the first.
-const BUILT_IN: ToolProvider[] = [skillTools, webTools, mcpTools]
+const BUILT_IN: ToolProvider[] = [skillTools, webTools, runnerTools, mcpTools]
 let registered: ToolProvider[] = []
 
 /** Add a provider; returns a function that removes it. */
@@ -126,10 +127,12 @@ export function missingAbilities(grants: ReadonlySet<ToolGrant>): string | null 
 function argsOf(call: ToolCall): Record<string, unknown> {
   const raw = call.function.arguments
   if (typeof raw === 'string') {
+    // Built-in tools like gpt-oss's `python` can send their input as plain text rather than JSON.
     try {
-      return JSON.parse(raw) as Record<string, unknown>
+      const parsed = JSON.parse(raw) as unknown
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : { input: raw }
     } catch {
-      return {}
+      return raw.trim() ? { input: raw } : {}
     }
   }
   return raw ?? {}
