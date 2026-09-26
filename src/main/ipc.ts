@@ -41,7 +41,7 @@ import { errorMessage } from './util'
 import { stageArtifact } from './protocols'
 import { installedPackages, resetVenv } from './runner/python'
 import { runnerStatus } from './runner/status'
-import { removeWorkspace, workspaceFile } from './runner/workspace'
+import { removeWorkspace, workspaceFile, workspaceFiles } from './runner/workspace'
 import { getSettings, setApiKey, updateSettings } from './settings'
 import { getAccountUsage, invalidateAccountUsage, lastRawUsage } from './usage/account'
 import { currentBackground } from './background'
@@ -289,8 +289,11 @@ const impl: Impl = {
     revealFile: async (conversationId, path) => {
       const file = await workspaceFile(conversationId, path)
       if (!file) throw new Error('That file is no longer in the chat’s folder.')
-      // Marked as downloaded, so macOS asks before running it as an app or script from Finder.
-      await quarantine(file)
+      // Finder shows the whole folder, so every file in it is marked as downloaded, not only this one: macOS then asks
+      // before running any script or app a run left there.
+      await quarantine(file, ...(await workspaceFiles(conversationId))).catch((err) => {
+        throw new Error(`Couldn’t mark the chat’s files as downloaded, so they weren’t shown: ${errorMessage(err)}`)
+      })
       shell.showItemInFolder(file)
     },
     saveFile: async (conversationId, path) => {

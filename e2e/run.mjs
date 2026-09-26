@@ -1081,12 +1081,14 @@ const evilSvg = (port) =>
         ? call('run_code', {
             language: 'python',
             code: [
-              'import base64, csv',
+              'import base64, csv, os',
               "rows = list(csv.DictReader(open('uploads/sales.csv')))",
               "total = sum(int(r['amount']) for r in rows)",
               "open('total.txt', 'w').write(str(total))",
               `open('chart.png', 'wb').write(base64.b64decode('${PNG.toString('base64')}'))`,
               "open('run.command', 'w').write('echo hi')",
+              // Executable and read-only: the quarantine mark needs write permission (#67).
+              "os.chmod('run.command', 0o555)",
               `open('evil.svg', 'w').write('${evilSvg(runnerOllama.address().port)}')`,
               "print('TOTAL', total)"
             ].join('\n')
@@ -1236,6 +1238,33 @@ const evilSvg = (port) =>
         /only previews documents and images/.test(refused) &&
         /no longer in the chat/.test(escaped),
       `${refused} | ${escaped}`
+    )
+
+    // Show in Finder shows the whole folder, so every file in it is marked as downloaded, including a read-only
+    // script the run left beside the one shown (#67). Finder itself isn't opened.
+    await app.evaluate(({ shell }) => {
+      globalThis.revealed = []
+      shell.showItemInFolder = (p) => globalThis.revealed.push(p)
+    })
+    await win.getByRole('button', { name: 'Show total.txt in Finder' }).click()
+    await win.waitForTimeout(800)
+    const revealed = await app.evaluate(() => globalThis.revealed)
+    const unmarked = ['total.txt', 'chart.png', 'evil.svg', 'run.command', 'uploads/sales.csv'].filter((f) => {
+      if (process.platform !== 'darwin') return false
+      try {
+        return !execFileSync('/usr/bin/xattr', ['-p', 'com.apple.quarantine', join(runnerData, 'workspaces', chatId, f)], {
+          stdio: 'pipe'
+        })
+          .toString()
+          .startsWith('0081;')
+      } catch {
+        return true
+      }
+    })
+    check(
+      'Show in Finder marks every file in the chat’s folder as downloaded, not just the one shown',
+      revealed.length === 1 && revealed[0].endsWith('total.txt') && !unmarked.length,
+      `shown ${revealed.join(', ') || '(nothing)'}${unmarked.length ? ` | unmarked: ${unmarked.join(', ')}` : ''}`
     )
 
     // A skill's script, run from the skill's folder (readable inside the sandbox), writing into the chat's folder.

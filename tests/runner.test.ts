@@ -1,6 +1,6 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, join, relative } from 'node:path'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 
 vi.mock('electron', () => ({
@@ -125,6 +125,25 @@ describe('workspaces', () => {
     expect(await workspace.workspaceFile('../workspaces/chat-files', 'out/report.txt')).toBeNull()
     expect(await workspace.workspaceFile(id, 'out')).toBeNull()
   })
+
+  // Show in Finder marks these: Finder shows the whole folder, not only the file (#67).
+  it('lists every file Finder would show, nearest first, leaving out .kiln and never following links', async () => {
+    const id = 'chat-finder'
+    const dir = workspace.workspaceDir(id)
+    mkdirSync(join(dir, 'a', 'b'), { recursive: true })
+    mkdirSync(join(dir, '.kiln'), { recursive: true })
+    mkdirSync(join(dir, 'uploads'), { recursive: true })
+    const outside = mkdtempSync(join(tmpdir(), 'kiln-outside-'))
+    writeFileSync(join(outside, 'mine.txt'), 'x')
+    for (const f of ['a/b/deep.txt', 'a/mid.txt', 'top.command', 'uploads/data.csv', '.kiln/run-1.py']) writeFileSync(join(dir, f), 'x')
+    symlinkSync(outside, join(dir, 'linked'))
+    symlinkSync(join(outside, 'mine.txt'), join(dir, 'mine.txt'))
+    const files = (await workspace.workspaceFiles(id)).map((f) => relative(dir, f))
+    expect([...files].sort()).toEqual(['a/b/deep.txt', 'a/mid.txt', 'top.command', 'uploads/data.csv'])
+    expect(files.indexOf('top.command')).toBeLessThan(files.indexOf('a/mid.txt'))
+    expect(files.indexOf('a/mid.txt')).toBeLessThan(files.indexOf('a/b/deep.txt'))
+    expect(await workspace.workspaceFiles('../workspaces')).toEqual([])
+  })
 })
 
 // #69: with PyPI allowed, a shared writable environment would let one chat's code run in every other.
@@ -209,6 +228,30 @@ describe('handing out files a run wrote', () => {
     expect(execFileSync('/usr/bin/xattr', ['-p', QUARANTINE_ATTR, file]).toString().trim()).toMatch(/^0081;[0-9a-f]+;Kiln;$/)
     await expect(quarantine(join(root, 'missing.txt'))).rejects.toThrow()
   })
+
+  // Code can make a file read-only, and the mark needs write permission: that mustn't leave a script unmarked.
+  it.runIf(process.platform === 'darwin')('marks many files at once, read-only ones too, and a link itself, not its target', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kiln-marks-'))
+    const target = join(mkdtempSync(join(tmpdir(), 'kiln-target-')), 'target.txt')
+    writeFileSync(target, 'elsewhere')
+    const files = [join(dir, 'a b.txt'), join(dir, 'setup.command'), ...Array.from({ length: 250 }, (_, i) => join(dir, `f${i}`))]
+    for (const f of files) writeFileSync(f, 'x')
+    chmodSync(join(dir, 'setup.command'), 0o555)
+    symlinkSync(target, join(dir, 'link'))
+    await quarantine(...files, join(dir, 'link'))
+    const { execFileSync } = await import('node:child_process')
+    const mark = (f: string) => {
+      try {
+        return execFileSync('/usr/bin/xattr', ['-s', '-p', QUARANTINE_ATTR, f], { stdio: 'pipe' }).toString().trim()
+      } catch {
+        return null
+      }
+    }
+    for (const f of files) expect(mark(f), f).toMatch(/^0081;/)
+    expect(statSync(join(dir, 'setup.command')).mode & 0o777).toBe(0o755)
+    expect(mark(join(dir, 'link'))).toMatch(/^0081;/)
+    expect(mark(target)).toBeNull()
+  })
 })
 
 // The sandbox itself is macOS's (sandbox-exec); CI runs on Linux.
@@ -219,7 +262,15 @@ describe.runIf(process.platform === 'darwin' && existsSync('/usr/bin/sandbox-exe
   writeFileSync(join(fakeHome, 'private.txt'), 'private')
   const policy = policyFor({ workspace: ws, home: fakeHome, readable: [], venv: join(root, 'venv'), pypi: false })
   const sandboxed = (command: string, extra: { timeoutMs?: number; signal?: AbortSignal; env?: Record<string, string> } = {}) =>
-    runSandboxed({ command, policy, cwd: ws, env: extra.env ?? {}, timeoutMs: extra.timeoutMs ?? 30_000, signal: extra.signal, id: command })
+    runSandboxed({
+      command,
+      policy,
+      cwd: ws,
+      env: extra.env ?? {},
+      timeoutMs: extra.timeoutMs ?? 30_000,
+      signal: extra.signal,
+      id: command
+    })
 
   it('writes in the workspace and nowhere else, and reads nothing it was denied', async () => {
     const ok = await sandboxed('echo made > made.txt && cat made.txt')

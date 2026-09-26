@@ -42,30 +42,51 @@ export async function prepareWorkspace(conversationId: string): Promise<{ dir: s
 
 export type Snapshot = Map<string, { size: number; mtimeMs: number }>
 
-/** Every file in the workspace except Kiln's own and the uploads, with its size and modification time. */
-export async function snapshot(dir: string): Promise<Snapshot> {
-  const files: Snapshot = new Map()
-  const walk = async (folder: string) => {
+/**
+ * Regular files under `dir`, by relative path, at most MAX_FILES: links aren't followed, and entries `skip` names are
+ * left out. Breadth-first, so when there are too many, the ones nearer the top (what Finder shows first) are kept.
+ */
+async function listFiles(dir: string, skip: (rel: string, name: string) => boolean): Promise<string[]> {
+  const files: string[] = []
+  const folders = [dir]
+  while (folders.length && files.length < MAX_FILES) {
+    const folder = folders.shift()!
     let entries
     try {
       entries = await readdir(folder, { withFileTypes: true })
     } catch {
-      return
+      continue
     }
     for (const e of entries) {
-      if (files.size >= MAX_FILES) return
+      if (files.length >= MAX_FILES) break
       const full = join(folder, e.name)
       const rel = relative(dir, full)
-      if (rel === KILN_DIR || rel === UPLOADS_DIR || e.name === '__pycache__') continue
-      if (e.isDirectory()) await walk(full)
-      else if (e.isFile()) {
-        const s = await stat(full).catch(() => null)
-        if (s) files.set(rel, { size: s.size, mtimeMs: s.mtimeMs })
-      }
+      if (skip(rel, e.name)) continue
+      if (e.isDirectory()) folders.push(full)
+      else if (e.isFile()) files.push(rel)
     }
   }
-  await walk(dir)
   return files
+}
+
+/** Every file in the workspace except Kiln's own and the uploads, with its size and modification time. */
+export async function snapshot(dir: string): Promise<Snapshot> {
+  const files: Snapshot = new Map()
+  for (const rel of await listFiles(dir, (rel, name) => rel === KILN_DIR || rel === UPLOADS_DIR || name === '__pycache__')) {
+    const s = await stat(join(dir, rel)).catch(() => null)
+    if (s) files.set(rel, { size: s.size, mtimeMs: s.mtimeMs })
+  }
+  return files
+}
+
+/**
+ * Every file in a chat's workspace a user can see in Finder (not Kiln's hidden .kiln folder), as full paths. Show in
+ * Finder marks them all as downloaded, since Finder shows the whole folder (#67).
+ */
+export async function workspaceFiles(conversationId: string): Promise<string[]> {
+  if (!/^[\w-]+$/.test(conversationId)) return []
+  const dir = workspaceDir(conversationId)
+  return (await listFiles(dir, (rel) => rel === KILN_DIR)).map((rel) => join(dir, rel))
 }
 
 /** Files that are new or changed since `before` (at most 20, by path). */
