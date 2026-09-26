@@ -12,7 +12,7 @@ import { createProject, deleteProject } from '../src/main/db/projects'
 
 beforeAll(() => openDatabase(':memory:'))
 
-const chat = (projectId: string | null = null) => createConversation({ projectId, model: 'm', think: null, skills: [] })
+const chat = (projectId: string | null = null) => createConversation({ projectId, model: 'm', think: null, skills: [], toolSources: [] })
 const say = (conversationId: string, content: string) => insertMessage({ conversationId, parentId: null, role: 'user', content })
 
 const indexedMessages = (conversationId: string) =>

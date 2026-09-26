@@ -3,6 +3,7 @@ import type { OllamaTool, ToolCall } from '../ollama/client'
 import { errorMessage } from '../util'
 import type { PastToolCall } from './assemble'
 import { capText, TOOL_RESULT_CHARS } from './results'
+import { mcpTools } from '../mcp/provider'
 import { skillTools } from './skillTools'
 import { webTools } from './webTools'
 
@@ -13,6 +14,8 @@ export type ToolGrant = 'web' | 'code'
 export interface ToolContext {
   skills: boolean
   web: boolean
+  /** Tool sources switched on for the chat (Conversation.toolSources): `mcp:<server id>`. */
+  sources: readonly string[]
   /** The folder tools act in, for a later Code mode. Nothing uses it yet. */
   workspace: string | null
   /** The reply's stop signal: long-running tools are cancelled with it. */
@@ -68,7 +71,8 @@ export interface ToolProvider {
   endpoint?(call: ResolvedCall): string
 }
 
-const BUILT_IN: ToolProvider[] = [skillTools, webTools]
+// In order: a name offered by two providers belongs to the first.
+const BUILT_IN: ToolProvider[] = [skillTools, webTools, mcpTools]
 let registered: ToolProvider[] = []
 
 /** Add a provider; returns a function that removes it. */

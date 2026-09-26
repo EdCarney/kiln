@@ -78,7 +78,13 @@ tests/           Vitest unit tests      e2e/   live Playwright run against real 
   - Tools a model invents get one explanation, then they're withdrawn so the turn still ends with an answer.
   - A reply gets up to 6 tool rounds. If the model is still using tools after that, it has to answer with what it found, and the reply offers Continue.
   - Every tool result is capped at 24,000 characters. When a turn's results outgrow the context window, older ones from that turn are cut to a one-line note and the newest stay whole; the reply's stats say so. The check uses Ollama's own token count for the previous request when that's higher than Kiln's estimate.
-- **Approving tool calls.** A tool whose provider asks first (the MCP servers and code runner coming in #31; skills and web search never ask) waits in the reply with an approval card: **Allow once**, **Allow for this chat** or **Deny**.
+- **MCP servers.** Add local (stdio) MCP servers in Settings → Tools: a name, the command and arguments from the server's README, and any environment variables it needs. Kiln starts a server when a chat that uses it opens, and gives it your login shell's PATH, so `npx`, `uvx` and `docker` are found even when Kiln was opened from the Dock.
+  - Servers are switched on per chat, from the + menu under **Tools**, because every tool definition is sent with every request. New chats start with the servers marked "Use in new chats". Tool definitions count toward the context budget.
+  - Tools are offered as `<server>__<tool>`. Each call asks first (below), and a chat with servers on gets up to 12 tool rounds.
+  - Environment values are encrypted with the macOS keychain and never sent to the renderer. Servers run with your permissions and aren't sandboxed: add only ones you trust.
+  - A server that can't start, or stops, shows why in Settings → Tools, with its stderr log. A reply that couldn't use one of its chat's servers says so.
+  - Kiln talks to servers through its own stdio transport (`src/main/mcp/transport.ts`), so stopping a server also stops what it started (`npx` runs the real server as a child).
+- **Approving tool calls.** A tool whose provider asks first (MCP tools do; skills and web search never ask) waits in the reply with an approval card: **Allow once**, **Allow for this chat** or **Deny**.
   - A denied call doesn't run, and the model is told not to try it again unless you ask. Stopping the reply, deleting the chat or quitting counts as a no, and a call that was waiting when Kiln closed shows as not run.
   - A chat you aren't looking at gets a hand icon in the sidebar and a toast, and the Dock icon shows how many calls are waiting.
   - Processes Kiln starts run in their own process group (`src/main/processes.ts`), so stopping one also stops anything it started, and quitting stops them all.

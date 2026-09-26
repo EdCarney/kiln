@@ -164,5 +164,9 @@ export const MIGRATIONS: string[] = [
   /* sql */ `
   -- Tools the user allowed to run without asking in this chat ("Allow for this chat").
   ALTER TABLE conversations ADD COLUMN allowed_tools TEXT NOT NULL DEFAULT '[]';
+  `,
+  /* sql */ `
+  -- Tool sources switched on for a chat (MCP servers as "mcp:<id>").
+  ALTER TABLE conversations ADD COLUMN tool_sources TEXT NOT NULL DEFAULT '[]';
   `
 ]

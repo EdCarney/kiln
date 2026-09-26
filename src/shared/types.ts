@@ -40,6 +40,8 @@ export interface Conversation {
   instructions: string
   /** Tools you chose "Allow for this chat" for: they run here without asking. */
   allowedTools: string[]
+  /** Tool sources switched on for this chat: `mcp:<server id>` for each MCP server. */
+  toolSources: string[]
   pinned: boolean
   createdAt: number
   updatedAt: number
@@ -81,6 +83,8 @@ export interface ToolEvent {
   awaiting?: boolean
   /** You denied the call, so it didn't run. */
   declined?: boolean
+  /** Where the tool comes from, for its card: an MCP server's name. */
+  source?: string
 }
 
 /** Your answer to a tool call that asked first. */
@@ -103,6 +107,8 @@ export interface MessageStats {
   toolRoundLimit?: number
   /** Earlier tool results from this reply that were cut to a note to fit the context window. */
   shortenedToolResults?: number
+  /** Tool sources switched on for the chat that couldn't be used for this reply, and why. */
+  unavailableTools?: string[]
 }
 
 export interface Message {
@@ -347,6 +353,59 @@ export interface SkillDetail extends Skill {
   body: string
 }
 
+// ---- MCP servers ----------------------------------------------------------
+
+/** Whether a tool asks before each call, runs without asking, or isn't offered at all. */
+export type ToolPolicy = 'ask' | 'allow' | 'off'
+
+/** A local (stdio) MCP server Kiln starts. Environment values stay in the main process; the renderer sees names. */
+export interface McpServer {
+  /** Fixed when the server is added: its tools are named `<id>__<tool>`. */
+  id: string
+  name: string
+  command: string
+  args: string[]
+  /** Folder to start it in; null uses your home folder. */
+  cwd: string | null
+  envKeys: string[]
+  /** Switched on in new chats. */
+  defaultOn: boolean
+  /** Tools set to something other than Ask. */
+  tools: Record<string, ToolPolicy>
+}
+
+export interface McpServerInput {
+  /** Set when editing an existing server. */
+  id?: string
+  name: string
+  command: string
+  args: string[]
+  cwd: string | null
+  /** Values to set, by name; null removes one. When editing, names left out keep their saved values. */
+  env: Record<string, string | null>
+  defaultOn: boolean
+}
+
+export type McpState = 'stopped' | 'starting' | 'ready' | 'error'
+
+export interface McpToolInfo {
+  /** The tool's own name on its server. */
+  name: string
+  title: string | null
+  description: string
+  /** Roughly how many tokens its definition adds to every request. */
+  tokens: number
+}
+
+export interface McpStatus {
+  id: string
+  state: McpState
+  error: string | null
+  tools: McpToolInfo[]
+  /** What the server calls itself, once connected. */
+  serverInfo: { name: string; version: string } | null
+}
+
 // ---- Theming ------------------------------------------------------------
 
 export const PALETTE_KEYS = [
@@ -440,6 +499,8 @@ export interface SendRequest {
   model: string
   think: ThinkSetting | null
   skills: string[]
+  /** Tool sources for this chat (see Conversation.toolSources). */
+  toolSources: string[]
 }
 
 export interface SendResult {

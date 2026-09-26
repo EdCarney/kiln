@@ -24,12 +24,13 @@ function useBootstrap() {
     const app = useApp.getState()
     void (async () => {
       await Promise.all([app.loadSettings(), app.loadThemes()])
-      await Promise.all([app.loadProjects(), app.loadConversations(), app.loadSkills()])
+      await Promise.all([app.loadProjects(), app.loadConversations(), app.loadSkills(), app.loadMcp()])
       await app.loadModels()
     })()
 
     const stopUsage = startUsagePolling()
     const offSkills = api.events.onSkillsChanged(() => void useApp.getState().loadSkills())
+    const offMcp = api.events.onMcp((mcpStatus) => useApp.setState({ mcpStatus }))
     const offMenu = api.events.onMenu((action) => {
       const s = useApp.getState()
       if (action === 'new-chat') {
@@ -51,6 +52,7 @@ function useBootstrap() {
     return () => {
       stopUsage()
       offSkills()
+      offMcp()
       offMenu()
       window.removeEventListener('keydown', onKey)
     }

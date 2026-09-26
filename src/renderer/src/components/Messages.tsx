@@ -225,6 +225,9 @@ function Detail({ label, text }: { label: string; text: string }) {
 
 const argsText = (e: ToolEvent) => (Object.keys(e.args).length ? JSON.stringify(e.args, null, 2) : null)
 
+/** A tool's own name: an MCP tool is offered as `<server>__<tool>`, and its card names the server separately. */
+const toolName = (e: ToolEvent) => (e.source && e.tool.includes('__') ? e.tool.slice(e.tool.indexOf('__') + 2) : e.tool)
+
 /** Any tool without its own badge (MCP servers and the like): its name, and on click what it was given and returned. */
 function ToolCard({ e }: { e: ToolEvent }) {
   const [open, setOpen] = useState(false)
@@ -245,7 +248,8 @@ function ToolCard({ e }: { e: ToolEvent }) {
         )}
       >
         <Icon className={cn('size-3.5 shrink-0', e.pending && 'animate-spin')} />
-        <span className="shrink-0 font-mono text-fg">{e.tool}</span>
+        {e.source && <span className="shrink-0">{e.source}</span>}
+        <span className="shrink-0 font-mono text-fg">{toolName(e)}</span>
         {e.summary && e.summary !== e.tool && <span className="truncate">{e.summary}</span>}
         {e.declined && <span className="shrink-0 text-subtle">· declined</span>}
         {expandable && <ChevronRight className={cn('size-3 shrink-0 transition-transform', open && 'rotate-90')} />}
@@ -278,7 +282,14 @@ function ApprovalCard({ e, conversationId, messageId, index }: { e: ToolEvent; c
       <div className="flex items-center gap-2">
         <Hand className="size-4 shrink-0 text-warn" />
         <span className="min-w-0 flex-1">
-          Allow the model to use <span className="font-mono font-medium text-fg">{e.tool}</span>?
+          Allow the model to use <span className="font-mono font-medium text-fg">{toolName(e)}</span>
+          {e.source && (
+            <>
+              {' '}
+              from <span className="font-medium text-fg">{e.source}</span>
+            </>
+          )}
+          ?
         </span>
       </div>
       {e.summary && e.summary !== e.tool && <div className="mt-1 truncate pl-6 text-xs text-muted">{e.summary}</div>}
@@ -459,6 +470,17 @@ export const AssistantMessage = memo(function AssistantMessage({
           )}
         </div>
       )}
+      {!streaming && message.stats?.unavailableTools?.length ? (
+        <div className="mt-2 flex items-start gap-2 rounded-kiln border border-line px-3 py-2 text-xs text-muted">
+          <TriangleAlert className="mt-px size-3.5 shrink-0 text-warn" />
+          <div className="selectable space-y-0.5">
+            <div>Some of this chat's tools weren't available for this reply:</div>
+            {message.stats.unavailableTools.map((line) => (
+              <div key={line}>{line}</div>
+            ))}
+          </div>
+        </div>
+      ) : null}
       {!streaming && !message.error && message.stats?.doneReason !== 'length' && message.stats?.toolRoundLimit && (
         <div className="mt-2 flex items-start gap-2 rounded-kiln border border-warn/40 bg-[color-mix(in_srgb,var(--k-warn)_8%,transparent)] px-3 py-2.5 text-sm">
           <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warn" />

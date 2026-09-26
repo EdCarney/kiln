@@ -8,6 +8,7 @@ import {
   chatInstructionsPrompt,
   documentBlock,
   loadedSkillsPrompt,
+  mcpPrompt,
   preferencesPrompt,
   projectPrompt,
   selectedSkillsPrompt,
@@ -52,6 +53,10 @@ export interface AssembleInput {
   web: WebStatus
   /** What the offered tools let the model do, for the capability sentence. */
   grants: readonly ToolGrant[]
+  /** Names of the MCP servers whose tools are on offer. */
+  mcpServers?: readonly string[]
+  /** Roughly what the tool definitions add to every request; history gets less room by that much. */
+  toolTokens?: number
   /**
    * Replay earlier web calls as tool messages. Only for models that support tools: a template without tool
    * support may not render them.
@@ -88,6 +93,7 @@ export function promptBudget(contextLength: number | null): number {
 export function buildSystemPrompt(input: AssembleInput): string {
   const parts = [basePrompt({ userName: input.userName, model: input.model, date: input.date, web: input.web, grants: input.grants })]
   if (input.web === 'on') parts.push(webPrompt())
+  if (input.mcpServers?.length) parts.push(mcpPrompt(input.mcpServers))
   if (input.preferences.trim()) parts.push(preferencesPrompt(input.preferences))
   if (input.project) parts.push(projectPrompt(input.project))
   if (input.chatInstructions.trim()) parts.push(chatInstructionsPrompt(input.chatInstructions))
@@ -175,7 +181,7 @@ export function collapseSupersededArtifacts(history: HistoryTurn[]): HistoryTurn
 export function assemble(input: AssembleInput): Assembled {
   const system = buildSystemPrompt(input)
   const history = collapseSupersededArtifacts(input.history).map((t) => (input.pastTools || !t.tools ? t : { ...t, tools: undefined }))
-  const budget = promptBudget(input.contextLength) - estimateTokens(system)
+  const budget = promptBudget(input.contextLength) - estimateTokens(system) - (input.toolTokens ?? 0)
 
   // Walk backwards so the newest turns always survive; always keep the final user turn.
   const kept: HistoryTurn[] = []

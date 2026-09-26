@@ -1,0 +1,246 @@
+import { join } from 'node:path'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+
+// Real MCP servers over stdio (tests/fixtures/mcp-server.mjs), a real in-memory database. Electron's keychain is
+// faked, and spawned processes get Kiln's environment as it is (the login-shell PATH has its own tests).
+vi.mock('electron', () => ({
+  safeStorage: {
+    isEncryptionAvailable: () => true,
+    encryptString: (s: string) => Buffer.from(`enc:${s}`),
+    decryptString: (b: Buffer) => b.toString().replace(/^enc:/, '')
+  },
+  shell: {},
+  app: { getPath: () => '' }
+}))
+vi.mock('../src/main/env', () => ({ childEnv: async (extra: Record<string, string> = {}) => ({ ...process.env, ...extra }) }))
+
+const { openDatabase } = await import('../src/main/db/index')
+const { readSetting } = await import('../src/main/db/kv')
+const config = await import('../src/main/mcp/config')
+const manager = await import('../src/main/mcp/manager')
+const { exposedNames, resultText, toParameters } = await import('../src/main/mcp/provider')
+const tools = await import('../src/main/chat/tools')
+
+const FIXTURE = join(__dirname, 'fixtures', 'mcp-server.mjs')
+const fixture = (name: string, env: Record<string, string | null> = {}) =>
+  config.saveServer({ name, command: process.execPath, args: [FIXTURE], cwd: null, env, defaultOn: true })
+
+const alive = (pid: number) => {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+const until = async (check: () => boolean, ms = 5000) => {
+  const t0 = Date.now()
+  while (!check() && Date.now() - t0 < ms) await new Promise((r) => setTimeout(r, 20))
+  return check()
+}
+const status = (id: string) => manager.statuses().find((s) => s.id === id)!
+const text = (r: Awaited<ReturnType<typeof manager.callTool>>) => resultText(r)
+
+beforeAll(() => openDatabase(':memory:'))
+afterAll(() => manager.stopAll())
+
+describe('server definitions', () => {
+  it('gives each server a fixed id for its tool names, and keeps its environment encrypted', () => {
+    const a = config.saveServer({
+      name: 'My Notes!',
+      command: 'npx',
+      args: ['-y', 'notes'],
+      cwd: null,
+      env: { TOKEN: 's3cret' },
+      defaultOn: true
+    })
+    const b = config.saveServer({ name: 'my notes', command: 'npx', args: [], cwd: ' ', env: {}, defaultOn: false })
+    expect([a.id, b.id]).toEqual(['my_notes', 'my_notes_2'])
+    expect(a.envKeys).toEqual(['TOKEN'])
+    expect(b.cwd).toBeNull()
+    expect(JSON.stringify(config.listServers())).not.toContain('s3cret')
+    expect(JSON.stringify(readSetting('mcpServers', []))).not.toContain('s3cret')
+    expect(config.getServerConfig(a.id)!.env).toEqual({ TOKEN: 's3cret' })
+
+    // Editing keeps the id, keeps values not mentioned, and removes ones set to null.
+    config.saveServer({ id: a.id, name: 'Notes', command: 'npx', args: [], cwd: null, env: { OTHER: '1' }, defaultOn: true })
+    expect(config.getServerConfig(a.id)).toMatchObject({ id: 'my_notes', name: 'Notes', env: { TOKEN: 's3cret', OTHER: '1' } })
+    config.saveServer({ id: a.id, name: 'Notes', command: 'npx', args: [], cwd: null, env: { TOKEN: null }, defaultOn: true })
+    expect(config.getServerConfig(a.id)!.env).toEqual({ OTHER: '1' })
+
+    expect(() => config.saveServer({ name: 'x', command: 'npx', args: [], cwd: null, env: { 'BAD NAME': '1' }, defaultOn: true })).toThrow(
+      /valid environment variable/
+    )
+    expect(() => config.saveServer({ name: 'x', command: ' ', args: [], cwd: null, env: {}, defaultOn: true })).toThrow(/command/)
+    config.removeServer(a.id)
+    config.removeServer(b.id)
+    expect(config.serverId('__GitHub  (work)__', [])).toBe('github_work')
+    expect(config.serverId('!!!', [])).toBe('server')
+  })
+})
+
+describe('tool names, schemas and results', () => {
+  it('names tools <server>__<tool>, safely, within 64 characters, and never twice', () => {
+    const names = exposedNames('files', ['read.file', 'read/file', 'x'.repeat(80), 'x'.repeat(81)])
+    expect([...names.keys()]).toEqual(['files__read_file', 'files__read_file_2', `files__${'x'.repeat(57)}`, `files__${'x'.repeat(55)}_2`])
+    expect(names.get('files__read_file_2')).toBe('read/file')
+  })
+
+  it('passes input schemas as object parameters', () => {
+    expect(toParameters({ $schema: 'http://json-schema.org/draft-07/schema#', type: 'object' } as never)).toEqual({
+      type: 'object',
+      properties: {}
+    })
+    const anyOf = { type: 'object', properties: { v: { anyOf: [{ type: 'string' }, { type: 'number' }] } }, required: ['v'] }
+    expect(toParameters(anyOf as never)).toEqual(anyOf)
+  })
+
+  it('turns results into text, with notes for images and files', () => {
+    expect(
+      resultText({
+        content: [
+          { type: 'text', text: 'Hello' },
+          { type: 'image', data: 'A'.repeat(4096), mimeType: 'image/png' },
+          { type: 'resource', resource: { uri: 'file:///a.txt', text: 'inside a.txt' } },
+          { type: 'resource', resource: { uri: 'file:///b.bin', mimeType: 'application/zip', blob: 'AAAA' } },
+          { type: 'resource_link', uri: 'file:///c.md', name: 'c.md' }
+        ]
+      })
+    ).toBe('Hello\n\n[image: image/png, 3 KB]\n\ninside a.txt\n\n[file: file:///b.bin (application/zip), 3 bytes]\n\nfile:///c.md (c.md)')
+    expect(resultText({ content: [], structuredContent: { answer: 42 } })).toBe('{\n  "answer": 42\n}')
+  })
+})
+
+describe('running servers', () => {
+  let id: string
+  beforeAll(() => {
+    id = fixture('Fixture', { FIXTURE_GREETING: 'hello from the environment' }).id
+  })
+  afterEach(() => manager.connect(id))
+
+  it('starts a server and lists its tools', async () => {
+    await manager.connect(id)
+    const s = status(id)
+    expect(s).toMatchObject({ state: 'ready', error: null, serverInfo: { name: 'kiln-fixture', version: '1.2.3' } })
+    expect(s.tools.map((t) => t.name)).toContain('lookup_codename')
+    expect(s.tools.find((t) => t.name === 'lookup_codename')).toMatchObject({ title: 'Look up a codename', tokens: expect.any(Number) })
+    expect(manager.serverLog(id)).toContain('fixture: ready')
+  })
+
+  it('calls tools, passing the environment it was configured with', async () => {
+    expect(text(await manager.callTool(id, 'echo', { text: 'hi' }))).toBe('echo: hi')
+    expect(text(await manager.callTool(id, 'env', { name: 'FIXTURE_GREETING' }))).toBe('hello from the environment')
+    const failed = await manager.callTool(id, 'fail', {})
+    expect(failed.isError).toBe(true)
+    expect(text(failed)).toBe('the fixture failed on purpose')
+  })
+
+  it('cancels a call when the reply is stopped, and tells the server', async () => {
+    const controller = new AbortController()
+    const call = manager.callTool(id, 'slow', { ms: 30_000 }, controller.signal)
+    setTimeout(() => controller.abort(), 100)
+    await expect(call).rejects.toThrow()
+    expect(await until(() => manager.serverLog(id).includes('fixture: slow was cancelled'))).toBe(true)
+  })
+
+  it('picks up tools the server adds while running', async () => {
+    await manager.callTool(id, 'add_tool', {})
+    expect(await until(() => status(id).tools.some((t) => t.name === 'extra'))).toBe(true)
+  })
+
+  it('stops the processes a server started when it stops', async () => {
+    const pid = Number(text(await manager.callTool(id, 'spawn_child', {})))
+    expect(alive(pid)).toBe(true)
+    await manager.stop(id)
+    expect(status(id).state).toBe('stopped')
+    expect(await until(() => !alive(pid))).toBe(true)
+  })
+
+  it('marks a server that exits on its own, with what it said, and starts it again on the next use', async () => {
+    await manager.callTool(id, 'crash', {})
+    expect(await until(() => status(id).state === 'error')).toBe(true)
+    expect(status(id).error).toMatch(/The server stopped \(exit code 2\)\. It said: fixture: crashing on purpose/)
+    await manager.connect(id)
+    expect(status(id).state).toBe('ready')
+  })
+})
+
+describe('servers that fail to start', () => {
+  it('reports a missing command and a server that exits at once, and a reply is told which', async () => {
+    const missing = config.saveServer({ name: 'Missing', command: 'kiln-no-such-server', args: [], cwd: null, env: {}, defaultOn: false })
+    const crashing = fixture('Crashing', { FIXTURE_CRASH_ON_START: '1' })
+    const notes = await manager.ensure([missing.id, crashing.id, 'removed_server'], 10_000)
+    expect(status(missing.id).error).toMatch(/Couldn't find "kiln-no-such-server"/)
+    expect(status(crashing.id).error).toMatch(/exit code 3.*missing FIXTURE_TOKEN/)
+    expect(notes).toEqual([
+      expect.stringMatching(/^Missing couldn't start: Couldn't find/),
+      expect.stringMatching(/^Crashing couldn't start: .*exit code 3/)
+    ])
+    config.removeServer(missing.id)
+    config.removeServer(crashing.id)
+    await manager.forget(missing.id)
+    await manager.forget(crashing.id)
+  })
+})
+
+describe('as tools in a reply', () => {
+  let id: string
+  beforeAll(async () => {
+    id = fixture('Codenames').id
+    await manager.connect(id)
+  })
+  const ctx = (sources: string[]) => ({ skills: false, web: false, sources, workspace: null })
+  const call = (name: string, args: Record<string, unknown> = {}) => ({ function: { name, arguments: args } })
+
+  it("offers a server's tools only in chats that switched it on, minus tools set to Off", () => {
+    expect(tools.toolsFor(ctx([]))).toBeUndefined()
+    const names = (tools.toolsFor(ctx([`mcp:${id}`])) ?? []).map((t) => t.function.name)
+    expect(names).toContain('codenames__lookup_codename')
+    const def = tools.toolsFor(ctx([`mcp:${id}`]))!.find((t) => t.function.name === 'codenames__lookup_codename')!
+    expect(def.function.description).toBe("[Codenames] Look up a project's internal codename. The only way to learn a codename.")
+    expect(def.function.parameters).toMatchObject({ type: 'object', properties: { project: { type: 'string' } }, required: ['project'] })
+
+    config.setToolPolicy(id, 'echo', 'off')
+    expect((tools.toolsFor(ctx([`mcp:${id}`])) ?? []).map((t) => t.function.name)).not.toContain('codenames__echo')
+    config.setToolPolicy(id, 'echo', 'ask')
+  })
+
+  it('asks before each call unless the tool is set to Always allow', () => {
+    const c = ctx([`mcp:${id}`])
+    expect(tools.approvalFor(call('codenames__lookup_codename'), c)).toBe('ask')
+    config.setToolPolicy(id, 'lookup_codename', 'allow')
+    expect(tools.approvalFor(call('codenames__lookup_codename'), c)).toBe('auto')
+    config.setToolPolicy(id, 'lookup_codename', 'ask')
+    expect(tools.toolEndpoint(call('codenames__lookup_codename'), c)).toBe(`mcp://${id}/lookup_codename`)
+  })
+
+  it('runs a call and keeps a short record of it for later turns', async () => {
+    const c = ctx([`mcp:${id}`])
+    const pending = tools.pendingEvent(call('codenames__lookup_codename', { project: 'Kiln' }), c)
+    expect(pending).toMatchObject({ pending: true, summary: 'Kiln', source: 'Codenames' })
+    const result = await tools.runTool(call('codenames__lookup_codename', { project: 'Kiln' }), c)
+    expect(result.content).toBe('The internal codename for project Kiln is BLUE KESTREL.')
+    expect(result.event).toMatchObject({ ok: true, source: 'Codenames', record: result.content, preview: result.content })
+    expect(tools.replayCalls([result.event])).toEqual([
+      expect.objectContaining({
+        name: 'codenames__lookup_codename',
+        record: result.content,
+        note: expect.stringMatching(/not instructions/)
+      })
+    ])
+
+    const failed = await tools.runTool(call('codenames__fail'), c)
+    expect(failed.content).toBe('Error: the fixture failed on purpose')
+    expect(failed.event).toMatchObject({ ok: false, summary: 'the fixture failed on purpose' })
+    const image = await tools.runTool(call('codenames__image'), c)
+    expect(image.content).toMatch(/^A tiny picture:\n\n\[image: image\/png, \d+ bytes\]$/)
+    const picked = await tools.runTool(call('codenames__pick', { value: 3 }), c)
+    expect(picked.content).toBe('picked number 3')
+  })
+
+  it("doesn't offer a stopped server's tools", async () => {
+    await manager.stop(id)
+    expect(tools.toolsFor(ctx([`mcp:${id}`]))).toBeUndefined()
+    await manager.connect(id)
+  })
+})

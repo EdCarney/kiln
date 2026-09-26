@@ -41,6 +41,8 @@ import { startTrace, type Trace } from '../debug/traces'
 import { paths } from '../paths'
 import { getSettings } from '../settings'
 import { getSkill, listSkills } from '../skills/library'
+import { ensure as ensureServers, readyTools } from '../mcp/manager'
+import { MCP_SOURCE } from '../mcp/provider'
 import { conversationUsage, insertUsageEvent } from '../db/usage'
 import { requestCost } from '../usage/pricing'
 import { errorMessage, estimateTokens } from '../util'
@@ -65,6 +67,10 @@ import type { WebStatus } from './prompts'
 
 /** Requests a chat reply may make: room for a search, a few page reads and a skill load. The last is tool-free. */
 export const DEFAULT_TOOL_ROUNDS = 6
+/** Requests a reply may make in a chat with tool sources on (MCP servers), whose tasks take more steps. */
+export const TOOL_SOURCE_ROUNDS = 12
+/** How long a reply waits for the chat's MCP servers to start; ones still starting are left out of it. */
+const SERVER_WAIT_MS = 30_000
 
 /** Settings for one reply, for callers in the main process (the renderer can't set them). */
 export interface ReplyOptions {
@@ -100,9 +106,21 @@ export function send(req: SendRequest, reply: ReplyOptions = {}): SendResult {
     conversation = getConversation(req.conversationId)
     if (!conversation) throw new Error('Conversation not found')
     assertIdle(conversation.id)
-    conversation = updateConversation(conversation.id, { model: req.model, think: req.think, skills: req.skills, touch: true })
+    conversation = updateConversation(conversation.id, {
+      model: req.model,
+      think: req.think,
+      skills: req.skills,
+      toolSources: req.toolSources,
+      touch: true
+    })
   } else {
-    conversation = createConversation({ projectId: req.projectId, model: req.model, think: req.think, skills: req.skills })
+    conversation = createConversation({
+      projectId: req.projectId,
+      model: req.model,
+      think: req.think,
+      skills: req.skills,
+      toolSources: req.toolSources
+    })
   }
   const previous = listMessages(conversation.id).at(-1)
   const user = insertMessage({ conversationId: conversation.id, parentId: previous?.id ?? null, role: 'user', content: req.content })
@@ -287,7 +305,6 @@ async function generate(
     const vision = model.capabilities.includes('vision')
     const toolsCapable = model.capabilities.includes('tools')
     const numCtx = effectiveContext(model, settings.localNumCtx)
-    const maxRounds = Math.max(1, reply.maxToolRounds ?? DEFAULT_TOOL_ROUNDS)
     const budget = promptBudget(numCtx)
     const autoSkills = settings.skills.autoLoad && toolsCapable && model.overrides.autoSkills !== false
     const web: WebStatus = !settings.web.enabled ? 'off' : !toolsCapable ? 'unsupported' : webAvailable() ? 'on' : 'no-key'
@@ -302,8 +319,28 @@ async function generate(
       ? (await listSkills()).filter((s) => s.enabled && !selectedIds.includes(s.id) && !loadedIds.includes(s.id))
       : []
 
-    const toolContext: ToolContext = { skills: skillIndex.length > 0, web: web === 'on', workspace: null, signal: controller.signal }
+    // The chat's MCP servers: started if they aren't running (usually they are, from when the chat was opened).
+    const sources = toolsCapable ? conversation.toolSources : []
+    const serverIds = sources.filter((s) => s.startsWith(MCP_SOURCE)).map((s) => s.slice(MCP_SOURCE.length))
+    const unavailable = serverIds.length ? await ensureServers(serverIds, SERVER_WAIT_MS) : []
+    if (!toolsCapable && conversation.toolSources.length)
+      unavailable.push(`${modelName} can't use tools, so this chat's MCP servers weren't used.`)
+    if (unavailable.length) stats.unavailableTools = unavailable
+
+    const toolContext: ToolContext = {
+      skills: skillIndex.length > 0,
+      web: web === 'on',
+      sources,
+      workspace: null,
+      signal: controller.signal
+    }
     const grants = toolGrants(toolContext)
+    const tools = toolsFor(toolContext)
+    const maxRounds = Math.max(1, reply.maxToolRounds ?? (sources.length ? TOOL_SOURCE_ROUNDS : DEFAULT_TOOL_ROUNDS))
+    const running = new Set(serverIds)
+    const servers = readyTools()
+      .filter((r) => running.has(r.server.id))
+      .map((r) => r.server.name)
 
     const project = conversation.projectId ? getProject(conversation.projectId) : null
     const history = await Promise.all(
@@ -321,6 +358,8 @@ async function generate(
       artifacts: { enabled: settings.artifacts.enabled && model.overrides.artifacts !== false, allowCdn: settings.artifacts.allowCdn },
       web,
       grants: [...grants],
+      mcpServers: servers,
+      toolTokens: toolsTokens(tools),
       pastTools: toolsCapable,
       project: project ? { name: project.name, instructions: project.instructions } : null,
       chatInstructions: conversation.instructions,
@@ -336,7 +375,7 @@ async function generate(
       model: modelName,
       messages: assembled.messages,
       think: toOllamaThink(profile, think),
-      tools: toolsFor(toolContext),
+      tools,
       // Cloud models manage their own context; local ones default to a small window unless told otherwise.
       options: contextOptions(model, settings.localNumCtx)
     }
@@ -577,8 +616,11 @@ function debugLog(body: ChatBody): void {
   appendFileSync(join(paths.data, 'debug.log'), `${new Date().toISOString()} ${JSON.stringify(redacted)}\n`)
 }
 
+/** Roughly what the tool definitions add to a request: every round sends them all. */
+const toolsTokens = (tools: ChatBody['tools']) => (tools?.length ? estimateTokens(JSON.stringify(tools)) : 0)
+
 function estimatePrompt(body: ChatBody): number {
-  return body.messages.reduce((n, m) => n + estimateTokens(m.content) + (m.images?.length ?? 0) * 1600, 0)
+  return body.messages.reduce((n, m) => n + estimateTokens(m.content) + (m.images?.length ?? 0) * 1600, toolsTokens(body.tools))
 }
 
 function saveArtifacts(conversationId: string, messageId: string, content: string): void {
