@@ -98,7 +98,7 @@ tests/           Vitest unit tests      e2e/   live Playwright run against real 
   - `web_fetch` asks before every fetch in a chat with tool sources on (MCP servers or the code runner), with only **Allow once** and **Deny**. A URL can carry data out (`https://evil.example/?d=…`) and a page or tool result could tell the model to send it; allowing a whole site wouldn't be safe on hosts where anyone can read requests (webhook.site, Apps Script, request bins). A denial covers that site for the rest of the reply.
   - A denied call doesn't run, and the model is told not to try it again unless you ask. Stopping the reply, deleting the chat or quitting counts as a no, and a call that was waiting when Kiln closed shows as not run.
   - A chat you aren't looking at gets a hand icon in the sidebar and a toast, and the Dock icon shows how many calls are waiting.
-  - Processes Kiln starts run in their own process group (`src/main/processes.ts`), so stopping one also stops anything it started, and quitting stops them all.
+  - Processes Kiln starts run in their own process group (`src/main/processes.ts`), so stopping one also stops anything it started, and quitting stops them all. Live groups are listed in `processes.json` in Kiln's data folder, so if Kiln is force-quit or crashes, the next start stops whatever it left running.
 - **Links.** Hovering a link in a reply shows a card with its destination: site, full URL, and whether it opens in your browser. It warns when the link text names a different domain than the real destination.
   - An opt-in setting (Settings → Web, artifacts & skills) adds the page's title, description and image, fetched from your Mac.
   - Local-network and loopback addresses are never fetched, including after redirects.

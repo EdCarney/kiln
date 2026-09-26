@@ -13,7 +13,7 @@ import { removeFiles } from './files/ingest'
 import { registerIpc } from './ipc'
 import { initPaths, paths } from './paths'
 import { stopAll as stopServers } from './mcp/manager'
-import { hasChildren, stopAllGroups } from './processes'
+import { hasChildren, stopAllGroups, trackProcesses } from './processes'
 import { handleProtocols, registerSchemes } from './protocols'
 import { refreshPrices } from './usage/pricing'
 
@@ -129,6 +129,10 @@ app.on('second-instance', () => {
 app.whenReady().then(async () => {
   if (!hasLock) return
   initPaths()
+  // Before anything starts a process: record live process groups, and stop any a crashed run left behind.
+  void trackProcesses(join(paths.data, 'processes.json')).then((n) => {
+    if (n) console.warn(`Kiln: stopped ${n} process ${n === 1 ? 'group' : 'groups'} left running by an earlier session`)
+  })
   openDatabase(paths.db)
   // Ask the login shell for its PATH now, so a tool Kiln starts later doesn't wait for it.
   void childPath().then((path) => {
