@@ -15,6 +15,8 @@ import { Markdown } from './Markdown'
 import { IconButton, Menu, MenuContent, MenuItem, MenuTrigger, Spinner } from './ui'
 
 interface Resolved {
+  /** The chat the artifact belongs to (its links are previewed only if that chat allows it). */
+  conversationId: string
   title: string
   type: ArtifactType
   language: string | null
@@ -28,6 +30,8 @@ function useResolvedArtifact(): Resolved | null {
   const { artifactId, version, live } = useArtifactPanel()
   const artifacts = useChat((s) => s.artifacts)
   const stream = useChat((s) => (live && s.conversation ? s.streams[s.conversation.id] : undefined))
+  // A live artifact is streaming in the open chat: the one its stream was looked up under.
+  const liveChat = useChat((s) => (live ? (s.conversation?.id ?? null) : null))
 
   return useMemo(() => {
     if (live) {
@@ -35,8 +39,9 @@ function useResolvedArtifact(): Resolved | null {
       const seg = parseMessage(stream.content, true)
         .filter((s) => s.kind === 'artifact' && s.identifier === live.identifier)
         .at(-1)
-      if (!seg || seg.kind !== 'artifact') return null
+      if (!seg || seg.kind !== 'artifact' || !liveChat) return null
       return {
+        conversationId: liveChat,
         title: seg.title,
         type: seg.type,
         language: seg.language,
@@ -50,6 +55,7 @@ function useResolvedArtifact(): Resolved | null {
     if (!artifact || !artifact.versions.length) return null
     const v = artifact.versions.find((x) => x.version === version) ?? artifact.versions.at(-1)!
     return {
+      conversationId: artifact.conversationId,
       title: artifact.title,
       type: artifact.type,
       language: artifact.language,
@@ -58,7 +64,7 @@ function useResolvedArtifact(): Resolved | null {
       versions: artifact.versions.map((x) => x.version),
       version: v.version
     }
-  }, [live, stream, artifacts, artifactId, version])
+  }, [live, stream, liveChat, artifacts, artifactId, version])
 }
 
 function SandboxFrame({ type, content }: { type: ArtifactType; content: string }) {
@@ -194,7 +200,7 @@ function Preview({ artifact }: { artifact: Resolved }) {
     case 'markdown':
       return (
         <div className="h-full overflow-y-auto px-8 py-6">
-          <Markdown text={artifact.content} className="mx-auto max-w-2xl" />
+          <Markdown text={artifact.content} conversationId={artifact.conversationId} className="mx-auto max-w-2xl" />
         </div>
       )
     case 'html':

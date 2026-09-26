@@ -50,6 +50,7 @@ import { conversationUsage, insertUsageEvent } from '../db/usage'
 import { requestCost } from '../usage/pricing'
 import { errorMessage, estimateTokens } from '../util'
 import { EVERY_TIME, waitForDecision } from './approvals'
+import { hasPrivateFiles } from './exposure'
 import { assemble, type HistoryTurn, promptBudget } from './assemble'
 import { TITLE_PROMPT } from './prompts'
 import { TOOL_RESULT_CHARS } from './results'
@@ -58,6 +59,7 @@ import {
   approvalFor,
   declinedResult,
   missingAbilities,
+  noteAllowedForChat,
   pendingEvent,
   replayCalls,
   runTool,
@@ -350,10 +352,14 @@ async function generate(
     }
     if (unavailable.length) stats.unavailableTools = unavailable
 
+    const project = conversation.projectId ? getProject(conversation.projectId) : null
+    const messages = listMessages(conversationId)
     const toolContext: ToolContext = {
       skills: skillIndex.length > 0,
       web: web === 'on',
       sources,
+      // Files the user shared are private, and a fetch URL could carry them out (#62).
+      privateFiles: hasPrivateFiles(conversation, messages),
       workspace,
       signal: controller.signal
     }
@@ -365,11 +371,8 @@ async function generate(
       .filter((r) => running.has(r.server.id))
       .map((r) => r.server.name)
 
-    const project = conversation.projectId ? getProject(conversation.projectId) : null
     const history = await Promise.all(
-      listMessages(conversationId)
-        .filter((m) => m.id !== messageId && !(m.role === 'assistant' && !m.content))
-        .map((m) => toTurn(m, vision))
+      messages.filter((m) => m.id !== messageId && !(m.role === 'assistant' && !m.content)).map((m) => toTurn(m, vision))
     )
 
     const assembled = assemble({
@@ -538,6 +541,7 @@ async function generate(
             // Added to the chat's list as it is now, so answers given elsewhere meanwhile (a reset) aren't undone.
             const allowed = allowedInChat()
             if (!allowed.includes(allowKey)) updateConversation(conversationId, { allowedTools: [...allowed, allowKey] })
+            noteAllowedForChat(call, toolContext)
           }
         }
 

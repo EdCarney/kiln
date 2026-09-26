@@ -17,6 +17,8 @@ export interface ToolContext {
   web: boolean
   /** Tool sources switched on for the chat (Conversation.toolSources): `mcp:<server id>`. */
   sources: readonly string[]
+  /** The chat holds files the user shared: attachments, or its project's knowledge. */
+  privateFiles?: boolean
   /** The folder tools act in, for a later Code mode. Nothing uses it yet. */
   workspace: string | null
   /** The reply's stop signal: long-running tools are cancelled with it. */
@@ -88,6 +90,8 @@ export interface ToolProvider {
    * name. MCP tools use their server and own name; web_fetch uses the site.
    */
   allowKey?(call: ResolvedCall): string
+  /** The user allowed this call for the whole chat (MCP tools record which version of the tool they trusted). */
+  allowedForChat?(call: ResolvedCall): void
   /** Where a call goes, for the debugger (a web API, an MCP server). Defaults to kiln://tools/<name>. */
   endpoint?(call: ResolvedCall): string
 }
@@ -211,6 +215,12 @@ export function approvalFor(call: ToolCall, ctx: ToolContext): Approval {
 export function allowKeyFor(call: ToolCall, ctx: ToolContext): string {
   const resolved = resolveCall(call, ctx)
   return (resolved && resolved.provider.allowKey?.(resolved)) ?? resolved?.name ?? call.function.name
+}
+
+/** Tell a call's provider that the user allowed it for the chat. */
+export function noteAllowedForChat(call: ToolCall, ctx: ToolContext): void {
+  const resolved = resolveCall(call, ctx)
+  if (resolved) resolved.provider.allowedForChat?.(resolved)
 }
 
 /** Where a call goes, for its debugger trace. */

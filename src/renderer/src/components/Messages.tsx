@@ -402,7 +402,7 @@ function ApprovalCard({ e, conversationId, messageId, index }: { e: ToolEvent; c
       )}
       {e.everyTime && (
         <div className="mt-2 text-xs text-muted">
-          In a chat with tools on, Kiln asks before every page it fetches: a web address can carry data out.
+          In a chat with tools on or files shared, Kiln asks before every page it fetches: a web address can carry data out.
         </div>
       )}
       <div className="mt-3 flex flex-wrap justify-end gap-2">
@@ -547,7 +547,8 @@ export const AssistantMessage = memo(function AssistantMessage({
     if (item.kind === 'tools')
       return <ToolGroup key={`t${item.events[0].index}`} events={item.events} conversationId={conversationId} messageId={message.id} />
     const seg = item.segment
-    if (seg.kind === 'text') return <Markdown key={i} text={seg.text} onOpenAsArtifact={streaming ? undefined : openAsArtifact} />
+    if (seg.kind === 'text')
+      return <Markdown key={i} text={seg.text} conversationId={conversationId} onOpenAsArtifact={streaming ? undefined : openAsArtifact} />
     const n = occurrences.get(seg.identifier) ?? 0
     occurrences.set(seg.identifier, n + 1)
     return <ArtifactCard key={i} segment={seg} messageId={message.id} occurrence={n} artifacts={artifacts} streaming={streaming} />

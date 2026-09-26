@@ -38,7 +38,18 @@ function CardLink({
  * A link that shows where it goes on hover: hostname and full URL always, plus the page's title,
  * description and image when link previews are turned on (they're fetched from this Mac, so opt-in).
  */
-export function LinkCard({ href, text, children }: { href: string; text: string; children: ReactNode }) {
+export function LinkCard({
+  href,
+  text,
+  conversationId,
+  children
+}: {
+  href: string
+  text: string
+  /** The chat the link is shown in, or null outside a chat; the main process decides whether it may preview. */
+  conversationId: string | null
+  children: ReactNode
+}) {
   const previewsOn = useApp((s) => !!s.settings?.links.previews)
   const [open, setOpen] = useState(false)
   const [preview, setPreview] = useState<LinkPreview | null | 'loading' | 'none'>(null)
@@ -47,10 +58,10 @@ export function LinkCard({ href, text, children }: { href: string; text: string;
     if (!open || !previewsOn || preview !== null || !isWeb(href)) return
     setPreview('loading')
     void api.links
-      .preview(href)
+      .preview(href, conversationId)
       .then((p) => setPreview(p ?? 'none'))
       .catch(() => setPreview('none'))
-  }, [open, previewsOn, preview, href])
+  }, [open, previewsOn, preview, href, conversationId])
 
   const host = hostnameOf(href)
   const mismatch = mismatchedLinkText(text, href)

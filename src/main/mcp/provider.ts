@@ -3,8 +3,8 @@ import { mcpAllowKey } from '@shared/toolAllow'
 import type { McpServer } from '@shared/types'
 import type { OllamaTool } from '../ollama/client'
 import type { ToolProvider, ToolResult } from '../chat/tools'
-import { toolPolicy } from './config'
-import { callTool, readyTools } from './manager'
+import { recordTrust, toolPolicy } from './config'
+import { callTool, fingerprintOf, readyTools } from './manager'
 
 // The tools of the MCP servers switched on in a chat, offered to the model as `<server id>__<tool>`.
 
@@ -141,6 +141,11 @@ export const mcpTools: ToolProvider = {
   allowKey: ({ name }) => {
     const offered = serverOf(name)
     return offered ? mcpAllowKey(offered.server.id, offered.tool.name) : name
+  },
+  // Trust goes to the tool as it is now: if the server changes it, chats forget this answer (#64).
+  allowedForChat: ({ name }) => {
+    const offered = serverOf(name)
+    if (offered) recordTrust(offered.server.id, offered.tool.name, fingerprintOf(offered.tool))
   },
   endpoint: ({ name }) => {
     const offered = serverOf(name)

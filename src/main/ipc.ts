@@ -47,6 +47,7 @@ import { replayRequest } from './debug/replay'
 import { clearTraces, getTrace, listTraces, tracesForExport } from './debug/traces'
 import { openDebugWindow } from './debug/window'
 import { linkPreview } from './links/preview'
+import { previewsAllowed } from './chat/exposure'
 import {
   addImported,
   changesServer,
@@ -66,7 +67,8 @@ import {
   onStatusChange,
   restart as restartServer,
   serverLog,
-  statuses as serverStatuses
+  statuses as serverStatuses,
+  toolFingerprint
 } from './mcp/manager'
 import { connectionMode, endpointFor } from './ollama/client'
 import { getPriceTable, refreshPrices } from './usage/pricing'
@@ -259,7 +261,8 @@ const impl: Impl = {
   },
 
   links: {
-    preview: (url) => linkPreview(url)
+    // Not in chats with tools or files: a model-written link could carry their data out on hover (#63).
+    preview: async (url, conversationId) => (previewsAllowed(conversationId ?? null) ? linkPreview(url) : null)
   },
 
   runner: {
@@ -312,7 +315,8 @@ const impl: Impl = {
     restart: (id) => restartServer(id),
     log: async (id) => serverLog(id),
     setToolPolicy: async (id, tool, policy) => {
-      const server = setToolPolicy(id, tool, policy)
+      // Always allow trusts the tool as it is now; if the server changes it later, it asks again (#64).
+      const server = setToolPolicy(id, tool, policy, toolFingerprint(id, tool))
       notifyServers()
       return server
     },
