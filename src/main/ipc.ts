@@ -41,6 +41,17 @@ import { replayRequest } from './debug/replay'
 import { clearTraces, getTrace, listTraces, tracesForExport } from './debug/traces'
 import { openDebugWindow } from './debug/window'
 import { linkPreview } from './links/preview'
+import { listServers, removeServer, saveServer } from './mcp/config'
+import {
+  connect as connectServer,
+  forget as forgetServer,
+  isActive,
+  notify as notifyServers,
+  onStatusChange,
+  restart as restartServer,
+  serverLog,
+  statuses as serverStatuses
+} from './mcp/manager'
 import { connectionMode, endpointFor } from './ollama/client'
 import { getPriceTable, refreshPrices } from './usage/pricing'
 import {
@@ -232,6 +243,27 @@ const impl: Impl = {
     preview: (url) => linkPreview(url)
   },
 
+  mcp: {
+    list: async () => listServers(),
+    save: async (input) => {
+      const server = saveServer(input)
+      // A running server picks up the new command or environment only when it starts again.
+      if (input.id && isActive(server.id)) void restartServer(server.id)
+      else notifyServers()
+      return server
+    },
+    remove: async (id) => {
+      removeServer(id)
+      await forgetServer(id)
+    },
+    status: async () => serverStatuses(),
+    connect: async (ids) => {
+      for (const id of ids) void connectServer(id)
+    },
+    restart: (id) => restartServer(id),
+    log: async (id) => serverLog(id)
+  },
+
   debug: {
     open: async (conversationId) => openDebugWindow(conversationId, currentBackground()),
     list: async (conversationId) => listTraces(conversationId),
@@ -306,4 +338,7 @@ export function registerIpc(): void {
     }
   }
   watchSkills(broadcastSkillsChanged)
+  onStatusChange((statuses) => {
+    for (const w of BrowserWindow.getAllWindows()) w.webContents.send(EVENT_CHANNELS.mcp, statuses)
+  })
 }

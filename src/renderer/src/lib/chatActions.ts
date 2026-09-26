@@ -34,7 +34,8 @@ export async function continueReply(conversationId: string, reason: ContinueReas
     attachmentIds: [],
     model: conversation.model,
     think: conversation.think,
-    skills: conversation.skills
+    skills: conversation.skills,
+    toolSources: conversation.toolSources
   })
 }
 

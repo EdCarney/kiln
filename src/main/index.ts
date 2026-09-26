@@ -12,6 +12,7 @@ import { staleAttachmentPaths } from './db/conversations'
 import { removeFiles } from './files/ingest'
 import { registerIpc } from './ipc'
 import { initPaths, paths } from './paths'
+import { stopAll as stopServers } from './mcp/manager'
 import { hasChildren, stopAllGroups } from './processes'
 import { handleProtocols, registerSchemes } from './protocols'
 import { refreshPrices } from './usage/pricing'
@@ -171,7 +172,11 @@ app.on('before-quit', (event) => {
   event.preventDefault()
   quitting = true
   const timeout = new Promise((resolve) => setTimeout(resolve, 3000))
-  void Promise.race([stopAll().then(() => stopAllGroups()), timeout]).finally(() => app.quit())
+  // MCP servers get a clean shutdown (stdin closed, then their process group stopped) before anything left is.
+  const stopped = stopAll()
+    .then(() => stopServers())
+    .then(() => stopAllGroups())
+  void Promise.race([stopped, timeout]).finally(() => app.quit())
 })
 
 app.on('window-all-closed', () => {

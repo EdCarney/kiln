@@ -1,7 +1,7 @@
-import { ArrowUp, FileText, Paperclip, Plus, Sparkles, Square, TriangleAlert, X } from 'lucide-react'
+import { ArrowUp, FileText, Paperclip, Plus, Sparkles, Square, TriangleAlert, Wrench, X } from 'lucide-react'
 import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { normalizeThinkSetting } from '@shared/thinking'
-import type { Conversation, FileSource, Skill, ThinkSetting } from '@shared/types'
+import type { Conversation, FileSource, McpServer, McpStatus, Skill, ThinkSetting } from '@shared/types'
 import { api } from '@/lib/api'
 import { cn, formatTokens } from '@/lib/format'
 import { findModel, reportError, thinkProfileFor, useApp } from '@/stores/app'
@@ -17,15 +17,21 @@ export interface ComposerSubmit {
   model: string
   think: ThinkSetting | null
   skills: string[]
+  toolSources: string[]
 }
 
-/** Model/think/skills for this composer: persisted on the chat once it exists, drafted otherwise. */
+const MCP = 'mcp:'
+
+/** Model/think/skills/tools for this composer: persisted on the chat once it exists, drafted otherwise. */
 function useComposerSettings(conversation: Conversation | null) {
-  const { models, draftModel, draftThink, setDraftModel, setDraftThink } = useApp()
+  const { models, draftModel, draftThink, setDraftModel, setDraftThink, mcpServers } = useApp()
   const [draftSkills, setDraftSkills] = useState<string[]>([])
+  // Null until changed: a new chat starts with the servers marked "on for new chats".
+  const [draftSources, setDraftSources] = useState<string[] | null>(null)
+  const defaultSources = useMemo(() => mcpServers.filter((s) => s.defaultOn).map((s) => `${MCP}${s.id}`), [mcpServers])
 
   const persist = useCallback(
-    async (patch: Partial<Pick<Conversation, 'model' | 'think' | 'skills'>>) => {
+    async (patch: Partial<Pick<Conversation, 'model' | 'think' | 'skills' | 'toolSources'>>) => {
       if (!conversation) return
       try {
         useChat.getState().setConversation(await api.conversations.update(conversation.id, patch))
@@ -42,9 +48,11 @@ function useComposerSettings(conversation: Conversation | null) {
       model,
       think: conversation.think,
       skills: conversation.skills,
+      toolSources: conversation.toolSources,
       setModel: (name: string) => persist({ model: name, think: normalizeThinkSetting(thinkProfileFor(models, name), conversation.think) }),
       setThink: (think: ThinkSetting) => persist({ think }),
       setSkills: (skills: string[]) => persist({ skills }),
+      setToolSources: (toolSources: string[]) => persist({ toolSources }),
       resetDraft: () => {}
     }
   }
@@ -52,11 +60,24 @@ function useComposerSettings(conversation: Conversation | null) {
     model: draftModel,
     think: draftThink,
     skills: draftSkills,
+    toolSources: draftSources ?? defaultSources,
     setModel: setDraftModel,
     setThink: setDraftThink,
     setSkills: setDraftSkills,
-    resetDraft: () => setDraftSkills([])
+    setToolSources: setDraftSources,
+    resetDraft: () => {
+      setDraftSkills([])
+      setDraftSources(null)
+    }
   }
+}
+
+/** A server's state, for the Tools menu. */
+function serverState(status: McpStatus | undefined): string {
+  if (!status || status.state === 'stopped') return 'Starts when you send'
+  if (status.state === 'starting') return 'Starting…'
+  if (status.state === 'error') return "Couldn't start. See Settings → Tools"
+  return `${status.tools.length} ${status.tools.length === 1 ? 'tool' : 'tools'}`
 }
 
 async function toSources(files: File[]): Promise<FileSource[]> {
@@ -86,7 +107,7 @@ interface Props {
 }
 
 export function Composer({ conversation, draftKey, streaming, onSubmit, onStop, placeholder, autoFocus, large }: Props) {
-  const { models, skills: allSkills, navigate } = useApp()
+  const { models, skills: allSkills, navigate, mcpServers, mcpStatus } = useApp()
   const settings = useComposerSettings(conversation)
   // Each chat keeps its own unsent text and files, so switching chats never carries them along.
   const key = draftKey ?? conversation?.id ?? 'new'
@@ -106,6 +127,17 @@ export function Composer({ conversation, draftKey, streaming, onSubmit, onStop, 
   const profile = thinkProfileFor(models, settings.model)
   const enabledSkills = allSkills.filter((s) => s.enabled)
   const activeSkills = settings.skills.map((id) => allSkills.find((s) => s.id === id)).filter((s): s is Skill => !!s)
+  const activeServers = settings.toolSources
+    .map((src) => mcpServers.find((s) => `${MCP}${s.id}` === src))
+    .filter((s): s is McpServer => !!s)
+  const toggleSource = (source: string, on: boolean) =>
+    settings.setToolSources(on ? [...settings.toolSources, source] : settings.toolSources.filter((s) => s !== source))
+
+  // Start the servers this chat uses now, so they're ready by the time a message is sent.
+  const serverIds = activeServers.map((s) => s.id).join(',')
+  useEffect(() => {
+    if (serverIds) void api.mcp.connect(serverIds.split(',')).catch(reportError)
+  }, [serverIds])
 
   const uploading = pending.some((p) => !p.attachment)
   const hasImages = pending.some((p) => p.attachment?.kind === 'image')
@@ -234,7 +266,8 @@ export function Composer({ conversation, draftKey, streaming, onSubmit, onStop, 
         attachmentIds: pending.flatMap((p) => (p.attachment ? [p.attachment.id] : [])),
         model: settings.model,
         think: normalizeThinkSetting(profile, settings.think),
-        skills: settings.skills
+        skills: settings.skills,
+        toolSources: settings.toolSources
       })
       if (ok) {
         setText('')
@@ -306,8 +339,22 @@ export function Composer({ conversation, draftKey, streaming, onSubmit, onStop, 
           </div>
         )}
 
-        {(pending.length > 0 || activeSkills.length > 0) && (
+        {(pending.length > 0 || activeSkills.length > 0 || activeServers.length > 0) && (
           <div className="flex flex-wrap gap-2 px-3 pt-3">
+            {activeServers.map((s) => (
+              <Tooltip key={s.id} content={serverState(mcpStatus.find((x) => x.id === s.id))}>
+                <span className="flex h-7 items-center gap-1.5 rounded-lg border border-line pl-2 pr-1 text-xs font-medium text-muted">
+                  <Wrench className="size-3.5" /> {s.name}
+                  <button
+                    aria-label={`Turn off ${s.name} in this chat`}
+                    onClick={() => toggleSource(`${MCP}${s.id}`, false)}
+                    className="rounded p-0.5 hover:bg-hover"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </span>
+              </Tooltip>
+            ))}
             {activeSkills.map((s) => (
               <span
                 key={s.id}
@@ -382,6 +429,21 @@ export function Composer({ conversation, draftKey, streaming, onSubmit, onStop, 
                 ))}
                 <MenuSeparator />
                 <MenuItem onSelect={() => navigate({ name: 'skills' })}>Manage skills…</MenuItem>
+              </MenuSub>
+              <MenuSub label="Tools" icon={<Wrench className="size-4" />}>
+                {mcpServers.length === 0 && <MenuLabel>No MCP servers yet</MenuLabel>}
+                {mcpServers.map((s) => (
+                  <MenuCheckItem
+                    key={s.id}
+                    checked={settings.toolSources.includes(`${MCP}${s.id}`)}
+                    description={serverState(mcpStatus.find((x) => x.id === s.id))}
+                    onCheckedChange={(on) => toggleSource(`${MCP}${s.id}`, on)}
+                  >
+                    {s.name}
+                  </MenuCheckItem>
+                ))}
+                <MenuSeparator />
+                <MenuItem onSelect={() => navigate({ name: 'settings', tab: 'tools' })}>Manage tools…</MenuItem>
               </MenuSub>
             </MenuContent>
           </Menu>

@@ -12,6 +12,8 @@ import { cn, displayModelName, formatContext, formatTokens } from '@/lib/format'
 import { reportError, type SettingsTab, useApp } from '@/stores/app'
 import { useUsage } from '@/stores/usage'
 import { useSystemDark } from '@/theme/useTheme'
+import { Row, Section } from './settingsParts'
+import { ToolsTab } from './ToolsSettings'
 
 const TABS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'general', label: 'General' },
@@ -19,30 +21,9 @@ const TABS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'models', label: 'Models' },
   { id: 'usage', label: 'Usage & cost' },
   { id: 'features', label: 'Web, artifacts & skills' },
+  { id: 'tools', label: 'Tools' },
   { id: 'data', label: 'Data' }
 ]
-
-function Section({ title, description, children }: { title: string; description?: ReactNode; children: ReactNode }) {
-  return (
-    <section className="border-b border-line py-6 first:pt-0 last:border-0">
-      <h2 className="text-[15px] font-medium">{title}</h2>
-      {description && <p className="mt-1 text-sm text-muted">{description}</p>}
-      <div className="mt-4 space-y-4">{children}</div>
-    </section>
-  )
-}
-
-function Row({ label, hint, children }: { label: string; hint?: ReactNode; children: ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-6">
-      <div className="min-w-0">
-        <div className="text-sm">{label}</div>
-        {hint && <div className="mt-0.5 text-xs text-subtle">{hint}</div>}
-      </div>
-      <div className="shrink-0">{children}</div>
-    </div>
-  )
-}
 
 function Segmented<T extends string>({
   value,
@@ -136,6 +117,7 @@ export function SettingsView({ tab = 'general' }: { tab?: SettingsTab }) {
             {tab === 'models' && <ModelsTab settings={settings} />}
             {tab === 'usage' && <UsageTab settings={settings} />}
             {tab === 'features' && <FeaturesTab settings={settings} />}
+            {tab === 'tools' && <ToolsTab />}
             {tab === 'data' && <DataTab />}
           </div>
         </div>

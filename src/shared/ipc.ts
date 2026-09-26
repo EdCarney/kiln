@@ -9,6 +9,9 @@ import type {
   ConversationDetail,
   FileSource,
   ID,
+  McpServer,
+  McpServerInput,
+  McpStatus,
   ModelInfo,
   ModelListResult,
   ModelOverrides,
@@ -49,6 +52,7 @@ export interface ConversationPatch {
   think?: ThinkSetting | null
   skills?: string[]
   instructions?: string
+  toolSources?: string[]
 }
 
 export interface SkillInput {
@@ -155,6 +159,20 @@ export interface KilnApi {
     /** Title, description, image and icon for a link (null when previews are off or unavailable). */
     preview(url: string): Promise<LinkPreview | null>
   }
+  mcp: {
+    /** Configured servers (environment variable names only, never values). */
+    list(): Promise<McpServer[]>
+    /** Add a server, or update one; a running server restarts with the new settings. */
+    save(input: McpServerInput): Promise<McpServer>
+    remove(id: string): Promise<void>
+    /** Every server's state and tools. Changes arrive through events.onMcp. */
+    status(): Promise<McpStatus[]>
+    /** Start these servers if they aren't running (a chat that uses them was opened). */
+    connect(ids: string[]): Promise<void>
+    restart(id: string): Promise<void>
+    /** What the server last wrote to stderr. */
+    log(id: string): Promise<string[]>
+  }
   debug: {
     /** Open (or focus) the debugger window, showing this conversation. */
     open(conversationId: ID | null): Promise<void>
@@ -174,6 +192,7 @@ export interface KilnApi {
     onDebugFocus(cb: (conversationId: ID | null) => void): () => void
     onSkillsChanged(cb: () => void): () => void
     onMenu(cb: (action: string) => void): () => void
+    onMcp(cb: (statuses: McpStatus[]) => void): () => void
   }
   files: {
     /** Resolve a dropped File to its on-disk path (empty for pasted data). */
@@ -195,7 +214,8 @@ export const INVOKE_CHANNELS = {
   themes: ['list', 'save', 'delete', 'exportTheme', 'importTheme'],
   usage: ['account', 'summary', 'raw', 'prices', 'refreshPrices'],
   debug: ['open', 'list', 'get', 'clear', 'exportTraces', 'replay', 'target', 'inspectApp'],
-  links: ['preview']
+  links: ['preview'],
+  mcp: ['list', 'save', 'remove', 'status', 'connect', 'restart', 'log']
 } as const satisfies { [G in Exclude<keyof KilnApi, 'events' | 'files'>]: ReadonlyArray<keyof KilnApi[G]> }
 
 export const EVENT_CHANNELS = {
@@ -203,7 +223,8 @@ export const EVENT_CHANNELS = {
   skills: 'event:skills',
   menu: 'event:menu',
   trace: 'event:trace',
-  debugFocus: 'event:debug-focus'
+  debugFocus: 'event:debug-focus',
+  mcp: 'event:mcp'
 } as const
 
 export type TraceEvent = { type: 'upsert'; trace: TraceSummary } | { type: 'cleared'; conversationId: ID | null }

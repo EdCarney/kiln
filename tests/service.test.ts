@@ -33,6 +33,8 @@ const { deleteConversation, getConversation, getMessage, insertMessage, createCo
   await import('../src/main/db/conversations')
 const { registerToolProvider } = await import('../src/main/chat/tools')
 const approvals = await import('../src/main/chat/approvals')
+const mcpConfig = await import('../src/main/mcp/config')
+const mcpManager = await import('../src/main/mcp/manager')
 
 type ChatHandler = (body: Record<string, unknown>, res: ServerResponse, call: number) => unknown
 let chat: ChatHandler
@@ -80,7 +82,16 @@ const toolCall = (name: string, args: Record<string, unknown>) =>
   line({ done: true })
 
 function start(content = 'hello') {
-  return service.send({ conversationId: null, projectId: null, content, attachmentIds: [], model: 'llama3.2', think: null, skills: [] })
+  return service.send({
+    conversationId: null,
+    projectId: null,
+    content,
+    attachmentIds: [],
+    model: 'llama3.2',
+    think: null,
+    skills: [],
+    toolSources: []
+  })
 }
 
 function waitFor<T>(check: () => T | undefined | false, ms = 5000): Promise<T> {
@@ -137,7 +148,8 @@ describe('reply loop', () => {
       attachmentIds: [],
       model: 'llama3.2',
       think: null,
-      skills: []
+      skills: [],
+      toolSources: []
     })
     await doneEvent(r.conversation.id)
     const system = (chatCalls.at(-1)!.messages as Array<{ role: string; content: string }>)[0]
@@ -215,7 +227,8 @@ describe('reply loop', () => {
       attachmentIds: [],
       model: 'llama3.2',
       think: null,
-      skills: []
+      skills: [],
+      toolSources: []
     })
     const second = await regen
     await doneEvent(r.conversation.id) // the send's reply finished
@@ -307,7 +320,8 @@ describe('reply loop', () => {
       attachmentIds: [],
       model: 'llama3.2',
       think: null,
-      skills: []
+      skills: [],
+      toolSources: []
     })
     await doneEvent(r.conversation.id)
     const followUp = chatCalls[2].messages as Array<{ role: string; content: string; tool_calls?: unknown[] }>
@@ -338,7 +352,16 @@ describe('reply loop', () => {
       b.tools ? void res.writeHead(200).end(toolCall('web_search', { query: `q${n}` })) : reply('Stopped early')(b, res, n)
     web = (_p, res) => res.writeHead(200).end(JSON.stringify({ results: [] }))
     const r = service.send(
-      { conversationId: null, projectId: null, content: 'dig deep', attachmentIds: [], model: 'llama3.2', think: null, skills: [] },
+      {
+        conversationId: null,
+        projectId: null,
+        content: 'dig deep',
+        attachmentIds: [],
+        model: 'llama3.2',
+        think: null,
+        skills: [],
+        toolSources: []
+      },
       { maxToolRounds: 3 }
     )
     const done = await doneEvent(r.conversation.id)
@@ -517,7 +540,8 @@ describe('asking before a tool runs', () => {
       attachmentIds: [],
       model: 'llama3.2',
       think: null,
-      skills: []
+      skills: [],
+      toolSources: []
     })
     await doneEvent(r.conversation.id)
     expect(runs).toHaveLength(2)
@@ -562,9 +586,69 @@ describe('asking before a tool runs', () => {
   })
 })
 
+describe('MCP servers in a reply', () => {
+  const FIXTURE = new URL('./fixtures/mcp-server.mjs', import.meta.url).pathname
+  afterAll(() => mcpManager.stopAll())
+  const sendIn = (conversationId: string | null, content: string, toolSources: string[]) =>
+    service.send({ conversationId, projectId: null, content, attachmentIds: [], model: 'llama3.2', think: null, skills: [], toolSources })
+  const tools = (call: Record<string, unknown>) => ((call.tools as Array<{ function: { name: string } }>) ?? []).map((t) => t.function.name)
+
+  it("offers the chat's servers, asks before a call, and gives the model the result", async () => {
+    const server = mcpConfig.saveServer({
+      name: 'Fixture',
+      command: process.execPath,
+      args: [FIXTURE],
+      cwd: null,
+      env: {},
+      defaultOn: true
+    })
+    chat = (b, res, n) => (n === 1 ? void res.writeHead(200).end(toolCall('fixture__echo', { text: 'hi' })) : reply('Done.')(b, res, n))
+    const r = sendIn(null, 'echo hi', [`mcp:${server.id}`])
+    expect(getConversation(r.conversation.id)!.toolSources).toEqual(['mcp:fixture'])
+    const ask = await waitFor(() =>
+      events.find(
+        (e): e is Extract<ChatEvent, { type: 'tool' }> => e.type === 'tool' && e.conversationId === r.conversation.id && !!e.event.awaiting
+      )
+    )
+    expect(ask.event).toMatchObject({ tool: 'fixture__echo', source: 'Fixture', summary: 'hi' })
+    expect(tools(chatCalls[0])).toContain('fixture__lookup_codename')
+    expect((chatCalls[0].messages as Array<{ content: string }>)[0].content).toMatch(/MCP servers \(Fixture\)/)
+
+    approvals.decide(r.conversation.id, ask.messageId, ask.index, 'once')
+    const done = await doneEvent(r.conversation.id)
+    const results = (chatCalls[1].messages as Array<{ role: string; content: string }>).filter((m) => m.role === 'tool')
+    expect(results.map((m) => m.content)).toEqual(['echo: hi'])
+    expect(done.message.toolEvents[0]).toMatchObject({ tool: 'fixture__echo', ok: true, source: 'Fixture' })
+    // A chat with tool sources gets more rounds; its debugger trace names the server.
+    const trace = listTraces(r.conversation.id).find((t) => t.kind === 'tool')!
+    expect(trace.summary).toBe('fixture__echo: hi')
+
+    // Switched off on the next message: no MCP tools, and no MCP section in the prompt.
+    events.length = 0
+    chatCalls = []
+    chat = reply('Plain answer.')
+    sendIn(r.conversation.id, 'no tools now', [])
+    await doneEvent(r.conversation.id)
+    expect(tools(chatCalls[0])).not.toContain('fixture__echo')
+    expect((chatCalls[0].messages as Array<{ content: string }>)[0].content).not.toMatch(/mcp_tools/)
+  })
+
+  it("says which of the chat's servers couldn't be used", async () => {
+    const broken = mcpConfig.saveServer({ name: 'Broken', command: 'kiln-no-such-server', args: [], cwd: null, env: {}, defaultOn: false })
+    chat = reply('Answered without it.')
+    const r = sendIn(null, 'hello', [`mcp:${broken.id}`])
+    const done = await doneEvent(r.conversation.id)
+    expect(done.message.content).toBe('Answered without it.')
+    expect(done.message.stats?.unavailableTools).toEqual([
+      expect.stringMatching(/^Broken couldn't start: Couldn't find "kiln-no-such-server"/)
+    ])
+    expect(chatCalls[0].tools).toBeUndefined()
+  })
+})
+
 describe('markInterruptedReplies', () => {
   it('flags replies that never got their final save, and only those', () => {
-    const c = createConversation({ projectId: null, model: 'llama3.2', think: null, skills: [] })
+    const c = createConversation({ projectId: null, model: 'llama3.2', think: null, skills: [], toolSources: [] })
     const user = insertMessage({ conversationId: c.id, parentId: null, role: 'user', content: 'hi' })
     const cut = insertMessage({ conversationId: c.id, parentId: user.id, role: 'assistant', content: '' })
     // A checkpoint wrote text and a running tool, then the app died.

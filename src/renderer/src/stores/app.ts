@@ -2,10 +2,21 @@ import { create } from 'zustand'
 import { effectiveContext } from '@shared/context'
 import type { DeepPartial } from '@shared/ipc'
 import { defaultThinkSetting, resolveThinkProfile } from '@shared/thinking'
-import type { Conversation, ModelInfo, Project, Settings, Skill, ThemeDef, ThinkProfile, ThinkSetting } from '@shared/types'
+import type {
+  Conversation,
+  McpServer,
+  McpStatus,
+  ModelInfo,
+  Project,
+  Settings,
+  Skill,
+  ThemeDef,
+  ThinkProfile,
+  ThinkSetting
+} from '@shared/types'
 import { api } from '@/lib/api'
 
-export type SettingsTab = 'general' | 'appearance' | 'models' | 'usage' | 'features' | 'data'
+export type SettingsTab = 'general' | 'appearance' | 'models' | 'usage' | 'features' | 'tools' | 'data'
 
 export type Route =
   | { name: 'home' }
@@ -62,6 +73,11 @@ interface AppState {
 
   skills: Skill[]
   loadSkills: () => Promise<void>
+
+  /** Configured MCP servers, and each one's state and tools (kept current by events). */
+  mcpServers: McpServer[]
+  mcpStatus: McpStatus[]
+  loadMcp: () => Promise<void>
 
   toasts: Toast[]
   toast: (message: string, kind?: Toast['kind']) => void
@@ -130,6 +146,13 @@ export const useApp = create<AppState>((set, get) => ({
 
   skills: [],
   loadSkills: async () => set({ skills: await api.skills.list() }),
+
+  mcpServers: [],
+  mcpStatus: [],
+  loadMcp: async () => {
+    const [mcpServers, mcpStatus] = await Promise.all([api.mcp.list(), api.mcp.status()])
+    set({ mcpServers, mcpStatus })
+  },
 
   toasts: [],
   toast: (message, kind = 'info') => {

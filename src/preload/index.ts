@@ -18,7 +18,8 @@ api.events = {
   onTrace: (cb) => subscribe(EVENT_CHANNELS.trace, cb),
   onDebugFocus: (cb) => subscribe(EVENT_CHANNELS.debugFocus, cb),
   onSkillsChanged: (cb) => subscribe(EVENT_CHANNELS.skills, cb),
-  onMenu: (cb) => subscribe(EVENT_CHANNELS.menu, cb)
+  onMenu: (cb) => subscribe(EVENT_CHANNELS.menu, cb),
+  onMcp: (cb) => subscribe(EVENT_CHANNELS.mcp, cb)
 } satisfies KilnApi['events']
 
 api.files = { pathFor: (file: File) => webUtils.getPathForFile(file) } satisfies KilnApi['files']

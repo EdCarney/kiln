@@ -1,5 +1,6 @@
 // Live end-to-end smoke test: drives the built app with Playwright against real Ollama models.
 // Usage: npm run build && npm run e2e   (needs the Ollama app running and `ollama signin` for cloud models)
+import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
@@ -663,6 +664,218 @@ writeFileSync(
     fakeOllama.close()
     fakeWeb.close()
     fakePages.close()
+  }
+}
+
+// 12. MCP servers: added in Settings, switched on per chat, asking before each call. Deterministic against a mock
+// model first, then quitting must stop the server, then a live model uses a fixture tool.
+const FIXTURE = join(ROOT, 'tests', 'fixtures', 'mcp-server.mjs')
+const fixtureRunning = () => {
+  try {
+    return execFileSync('pgrep', ['-f', FIXTURE]).toString().trim().length > 0
+  } catch {
+    return false
+  }
+}
+{
+  const mcpChats = []
+  let mcpDelay = 0
+  const mcpOllama = createServer(async (req, res) => {
+    let raw = ''
+    for await (const chunk of req) raw += chunk
+    const body = raw ? JSON.parse(raw) : {}
+    const json = (obj) => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(obj))
+    if (req.url === '/api/tags') return json({ models: [{ name: 'mock-tools:latest' }] })
+    if (req.url === '/api/show')
+      return json({ capabilities: ['completion', 'tools'], model_info: { 'mock.context_length': 32768 }, details: {} })
+    if (!body.stream) return json({ message: { role: 'assistant', content: 'Mock title' }, done: true })
+    const toolNames = (body.tools ?? []).map((t) => t.function.name)
+    const lastUser = body.messages.findLastIndex((m) => m.role === 'user')
+    const turnResults = body.messages
+      .slice(lastUser)
+      .filter((m) => m.role === 'tool')
+      .map((m) => m.content)
+    mcpChats.push({ toolNames, system: body.messages[0].content, turnResults })
+    if (mcpDelay) await new Promise((r) => setTimeout(r, mcpDelay))
+    const message = !toolNames.includes('fixture__echo')
+      ? { role: 'assistant', content: 'No tools here.' }
+      : turnResults.length === 0
+        ? { role: 'assistant', content: 'Let me check.', tool_calls: [{ function: { name: 'fixture__echo', arguments: { text: 'hi' } } }] }
+        : { role: 'assistant', content: `Tool said: ${turnResults.at(-1)}` }
+    res.writeHead(200, { 'content-type': 'application/x-ndjson' })
+    res.write(JSON.stringify({ message, done: false }) + '\n')
+    res.end(JSON.stringify({ done: true, prompt_eval_count: 100, eval_count: 12, eval_duration: 1e8 }) + '\n')
+  })
+  await new Promise((r) => mcpOllama.listen(0, '127.0.0.1', r))
+  const app = await electron.launch({ args: [ROOT], env: { ...process.env, KILN_USER_DATA: mkdtempSync(join(tmpdir(), 'kiln-e2e-mcp-')) } })
+  const win = await app.firstWindow()
+  let quit = false
+  try {
+    await win.waitForSelector('textarea', { timeout: 20000 })
+    await win.evaluate(
+      (host) => window.kiln.settings.update({ connection: { mode: 'local', host }, showCloudCatalog: false }),
+      `http://127.0.0.1:${mcpOllama.address().port}`
+    )
+    await win.reload()
+    await win.waitForSelector('textarea')
+    await win.waitForTimeout(1500)
+
+    // Add the fixture server through Settings → Tools.
+    await win
+      .getByRole('button', { name: /Set your name|Settings/ })
+      .last()
+      .click()
+    await win.getByRole('button', { name: 'Tools', exact: true }).click()
+    await win.getByRole('button', { name: 'Add server' }).click()
+    const dialog = win.getByRole('dialog')
+    await dialog.getByPlaceholder('Filesystem', { exact: true }).fill('Fixture')
+    await dialog.getByPlaceholder('npx', { exact: true }).fill(process.execPath)
+    await dialog.locator('textarea').fill(FIXTURE)
+    await dialog.getByRole('button', { name: 'Add variable' }).click()
+    await dialog.getByLabel('Variable name').fill('FIXTURE_TOKEN')
+    await dialog.getByLabel('Value of FIXTURE_TOKEN').fill('kiln-e2e-secret')
+    await dialog.getByRole('button', { name: 'Add server' }).click()
+    await win.locator('[data-testid="mcp-server"]').filter({ hasText: 'Fixture' }).waitFor({ timeout: 5000 })
+    const listed = await win.evaluate(() => window.kiln.mcp.list())
+    check(
+      'an MCP server added in Settings is saved, its secret kept out of the renderer',
+      listed.length === 1 &&
+        listed[0].id === 'fixture' &&
+        listed[0].envKeys.join() === 'FIXTURE_TOKEN' &&
+        !JSON.stringify(listed).includes('kiln-e2e-secret'),
+      JSON.stringify(listed[0]?.envKeys)
+    )
+    await win.screenshot({ path: join(SHOTS, 'mcp-settings.png') })
+
+    // A new chat starts with the server on, and starts it before anything is sent.
+    await newChat(win)
+    const chip = win.locator('button[aria-label="Turn off Fixture in this chat"]')
+    await chip.waitFor({ timeout: 5000 })
+    let status = []
+    for (let i = 0; i < 150 && status[0]?.state !== 'ready'; i++) {
+      await win.waitForTimeout(200)
+      status = await win.evaluate(() => window.kiln.mcp.status())
+    }
+    check('the chat starts its server early and lists its tools', status[0].tools.length >= 10, `${status[0].tools.length} tools`)
+
+    const card = win.locator('[data-testid="approval-card"]')
+    const last = () => win.locator('.prose-kiln').last().innerText()
+    const idle = () => win.waitForFunction(() => !document.querySelector('button[aria-label="Stop"]'), null, { timeout: 30000 })
+    const sendText = async (text) => {
+      await win.fill('textarea', text)
+      await win.click('button[aria-label="Send"]')
+    }
+
+    await sendText('echo hi for me')
+    await card.waitFor({ timeout: 15000 })
+    const asked = await card.innerText()
+    check(
+      'the model gets the chat’s MCP tools, and is told about them',
+      mcpChats[0]?.toolNames.includes('fixture__echo') && /<mcp_tools>/.test(mcpChats[0].system)
+    )
+    check(
+      'a call waits for approval, naming the tool and its server',
+      /Allow the model to use echo from Fixture\?/.test(asked) && /"text": "hi"/.test(asked),
+      asked.split('\n')[0]
+    )
+    await win.screenshot({ path: join(SHOTS, 'mcp-approval.png') })
+    await card.getByRole('button', { name: 'Allow once' }).click()
+    await idle()
+    check('Allow once runs the tool and the model gets its result', /Tool said: echo: hi/.test(await last()), (await last()).slice(0, 60))
+    const pill = await win.locator('[data-testid="tool-group"]').last().innerText()
+    check('the finished call shows its server and tool', /Fixture/.test(pill) && /echo/.test(pill), pill.replace(/\n/g, ' '))
+
+    await sendText('again please')
+    await card.waitFor({ timeout: 15000 })
+    await card.getByRole('button', { name: 'Deny' }).click()
+    await idle()
+    check('Deny tells the model the call did not run', /Tool said: The user declined to run fixture__echo/.test(await last()))
+
+    await sendText('once more')
+    await card.waitFor({ timeout: 15000 })
+    await card.getByRole('button', { name: 'Allow for this chat' }).click()
+    await idle()
+    await sendText('and again')
+    await idle()
+    check('Allow for this chat lets later calls run without asking', (await card.count()) === 0 && /Tool said: echo: hi/.test(await last()))
+
+    // Waiting in a chat you aren't looking at: a mark in the sidebar and a toast. Stop leaves the call not run.
+    await newChat(win)
+    mcpDelay = 1500
+    await sendText('echo in the background')
+    await win.getByRole('button', { name: 'New chat' }).first().click()
+    const mark = win.locator('aside [aria-label="Waiting for your approval"]')
+    await mark.waitFor({ timeout: 15000 })
+    check(
+      'a chat waiting for approval is marked in the sidebar, with a toast',
+      (await win.getByText(/waiting for your approval to use a tool/).count()) >= 1
+    )
+    await mark.locator('xpath=ancestor::div[@role="button"]').locator('span').first().click()
+    await card.waitFor({ timeout: 15000 })
+    mcpDelay = 0
+    await win.click('button[aria-label="Stop"]')
+    await idle()
+    check(
+      'stopping while a call waits leaves it not run',
+      /not run/.test(await win.locator('[data-testid="tool-group"]').last().innerText())
+    )
+
+    // Quitting stops the server.
+    check('the MCP server is running before quitting', fixtureRunning())
+    const closed = new Promise((r) => app.process().once('exit', r))
+    await app.evaluate(({ app }) => app.quit())
+    await closed
+    quit = true
+    await new Promise((r) => setTimeout(r, 500))
+    check('quitting Kiln stops its MCP servers', !fixtureRunning())
+  } catch (err) {
+    check('MCP runs completed without errors', false, err.message.split('\n')[0])
+    await win.screenshot({ path: join(SHOTS, 'mcp-failure.png') }).catch(() => {})
+  } finally {
+    if (!quit) await app.close()
+    mcpOllama.close()
+  }
+}
+
+// 12b. Live: a real model uses an MCP tool it can only answer with.
+{
+  const app = await electron.launch({
+    args: [ROOT],
+    env: { ...process.env, KILN_USER_DATA: mkdtempSync(join(tmpdir(), 'kiln-e2e-mcp-live-')) }
+  })
+  const win = await app.firstWindow()
+  try {
+    await win.waitForSelector('textarea', { timeout: 20000 })
+    await win.evaluate(
+      (fixture) => window.kiln.mcp.save({ name: 'Fixture', command: 'node', args: [fixture], cwd: null, env: {}, defaultOn: true }),
+      FIXTURE
+    )
+    await win.reload()
+    await win.waitForSelector('textarea')
+    await win.waitForTimeout(1500)
+    await pickModel(win, CHAT_MODEL)
+    await win.locator('button[aria-label="Turn off Fixture in this chat"]').waitFor({ timeout: 5000 })
+    await win.fill('textarea', "What's the internal codename for project Kiln? Look it up with your tools.")
+    await win.click('button[aria-label="Send"]')
+    const card = win.locator('[data-testid="approval-card"]')
+    await card.waitFor({ timeout: 180000 })
+    const asked = await card.innerText()
+    await card.getByRole('button', { name: 'Allow once' }).click()
+    await win.waitForFunction(() => !document.querySelector('button[aria-label="Stop"]'), null, { timeout: 240000 })
+    await win.waitForTimeout(600)
+    const answer = await win.locator('.prose-kiln').last().innerText()
+    check(
+      `${CHAT_MODEL} uses an MCP tool (after approval) and answers from it`,
+      // gpt-oss sometimes writes a non-breaking space between the words.
+      /lookup_codename/.test(asked) && /BLUE\s+KESTREL/i.test(answer),
+      `asked: ${asked.split('\n')[0]} | answer: ${answer.slice(0, 80)}`
+    )
+    await win.screenshot({ path: join(SHOTS, 'mcp-live.png') })
+  } catch (err) {
+    check('live MCP run completed without errors', false, err.message.split('\n')[0])
+    await win.screenshot({ path: join(SHOTS, 'mcp-live-failure.png') }).catch(() => {})
+  } finally {
+    await app.close()
   }
 }
 
