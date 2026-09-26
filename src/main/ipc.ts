@@ -42,6 +42,7 @@ import { replayRequest } from './debug/replay'
 import { clearTraces, getTrace, listTraces, tracesForExport } from './debug/traces'
 import { openDebugWindow } from './debug/window'
 import { linkPreview } from './links/preview'
+import { previewsAllowed } from './chat/exposure'
 import {
   addImported,
   changesServer,
@@ -251,7 +252,8 @@ const impl: Impl = {
   },
 
   links: {
-    preview: (url) => linkPreview(url)
+    // Not in chats with tools or files: a model-written link could carry their data out on hover (#63).
+    preview: async (url, conversationId) => (previewsAllowed(conversationId ?? null) ? linkPreview(url) : null)
   },
 
   mcp: {

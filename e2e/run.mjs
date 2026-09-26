@@ -702,16 +702,31 @@ const fixtureRunning = () => {
       .map((m) => m.content)
     mcpChats.push({ toolNames, system: body.messages[0].content, turnResults })
     if (mcpDelay) await new Promise((r) => setTimeout(r, mcpDelay))
-    const message = !toolNames.includes('fixture__echo')
-      ? { role: 'assistant', content: 'No tools here.' }
-      : turnResults.length === 0
-        ? { role: 'assistant', content: 'Let me check.', tool_calls: [{ function: { name: 'fixture__echo', arguments: { text: 'hi' } } }] }
-        : { role: 'assistant', content: `Tool said: ${turnResults.at(-1)}` }
+    const asksForLink = /LINK/.test(body.messages[lastUser]?.content ?? '')
+    const message = asksForLink
+      ? { role: 'assistant', content: `Here are [the notes](${leakUrl}).` }
+      : !toolNames.includes('fixture__echo')
+        ? { role: 'assistant', content: 'No tools here.' }
+        : turnResults.length === 0
+          ? {
+              role: 'assistant',
+              content: 'Let me check.',
+              tool_calls: [{ function: { name: 'fixture__echo', arguments: { text: 'hi' } } }]
+            }
+          : { role: 'assistant', content: `Tool said: ${turnResults.at(-1)}` }
     res.writeHead(200, { 'content-type': 'application/x-ndjson' })
     res.write(JSON.stringify({ message, done: false }) + '\n')
     res.end(JSON.stringify({ done: true, prompt_eval_count: 100, eval_count: 12, eval_duration: 1e8 }) + '\n')
   })
   await new Promise((r) => mcpOllama.listen(0, '127.0.0.1', r))
+  // Where a model-written link in a tool chat points: hovering it must not fetch a preview from here (#63).
+  let leakHits = 0
+  const leakPages = createServer((req, res) => {
+    leakHits++
+    res.writeHead(200, { 'content-type': 'text/html' }).end('<html><head><title>Leaked</title></head></html>')
+  })
+  await new Promise((r) => leakPages.listen(0, '127.0.0.1', r))
+  const leakUrl = `http://127.0.0.1:${leakPages.address().port}/notes?d=secret`
   // Another app's config to import from (Claude Code's is pointed at nothing, so the real one isn't read).
   const mcpFiles = mkdtempSync(join(tmpdir(), 'kiln-e2e-mcp-import-'))
   writeFileSync(
@@ -726,7 +741,9 @@ const fixtureRunning = () => {
       ...process.env,
       KILN_USER_DATA: mkdtempSync(join(tmpdir(), 'kiln-e2e-mcp-')),
       KILN_CLAUDE_DESKTOP_CONFIG: join(mcpFiles, 'claude_desktop_config.json'),
-      KILN_CLAUDE_CODE_CONFIG: join(mcpFiles, 'none.json')
+      KILN_CLAUDE_CODE_CONFIG: join(mcpFiles, 'none.json'),
+      // So the only thing that can stop the leak check's preview is the tool-chat rule, not the local-address one.
+      KILN_ALLOW_PRIVATE_PREVIEWS: '1'
     }
   })
   const win = await app.firstWindow()
@@ -886,6 +903,25 @@ const fixtureRunning = () => {
       mcpChats[0]?.toolNames.join(', ')
     )
 
+    // With previews on, a link the model writes in a tool chat shows where it goes, but nothing is fetched from it.
+    await win.evaluate(() => window.kiln.settings.update({ links: { previews: true } }))
+    await win.reload()
+    await win.waitForSelector('textarea')
+    await win.locator('aside [role="button"]').first().click()
+    await sendText('LINK to the notes please')
+    await idle()
+    const leakLink = win.locator(`.prose-kiln a[href="${leakUrl}"]`).last()
+    await leakLink.hover()
+    const linkCard = win.locator('[data-testid="link-card"]')
+    await linkCard.waitFor({ timeout: 5000 })
+    await win.waitForTimeout(1500)
+    check(
+      'hovering a model-written link in a tool chat shows its destination but fetches no preview',
+      leakHits === 0 && (await linkCard.innerText()).includes('127.0.0.1'),
+      `${leakHits} requests`
+    )
+    await win.mouse.move(5, 5)
+
     // Paste a README's JSON; import from another app's config.
     await win
       .getByRole('button', { name: /Set your name|Settings/ })
@@ -930,6 +966,7 @@ const fixtureRunning = () => {
   } finally {
     if (!quit) await app.close()
     mcpOllama.close()
+    leakPages.close()
   }
 }
 

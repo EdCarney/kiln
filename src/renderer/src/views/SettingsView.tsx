@@ -853,7 +853,7 @@ function FeaturesTab({ settings }: { settings: Settings }) {
         </Row>
         <Row
           label="Show page previews when hovering links"
-          hint="Hovering a link always shows where it goes. With this on, Kiln also fetches the page's title and image from this Mac, which lets the site know you looked. Local-network addresses are never fetched."
+          hint="Hovering a link always shows where it goes. With this on, Kiln also fetches the page's title and image from this Mac, which lets the site know you looked. Local-network addresses are never fetched, and neither are links in chats with tools or files, where a link could carry their contents out."
         >
           <Switch checked={settings.links.previews} onChange={(previews) => update({ links: { previews } })} />
         </Row>

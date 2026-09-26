@@ -6,6 +6,7 @@ import { hostnameOf, middleTruncate, mismatchedLinkText } from '@shared/links'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/format'
 import { useApp } from '@/stores/app'
+import { useChat } from '@/stores/chat'
 
 const isWeb = (href: string) => /^https?:\/\//i.test(href)
 
@@ -40,6 +41,8 @@ function CardLink({
  */
 export function LinkCard({ href, text, children }: { href: string; text: string; children: ReactNode }) {
   const previewsOn = useApp((s) => !!s.settings?.links.previews)
+  // The chat the link is shown in (a reply, or one of its artifacts); the main process decides whether it may preview.
+  const conversationId = useChat((s) => s.conversation?.id ?? null)
   const [open, setOpen] = useState(false)
   const [preview, setPreview] = useState<LinkPreview | null | 'loading' | 'none'>(null)
 
@@ -47,10 +50,10 @@ export function LinkCard({ href, text, children }: { href: string; text: string;
     if (!open || !previewsOn || preview !== null || !isWeb(href)) return
     setPreview('loading')
     void api.links
-      .preview(href)
+      .preview(href, conversationId)
       .then((p) => setPreview(p ?? 'none'))
       .catch(() => setPreview('none'))
-  }, [open, previewsOn, preview, href])
+  }, [open, previewsOn, preview, href, conversationId])
 
   const host = hostnameOf(href)
   const mismatch = mismatchedLinkText(text, href)

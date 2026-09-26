@@ -47,6 +47,7 @@ import { conversationUsage, insertUsageEvent } from '../db/usage'
 import { requestCost } from '../usage/pricing'
 import { errorMessage, estimateTokens } from '../util'
 import { EVERY_TIME, waitForDecision } from './approvals'
+import { hasPrivateFiles } from './exposure'
 import { assemble, type HistoryTurn, promptBudget } from './assemble'
 import { TITLE_PROMPT } from './prompts'
 import { TOOL_RESULT_CHARS } from './results'
@@ -335,14 +336,13 @@ async function generate(
     if (unavailable.length) stats.unavailableTools = unavailable
 
     const project = conversation.projectId ? getProject(conversation.projectId) : null
-    const knowledge = project ? projectKnowledge(project.id) : []
     const messages = listMessages(conversationId)
     const toolContext: ToolContext = {
       skills: skillIndex.length > 0,
       web: web === 'on',
       sources,
       // Files the user shared are private, and a fetch URL could carry them out (#62).
-      privateFiles: knowledge.length > 0 || messages.some((m) => m.attachments.length > 0),
+      privateFiles: hasPrivateFiles(conversation, messages),
       workspace: null,
       signal: controller.signal
     }
@@ -372,7 +372,7 @@ async function generate(
       pastTools: toolsCapable,
       project: project ? { name: project.name, instructions: project.instructions } : null,
       chatInstructions: conversation.instructions,
-      knowledge,
+      knowledge: project ? projectKnowledge(project.id) : [],
       skillIndex,
       selectedSkills: await load(selectedIds),
       loadedSkills: await load(loadedIds),

