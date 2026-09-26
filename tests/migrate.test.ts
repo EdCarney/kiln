@@ -59,9 +59,18 @@ describe('moving Kiln’s data folder', () => {
     expect(existsSync(join(ollmost, migrate.MARKER))).toBe(true)
   })
 
-  it('does nothing when the new folder exists, or Kiln left no database', () => {
+  it('moves it into the empty folder Electron creates before the app’s code runs', () => {
     const { kiln, ollmost } = appSupport()
     mkdirSync(ollmost)
+    expect(migrate.moveKilnData(ollmost)).toEqual({ state: 'moved' })
+    expect(existsSync(kiln)).toBe(false)
+    expect(existsSync(join(ollmost, 'kiln.db'))).toBe(true)
+  })
+
+  it('does nothing when the new folder has something in it, or Kiln left no database', () => {
+    const { kiln, ollmost } = appSupport()
+    mkdirSync(ollmost)
+    writeFileSync(join(ollmost, 'ollmost.db'), 'db')
     expect(migrate.moveKilnData(ollmost)).toEqual({ state: 'none' })
     expect(existsSync(kiln)).toBe(true)
     // A fresh install: no Kiln folder next to it.

@@ -38,11 +38,12 @@ import { errorMessage } from './util'
 app.setName('Ollmost')
 // Tests and experiments can point Ollmost at a throwaway data folder.
 if (process.env.OLLMOST_USER_DATA) app.setPath('userData', process.env.OLLMOST_USER_DATA)
-// Before anything can create the data folder: move the old app's there, if it left one (#60).
+// Before anything puts files in the data folder (Electron has created it, empty): move the old app's there, if it
+// left one (#60).
 const dataDir = app.getPath('userData')
 const move = moveKilnData(dataDir)
-// Waiting for the old app to quit, or after a failed move, this session must not create the data folder, or the move
-// would be skipped for good. It uses a folder of its own, the same for every launch meanwhile, so they hand off.
+// Waiting for the old app to quit, or after a failed move, this session must not put anything in the data folder, or
+// the move would be skipped for good. It uses a folder of its own, the same for every launch meanwhile, so they hand off.
 if (move.state === 'kiln-running' || move.state === 'failed') app.setPath('userData', join(tmpdir(), `${app.name}-waiting`))
 registerSchemes()
 

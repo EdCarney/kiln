@@ -2,7 +2,7 @@
 // Usage: npm run build && npm run e2e   (needs the Ollama app running and `ollama signin` for cloud models)
 import { execFileSync, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, renameSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -1411,9 +1411,11 @@ const evilSvg = (port) =>
     mkdirSync(join(kiln, 'workspaces', conversationId, '.kiln', 'home'), { recursive: true })
     writeFileSync(join(kiln, 'workspaces', conversationId, '.kiln', 'home', 'saved.txt'), 'kept')
 
-    // 2. Ollmost's first launch, while Kiln is still open: it waits, creating nothing, and carries on by itself once
-    // Kiln has quit. The stand-in for Kiln is Electron holding the Kiln folder's singleton lock, as Kiln does.
+    // 2. Ollmost's first launch, while Kiln is still open: it waits, adding nothing to its data folder, and carries on
+    // by itself once Kiln has quit. The stand-in for Kiln is Electron holding the Kiln folder's singleton lock, as Kiln
+    // does. Electron creates the default data folder, empty, before the app's code runs; OLLMOST_USER_DATA skips that.
     const data = join(home, 'Ollmost')
+    mkdirSync(data)
     const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
     const until = async (test, ms) => {
       for (const end = Date.now() + ms; Date.now() < end; await sleep(250)) if (test()) return true
@@ -1448,7 +1450,10 @@ process.on('SIGTERM', () => app.quit())
     waiting.once('close', () => (waitingEnded = true))
     try {
       await sleep(3000)
-      check('while Kiln is open, Ollmost waits and creates nothing', locked && !existsSync(data) && existsSync(join(kiln, 'kiln.db')))
+      check(
+        'while Kiln is open, Ollmost waits and adds nothing to its data folder',
+        locked && readdirSync(data).length === 0 && existsSync(join(kiln, 'kiln.db'))
+      )
       standIn.kill('SIGTERM')
       // The waiting Ollmost quits and relaunches, and the relaunch moves the folder. It gets no further here: it
       // inherits Playwright's loader, which holds back Electron's ready event until Playwright asks for it.

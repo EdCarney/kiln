@@ -62,7 +62,7 @@ This is a mechanical change: one commit, listed in `.git-blame-ignore-revs`.
 
 ### B1. Where it runs
 
-The move must happen before anything creates the new folder. Chromium creates the data folder as soon as `requestSingleInstanceLock()` runs, and after that Ollmost would see a folder and skip the migration. So the migration has two phases: a synchronous move at the very top of `src/main/index.ts`, and the finishing work once the folder is in place.
+The move must happen before anything puts files in the new folder. Electron creates the default data folder, empty, before the app's code runs (an empty folder counts as no folder: a rename replaces it), and Chromium puts its files there as soon as `requestSingleInstanceLock()` runs; after that Ollmost would see a folder in use and skip the migration. So the migration has two phases: a synchronous move at the very top of `src/main/index.ts`, and the finishing work once the folder is in place.
 
 ```
 app.setName('Ollmost')
@@ -86,7 +86,7 @@ The old folder is always looked for **next to** the data folder: `dirname(userDa
 
 Here `T` is the Ollmost data folder and `S` is the Kiln folder next to it.
 
-| `T` exists | `S` has `kiln.db` | Kiln running | What happens |
+| `T` has anything in it | `S` has `kiln.db` | Kiln running | What happens |
 | --- | --- | --- | --- |
 | yes | any | any | No move. Phase 2 checks `T` for unfinished work. |
 | no | no | any | Nothing to migrate (a fresh install). |
@@ -95,7 +95,7 @@ Here `T` is the Ollmost data folder and `S` is the Kiln folder next to it.
 
 **Is Kiln running?** Kiln always holds Chromium's singleton lock, a symlink `S/SingletonLock` pointing to `<host>-<pid>` (for example `Mac-7262`). Kiln counts as running when that pid is alive and its executable (`ps -o comm=`) ends in `/Kiln`, or in `/Electron` for a development Kiln. If the lock is missing or stale (the pid is dead or belongs to another program), Kiln isn't running.
 
-**Waiting for Kiln.** This session uses a throwaway data folder, `<tmpdir>/Ollmost-waiting`, so it never creates `T`. A fixed name means a second launch still hands off to the waiting instance. Once Electron is ready, Ollmost shows a message box:
+**Waiting for Kiln.** This session uses a throwaway data folder, `<tmpdir>/Ollmost-waiting`, so it never puts anything in `T`. A fixed name means a second launch still hands off to the waiting instance. Once Electron is ready, Ollmost shows a message box:
 
 > **Kiln is still open**
 > Quit Kiln to move your chats, projects and settings to Ollmost. Ollmost will carry on by itself once Kiln has quit.
@@ -103,7 +103,7 @@ Here `T` is the Ollmost data folder and `S` is the Kiln folder next to it.
 
 Ollmost checks the lock every 500 ms. When Kiln has quit, it closes the box (`showMessageBox`'s `signal`), then calls `app.relaunch()` and `app.exit(0)`. The relaunch finds Kiln gone and moves the folder. The box is a sheet on a small window: on macOS, `signal` closes only a box that has a parent window, and one without waits for a click. Ollmost doesn't quit Kiln itself: sending Kiln an Apple event would trigger a macOS Automation permission prompt.
 
-**If the move fails** (for example with a permissions error), Ollmost shows "Ollmost couldn't move your Kiln data: <error>. Nothing was changed; Kiln still has all of it." and quits before creating `T`. A later launch tries again.
+**If the move fails** (for example with a permissions error), Ollmost shows "Ollmost couldn't move your Kiln data: <error>. Nothing was changed; Kiln still has all of it." and quits before putting anything in `T`. A later launch tries again.
 
 **What moves with the folder:** Chromium's caches, `processes.json`, `debug.log`, `files/`, `skills/`, `workspaces/` and `runner/`. The stale `Singleton*` links are deleted, because they belong to Kiln's last session.
 

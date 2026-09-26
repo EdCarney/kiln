@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, readlinkSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readlinkSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { lstat, readdir, rename, rm } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { transaction } from './db/index'
@@ -56,12 +56,24 @@ export type MoveResult =
   { state: 'none' } | { state: 'moved' } | { state: 'kiln-running'; pid: number } | { state: 'failed'; error: string }
 
 /**
- * Move Kiln's data folder to `dataDir`, if Kiln left one there and nothing is at `dataDir` yet. Synchronous: it runs
- * before the single-instance lock, which makes Chromium create the data folder, and then the move would never happen.
+ * Whether `dir` holds anything. Electron creates the default data folder, empty, before the app's code runs, so an
+ * empty one is as good as none (a rename replaces an empty folder). Anything unreadable counts as in use.
+ */
+function hasData(dir: string): boolean {
+  try {
+    return readdirSync(dir).length > 0
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code !== 'ENOENT'
+  }
+}
+
+/**
+ * Move Kiln's data folder to `dataDir`, if Kiln left one there and nothing is in `dataDir` yet. Synchronous: it runs
+ * before the single-instance lock, which puts Chromium's files in the data folder, and then the move would never happen.
  */
 export function moveKilnData(dataDir: string, opts: { isKiln?: (pid: number) => boolean } = {}): MoveResult {
   const from = oldDataFolder(dataDir)
-  if (from === dataDir || existsSync(dataDir) || !existsSync(join(from, OLD_DB))) return { state: 'none' }
+  if (from === dataDir || hasData(dataDir) || !existsSync(join(from, OLD_DB))) return { state: 'none' }
   const pid = kilnPid(from, opts.isKiln)
   if (pid !== null) return { state: 'kiln-running', pid }
   try {
