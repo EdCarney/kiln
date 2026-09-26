@@ -83,6 +83,9 @@ tests/           Vitest unit tests      e2e/   live Playwright run against real 
   - Tools are offered as `<server>__<tool>`. Each call asks first (below), and a chat with servers on gets up to 12 tool rounds.
   - Environment values are encrypted with the macOS keychain and never sent to the renderer. Servers run with your permissions and aren't sandboxed: add only ones you trust.
   - A server that can't start, or stops, shows why in Settings → Tools, with its stderr log. A reply that couldn't use one of its chat's servers says so.
+  - Each tool can be set to **Ask** (the default), **Always allow** or **Off**. Off keeps its definition out of requests; Settings shows roughly how many tokens each tool and server adds to every request.
+  - **Paste JSON** takes the `{"mcpServers": {…}}` snippet server READMEs give (also VS Code's `servers` format). **Import from Claude Desktop / Claude Code** appears when those apps' configs list servers: a one-time copy of the local ones (remote servers are left out), switched off for new chats.
+  - A chat's menu lists the tools you allowed there, with a way to go back to asking.
   - Kiln talks to servers through its own stdio transport (`src/main/mcp/transport.ts`), so stopping a server also stops what it started (`npx` runs the real server as a child).
 - **Approving tool calls.** A tool whose provider asks first (MCP tools do; skills and web search never ask) waits in the reply with an approval card: **Allow once**, **Allow for this chat** or **Deny**.
   - A denied call doesn't run, and the model is told not to try it again unless you ask. Stopping the reply, deleting the chat or quitting counts as a no, and a call that was waiting when Kiln closed shows as not run.

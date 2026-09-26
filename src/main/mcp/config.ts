@@ -1,5 +1,10 @@
+import { existsSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { safeStorage } from 'electron'
-import type { McpServer, McpServerInput, ToolPolicy } from '@shared/types'
+import { type ImportedServer, parseServersJson } from '@shared/mcpImport'
+import type { McpImportResult, McpImportSource, McpServer, McpServerInput, ToolPolicy } from '@shared/types'
 import { readSetting, writeSetting } from '../db/kv'
 
 // MCP server definitions live in the settings table under their own key, not in Settings: their environment often
@@ -132,4 +137,71 @@ export function setToolPolicy(id: string, tool: string, policy: ToolPolicy): Mcp
   const next = { ...server, tools }
   store(servers.map((s) => (s.id === id ? next : s)))
   return publicView(next)
+}
+
+// ---- Importing --------------------------------------------------------------
+
+/**
+ * Add servers read from JSON (pasted, or another app's config), skipping names Kiln already has. Each gets every
+ * tool on Ask; `defaultOn` decides whether new chats start with it.
+ */
+export function addImported(servers: ImportedServer[], defaultOn: boolean, skipped: string[] = []): McpImportResult {
+  const added: McpServer[] = []
+  const notes = [...skipped]
+  for (const server of servers) {
+    const taken = listServers().some((s) => s.name.toLowerCase() === server.name.toLowerCase())
+    if (taken) {
+      notes.push(`${server.name}: Kiln already has a server with that name`)
+      continue
+    }
+    try {
+      added.push(saveServer({ ...server, defaultOn }))
+    } catch (err) {
+      notes.push(`${server.name}: ${(err as Error).message}`)
+    }
+  }
+  return { added, skipped: notes }
+}
+
+/** Other apps' MCP configs Kiln can copy servers from. Tests point these elsewhere. */
+const IMPORT_FILES: Array<{ id: McpImportSource['id']; label: string; path: () => string }> = [
+  {
+    id: 'claude-desktop',
+    label: 'Claude Desktop',
+    path: () =>
+      process.env.KILN_CLAUDE_DESKTOP_CONFIG ?? join(homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json')
+  },
+  // Claude Code keeps user-wide servers at the top level of ~/.claude.json (project ones are left alone).
+  { id: 'claude-code', label: 'Claude Code', path: () => process.env.KILN_CLAUDE_CODE_CONFIG ?? join(homedir(), '.claude.json') }
+]
+
+async function readImportFile(path: string) {
+  if (!existsSync(path)) return null
+  try {
+    const data = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>
+    // Only the servers: ~/.claude.json holds a lot else, and nothing else is read.
+    return data.mcpServers && typeof data.mcpServers === 'object' ? parseServersJson(JSON.stringify({ mcpServers: data.mcpServers })) : null
+  } catch {
+    return null
+  }
+}
+
+/** Configs on this Mac that list MCP servers, with how many Kiln could add. */
+export async function importSources(): Promise<McpImportSource[]> {
+  const found = await Promise.all(
+    IMPORT_FILES.map(async (f) => {
+      const parsed = await readImportFile(f.path())
+      if (!parsed || !(parsed.servers.length + parsed.skipped.length)) return null
+      return { id: f.id, label: f.label, path: f.path(), servers: parsed.servers.map((s) => s.name), unsupported: parsed.skipped.length }
+    })
+  )
+  return found.filter((f): f is McpImportSource => !!f)
+}
+
+/** Copy another app's servers into Kiln (a one-time copy, not a link). They start switched off for new chats. */
+export async function importFrom(id: McpImportSource['id']): Promise<McpImportResult> {
+  const file = IMPORT_FILES.find((f) => f.id === id)
+  const parsed = file ? await readImportFile(file.path()) : null
+  if (!parsed) throw new Error('That config has no MCP servers to import.')
+  return addImported(parsed.servers, false, parsed.skipped)
 }

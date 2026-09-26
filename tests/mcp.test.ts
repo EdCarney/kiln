@@ -1,3 +1,5 @@
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
@@ -76,6 +78,51 @@ describe('server definitions', () => {
     config.removeServer(b.id)
     expect(config.serverId('__GitHub  (work)__', [])).toBe('github_work')
     expect(config.serverId('!!!', [])).toBe('server')
+  })
+})
+
+describe('importing', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kiln-mcp-import-'))
+  afterAll(() => {
+    delete process.env.KILN_CLAUDE_DESKTOP_CONFIG
+    delete process.env.KILN_CLAUDE_CODE_CONFIG
+  })
+
+  it("copies another app's local servers once, off for new chats, skipping names Kiln has and remote ones", async () => {
+    const desktop = join(dir, 'claude_desktop_config.json')
+    writeFileSync(
+      desktop,
+      JSON.stringify({
+        preferences: { theme: 'dark' },
+        mcpServers: {
+          Existing: { command: 'npx' },
+          weather: { command: 'uvx', args: ['weather-mcp'], env: { API_KEY: 'k-123' } },
+          hosted: { type: 'http', url: 'https://example.com/mcp' }
+        }
+      })
+    )
+    process.env.KILN_CLAUDE_DESKTOP_CONFIG = desktop
+    process.env.KILN_CLAUDE_CODE_CONFIG = join(dir, 'missing.json')
+    const existing = config.saveServer({ name: 'existing', command: 'npx', args: [], cwd: null, env: {}, defaultOn: true })
+
+    expect(await config.importSources()).toEqual([
+      { id: 'claude-desktop', label: 'Claude Desktop', path: desktop, servers: ['Existing', 'weather'], unsupported: 1 }
+    ])
+    const result = await config.importFrom('claude-desktop')
+    expect(result.added).toEqual([
+      expect.objectContaining({ id: 'weather', name: 'weather', defaultOn: false, envKeys: ['API_KEY'], tools: {} })
+    ])
+    expect(result.skipped).toEqual([expect.stringMatching(/^hosted: remote/), 'Existing: Kiln already has a server with that name'])
+    expect(config.getServerConfig('weather')!.env).toEqual({ API_KEY: 'k-123' })
+    await expect(config.importFrom('claude-code')).rejects.toThrow(/no MCP servers/)
+    config.removeServer('weather')
+    config.removeServer(existing.id)
+  })
+
+  it('adds pasted servers on for new chats', () => {
+    const result = config.addImported([{ name: 'Pasted', command: 'npx', args: ['-y', 'pasted'], env: {}, cwd: null }], true)
+    expect(result.added[0]).toMatchObject({ name: 'Pasted', defaultOn: true, args: ['-y', 'pasted'] })
+    config.removeServer(result.added[0].id)
   })
 })
 

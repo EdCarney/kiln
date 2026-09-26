@@ -174,9 +174,9 @@ function handle(e: ChatEvent): void {
       // The chat on screen shows the question inline; any other one gets a toast (and a mark in the sidebar).
       if (e.event.awaiting && !onScreen(e.conversationId)) {
         const title = useApp.getState().conversations.find((c) => c.id === e.conversationId)?.title
-        useApp
-          .getState()
-          .toast(title ? `"${title}" is waiting for your approval to use a tool.` : 'A chat is waiting for your approval to use a tool.')
+        // A chat's first reply runs before it has a title.
+        const which = title && title !== 'New chat' ? `"${title}"` : 'A new chat'
+        useApp.getState().toast(`${which} is waiting for your approval to use a tool.`)
       }
       break
     case 'done': {

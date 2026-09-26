@@ -9,6 +9,8 @@ import type {
   ConversationDetail,
   FileSource,
   ID,
+  McpImportResult,
+  McpImportSource,
   McpServer,
   McpServerInput,
   McpStatus,
@@ -27,6 +29,7 @@ import type {
   ThemeDef,
   ThinkSetting,
   ToolDecision,
+  ToolPolicy,
   TraceDetail,
   TraceSummary,
   UsageSummary
@@ -53,6 +56,8 @@ export interface ConversationPatch {
   skills?: string[]
   instructions?: string
   toolSources?: string[]
+  /** Set to [] to have this chat ask again before every tool. */
+  allowedTools?: string[]
 }
 
 export interface SkillInput {
@@ -172,6 +177,14 @@ export interface KilnApi {
     restart(id: string): Promise<void>
     /** What the server last wrote to stderr. */
     log(id: string): Promise<string[]>
+    /** Ask before each call (the default), run without asking, or don't offer the tool at all. */
+    setToolPolicy(id: string, tool: string, policy: ToolPolicy): Promise<McpServer>
+    /** Add the servers in a pasted JSON snippet (the `mcpServers` format READMEs use). */
+    importJson(text: string): Promise<McpImportResult>
+    /** Other apps' configs on this Mac that list MCP servers. */
+    importSources(): Promise<McpImportSource[]>
+    /** Copy the servers from one of those configs. */
+    importFrom(id: McpImportSource['id']): Promise<McpImportResult>
   }
   debug: {
     /** Open (or focus) the debugger window, showing this conversation. */
@@ -215,7 +228,7 @@ export const INVOKE_CHANNELS = {
   usage: ['account', 'summary', 'raw', 'prices', 'refreshPrices'],
   debug: ['open', 'list', 'get', 'clear', 'exportTraces', 'replay', 'target', 'inspectApp'],
   links: ['preview'],
-  mcp: ['list', 'save', 'remove', 'status', 'connect', 'restart', 'log']
+  mcp: ['list', 'save', 'remove', 'status', 'connect', 'restart', 'log', 'setToolPolicy', 'importJson', 'importSources', 'importFrom']
 } as const satisfies { [G in Exclude<keyof KilnApi, 'events' | 'files'>]: ReadonlyArray<keyof KilnApi[G]> }
 
 export const EVENT_CHANNELS = {

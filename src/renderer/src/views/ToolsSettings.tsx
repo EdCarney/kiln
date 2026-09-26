@@ -1,11 +1,11 @@
-import { Plus, RotateCcw, ScrollText, Trash2, X } from 'lucide-react'
+import { ChevronRight, ClipboardPaste, Download, Plus, RotateCcw, ScrollText, Trash2, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import type { McpServer, McpStatus } from '@shared/types'
+import type { McpImportResult, McpImportSource, McpServer, McpStatus, ToolPolicy } from '@shared/types'
 import { Button, Field, Modal, Switch, TextArea, TextField, Tooltip } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/format'
 import { reportError, useApp } from '@/stores/app'
-import { Row, Section } from './settingsParts'
+import { Row, Section, Segmented } from './settingsParts'
 
 const DOT: Record<McpStatus['state'], string> = {
   ready: 'bg-success',
@@ -14,12 +14,24 @@ const DOT: Record<McpStatus['state'], string> = {
   stopped: 'bg-subtle'
 }
 
-function stateText(status: McpStatus | undefined): string {
+const POLICIES: Array<{ value: ToolPolicy; label: string }> = [
+  { value: 'ask', label: 'Ask' },
+  { value: 'allow', label: 'Always allow' },
+  { value: 'off', label: 'Off' }
+]
+
+const policyOf = (server: McpServer, tool: string): ToolPolicy => server.tools[tool] ?? 'ask'
+
+const tokens = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n))
+
+function stateText(server: McpServer, status: McpStatus | undefined): string {
   if (!status || status.state === 'stopped') return 'Not running. It starts when a chat uses it.'
   if (status.state === 'starting') return 'Starting…'
   if (status.state === 'error') return status.error ?? "Couldn't start."
-  const n = status.tools.length
-  return `Running · ${n} ${n === 1 ? 'tool' : 'tools'}`
+  const offered = status.tools.filter((t) => policyOf(server, t.name) !== 'off')
+  const cost = offered.reduce((sum, t) => sum + t.tokens, 0)
+  const off = status.tools.length - offered.length
+  return `Running · ${offered.length} ${offered.length === 1 ? 'tool' : 'tools'}${off ? ` (${off} off)` : ''} · about ${tokens(cost)} tokens per request`
 }
 
 const commandLine = (s: McpServer) => [s.command, ...s.args.map((a) => (/\s/.test(a) ? JSON.stringify(a) : a))].join(' ')
@@ -27,8 +39,28 @@ const commandLine = (s: McpServer) => [s.command, ...s.args.map((a) => (/\s/.tes
 function ServerRow({ server, status, onEdit }: { server: McpServer; status: McpStatus | undefined; onEdit: () => void }) {
   const [log, setLog] = useState<string[] | null>(null)
   const [confirming, setConfirming] = useState(false)
+  const [showTools, setShowTools] = useState(false)
   const loadMcp = useApp((s) => s.loadMcp)
   const state = status?.state ?? 'stopped'
+  const tools = status?.tools ?? []
+
+  const setPolicy = async (tool: string, policy: ToolPolicy) => {
+    try {
+      await api.mcp.setToolPolicy(server.id, tool, policy)
+      await loadMcp()
+    } catch (err) {
+      reportError(err)
+    }
+  }
+  const setDefaultOn = async (defaultOn: boolean) => {
+    try {
+      const { id, name, command, args, cwd } = server
+      await api.mcp.save({ id, name, command, args, cwd, env: {}, defaultOn })
+      await loadMcp()
+    } catch (err) {
+      reportError(err)
+    }
+  }
 
   const showLog = async () => {
     if (log) return setLog(null)
@@ -54,7 +86,7 @@ function ServerRow({ server, status, onEdit }: { server: McpServer; status: McpS
         <div className="min-w-0 flex-1">
           <div className="text-sm font-medium">{server.name}</div>
           <div className="truncate font-mono text-xs text-subtle">{commandLine(server)}</div>
-          <div className={cn('mt-1 text-xs', state === 'error' ? 'text-danger' : 'text-muted')}>{stateText(status)}</div>
+          <div className={cn('mt-1 text-xs', state === 'error' ? 'text-danger' : 'text-muted')}>{stateText(server, status)}</div>
         </div>
         <div className="flex shrink-0 gap-1">
           <Tooltip content="Restart">
@@ -86,12 +118,144 @@ function ServerRow({ server, status, onEdit }: { server: McpServer; status: McpS
           )}
         </div>
       </div>
+      <div className="mt-2 flex items-center justify-between gap-4 pl-5">
+        <button
+          onClick={() => setShowTools(!showTools)}
+          disabled={!tools.length}
+          aria-expanded={showTools}
+          className="flex items-center gap-1 text-xs text-muted hover:text-fg disabled:opacity-50 disabled:hover:text-muted"
+        >
+          <ChevronRight className={cn('size-3.5 transition-transform', showTools && 'rotate-90')} />
+          {tools.length ? `Tools (${tools.length})` : 'Tools appear once it has started'}
+        </button>
+        <label className="flex items-center gap-2 text-xs text-muted">
+          Use in new chats
+          <Switch checked={server.defaultOn} onChange={(on) => void setDefaultOn(on)} />
+        </label>
+      </div>
+      {showTools && (
+        <ul className="mt-2 divide-y divide-line rounded-md border border-line">
+          {tools.map((t) => (
+            <li key={t.name} data-testid="mcp-tool" className="flex items-start gap-3 px-3 py-2">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline gap-2">
+                  <span className="font-mono text-xs text-fg">{t.name}</span>
+                  <span className="text-[11px] text-subtle">~{tokens(t.tokens)} tokens</span>
+                </div>
+                {(t.title || t.description) && <div className="mt-0.5 line-clamp-2 text-xs text-muted">{t.description || t.title}</div>}
+              </div>
+              <Segmented
+                size="sm"
+                label={`${t.name}: when the model uses it`}
+                value={policyOf(server, t.name)}
+                options={POLICIES}
+                onChange={(policy) => void setPolicy(t.name, policy)}
+              />
+            </li>
+          ))}
+        </ul>
+      )}
       {log && (
         <pre className="selectable mt-3 max-h-60 overflow-auto whitespace-pre-wrap break-words rounded-md border border-line bg-code p-2 font-mono text-[11px] text-muted">
           {log.length ? log.join('\n') : 'Nothing written to stderr yet.'}
         </pre>
       )}
     </div>
+  )
+}
+
+/** Paste a README's JSON snippet, or copy the servers from Claude Desktop or Claude Code. */
+function ImportDialog({ source, onClose }: { source: McpImportSource | 'paste'; onClose: () => void }) {
+  const loadMcp = useApp((s) => s.loadMcp)
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<McpImportResult | null>(null)
+  const paste = source === 'paste'
+
+  const run = async () => {
+    setBusy(true)
+    try {
+      setResult(paste ? await api.mcp.importJson(text) : await api.mcp.importFrom(source.id))
+      await loadMcp()
+    } catch (err) {
+      reportError(err)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onOpenChange={(open) => !open && onClose()}
+      title={paste ? 'Paste MCP server JSON' : `Import from ${source.label}`}
+      description={
+        paste
+          ? 'The snippet from a server’s README, like {"mcpServers": {"name": {"command": "npx", "args": [...]}}}.'
+          : `Copies the local servers in ${source.path} into Kiln. It’s a one-time copy: later changes there don’t reach Kiln.`
+      }
+      wide
+      footer={
+        result ? (
+          <Button variant="primary" onClick={onClose}>
+            Done
+          </Button>
+        ) : (
+          <>
+            <Button variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button variant="primary" loading={busy} disabled={paste && !text.trim()} onClick={() => void run()}>
+              {paste ? 'Add servers' : 'Import'}
+            </Button>
+          </>
+        )
+      }
+    >
+      {result ? (
+        <div className="space-y-2 text-sm" data-testid="import-result">
+          <div>
+            {result.added.length ? `Added ${result.added.map((s) => s.name).join(', ')}.` : 'No servers were added.'}{' '}
+            {result.added.length > 0 && !paste && 'They start switched off for new chats, and every tool asks before it runs.'}
+          </div>
+          {result.skipped.length > 0 && (
+            <div className="space-y-0.5 text-xs text-muted">
+              <div>Left out:</div>
+              {result.skipped.map((line) => (
+                <div key={line}>{line}</div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : paste ? (
+        <TextArea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          rows={10}
+          autoFocus
+          aria-label="Server JSON"
+          placeholder={
+            '{\n  "mcpServers": {\n    "filesystem": {\n      "command": "npx",\n      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/you/Desktop"]\n    }\n  }\n}'
+          }
+          className="font-mono text-[12px]"
+        />
+      ) : (
+        <div className="space-y-2 text-sm">
+          <div>
+            {source.servers.length} local {source.servers.length === 1 ? 'server' : 'servers'}: {source.servers.join(', ')}.
+          </div>
+          {source.unsupported > 0 && (
+            <div className="text-xs text-muted">
+              {source.unsupported} remote {source.unsupported === 1 ? 'server is' : 'servers are'} left out: Kiln runs local servers only.
+            </div>
+          )}
+          <div className="text-xs text-muted">
+            Their environment variables are copied too, and stored encrypted with your Mac&apos;s keychain. Servers whose names Kiln already
+            has are skipped. Imported servers start switched off for new chats.
+          </div>
+        </div>
+      )}
+    </Modal>
   )
 }
 
@@ -227,8 +391,11 @@ function ServerDialog({ server, onClose }: { server: McpServer | null; onClose: 
 export function ToolsTab() {
   const { mcpServers, mcpStatus, loadMcp } = useApp()
   const [editing, setEditing] = useState<McpServer | 'new' | null>(null)
+  const [importing, setImporting] = useState<McpImportSource | 'paste' | null>(null)
+  const [sources, setSources] = useState<McpImportSource[]>([])
   useEffect(() => {
     void loadMcp()
+    void api.mcp.importSources().then(setSources).catch(reportError)
   }, [loadMcp])
 
   return (
@@ -241,11 +408,22 @@ export function ToolsTab() {
         {mcpServers.map((s) => (
           <ServerRow key={s.id} server={s} status={mcpStatus.find((x) => x.id === s.id)} onEdit={() => setEditing(s)} />
         ))}
-        <Button size="sm" onClick={() => setEditing('new')}>
-          <Plus className="size-3.5" /> Add server
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" onClick={() => setEditing('new')}>
+            <Plus className="size-3.5" /> Add server
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setImporting('paste')}>
+            <ClipboardPaste className="size-3.5" /> Paste JSON
+          </Button>
+          {sources.map((src) => (
+            <Button key={src.id} size="sm" variant="ghost" onClick={() => setImporting(src)}>
+              <Download className="size-3.5" /> Import from {src.label}
+            </Button>
+          ))}
+        </div>
       </Section>
       {editing && <ServerDialog server={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
+      {importing && <ImportDialog source={importing} onClose={() => setImporting(null)} />}
     </>
   )
 }
