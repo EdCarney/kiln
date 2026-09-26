@@ -556,7 +556,8 @@ writeFileSync(
     )
     check('debugger lists every request in the turn, in order', sequence, list.replace(/\s+/g, ' ').slice(0, 160))
     await dbg.locator('button', { hasText: '→ web_search' }).first().click()
-    await dbg.waitForSelector('text=Tools offered')
+    // The trace shown before the click (the title) has a Tools offered row too: wait for the clicked one.
+    await dbg.waitForFunction(() => /web_search/.test(document.querySelector('dl')?.textContent ?? ''), null, { timeout: 10000 })
     const overview = await dbg.locator('dl').first().innerText()
     check(
       'overview shows the model, think setting and tools offered',
@@ -590,6 +591,10 @@ writeFileSync(
       cursors.link === 'pointer' && cursors.text === 'auto',
       JSON.stringify(cursors)
     )
+    // Just after the debugger window closes: bring Kiln back to the front and move the pointer onto the link from
+    // outside it, so the hover card's pointerenter fires.
+    await win.bringToFront()
+    await win.mouse.move(5, 5)
     await newsLink.hover()
     const card = win.locator('[data-testid="link-card"]')
     await card.waitFor({ timeout: 5000 })
