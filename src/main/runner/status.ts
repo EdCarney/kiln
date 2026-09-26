@@ -8,7 +8,7 @@ export async function runnerStatus(): Promise<RunnerStatus> {
   const reason = !sandbox.ok
     ? sandbox.reason
     : !python
-      ? 'Python 3 was not found on your PATH. Install it (for example with Homebrew: brew install python) and restart Kiln.'
+      ? 'Python 3 was not found on your PATH. Install it (for example with Homebrew: brew install python) and restart Ollmost.'
       : null
   return { available: !reason, reason, python, venv: baseVenvDir(), venvExists: venvsExist() }
 }

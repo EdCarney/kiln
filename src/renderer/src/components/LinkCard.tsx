@@ -88,7 +88,7 @@ export function LinkCard({
           align="start"
           sideOffset={6}
           collisionPadding={12}
-          className="z-50 w-[320px] overflow-hidden rounded-kiln border border-line bg-panel font-ui text-fg shadow-[0_8px_30px_rgba(0,0,0,0.18)]"
+          className="z-50 w-[320px] overflow-hidden rounded-ollmost border border-line bg-panel font-ui text-fg shadow-[0_8px_30px_rgba(0,0,0,0.18)]"
           data-testid="link-card"
         >
           {rich?.image && (

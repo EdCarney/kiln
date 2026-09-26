@@ -1,6 +1,6 @@
 {
-  "name": "kiln",
-  "productName": "Kiln",
+  "name": "ollmost",
+  "productName": "Ollmost",
   "version": "0.1.0",
   "private": true,
   "description": "A Claude-desktop-style chat app for Ollama models",

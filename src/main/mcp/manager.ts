@@ -9,12 +9,12 @@ import { getServer, getServerConfig, listServers, reviewTrust } from './config'
 import { ProcessTransport } from './transport'
 
 // Connections to the MCP servers, started when a chat that uses one opens or sends. A server keeps running until
-// it's stopped, edited or removed, or Kiln quits. One that exits on its own is marked with the reason, and the next
+// it's stopped, edited or removed, or Ollmost quits. One that exits on its own is marked with the reason, and the next
 // use tries again.
 
 const CONNECT_TIMEOUT_MS = 60_000 // the first `npx -y` can download the server
 const CALL_TIMEOUT_MS = 120_000 // reset whenever the server reports progress
-const CLIENT = { name: 'Kiln', version: '1.0' }
+const CLIENT = { name: 'Ollmost', version: '1.0' }
 
 interface Connection {
   status: McpStatus
@@ -153,7 +153,7 @@ async function start(id: string, c: Connection, generation: number): Promise<voi
     const names = config.missingEnv.join(', ')
     return update(c, {
       state: 'error',
-      error: `Kiln couldn't read ${names}. Enter ${config.missingEnv.length === 1 ? 'it' : 'them'} again in Settings → Tools.`,
+      error: `Ollmost couldn't read ${names}. Enter ${config.missingEnv.length === 1 ? 'it' : 'them'} again in Settings → Tools.`,
       tools: [],
       serverInfo: null
     })

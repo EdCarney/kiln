@@ -67,9 +67,9 @@ export const UserMessage = memo(function UserMessage({
             a.kind === 'image' ? (
               <img
                 key={a.id}
-                src={`kiln://attachment/${a.id}`}
+                src={`ollmost://attachment/${a.id}`}
                 alt={a.name}
-                className="max-h-48 max-w-64 rounded-kiln border border-line object-cover"
+                className="max-h-48 max-w-64 rounded-ollmost border border-line object-cover"
               />
             ) : (
               <div key={a.id} className="flex h-12 max-w-56 items-center gap-2 rounded-lg border border-line bg-panel px-2.5">
@@ -111,7 +111,7 @@ export const UserMessage = memo(function UserMessage({
         </div>
       ) : (
         message.content && (
-          <div className="selectable max-w-[85%] whitespace-pre-wrap rounded-kiln-lg bg-bubble px-4 py-2.5 text-[15px] leading-relaxed">
+          <div className="selectable max-w-[85%] whitespace-pre-wrap rounded-ollmost-lg bg-bubble px-4 py-2.5 text-[15px] leading-relaxed">
             {message.content}
           </div>
         )
@@ -260,7 +260,7 @@ function ToolCard({ e }: { e: ToolEvent }) {
         {expandable && <ChevronRight className={cn('size-3 shrink-0 transition-transform', open && 'rotate-90')} />}
       </button>
       {open && (
-        <div className="mt-1.5 space-y-2 rounded-kiln border border-line bg-panel p-2.5 font-ui text-xs">
+        <div className="mt-1.5 space-y-2 rounded-ollmost border border-line bg-panel p-2.5 font-ui text-xs">
           {args && <Detail label="Arguments" text={args} />}
           {e.preview && <Detail label={e.ok ? 'Result' : 'Error'} text={e.preview} />}
         </div>
@@ -285,9 +285,9 @@ function RunFiles({ e, conversationId }: { e: ToolEvent; conversationId: string 
         .map((f) => (
           <img
             key={`img-${f.path}`}
-            src={`kiln://workspace/${conversationId}/${f.path.split('/').map(encodeURIComponent).join('/')}`}
+            src={`ollmost://workspace/${conversationId}/${f.path.split('/').map(encodeURIComponent).join('/')}`}
             alt={f.path}
-            className="max-h-72 max-w-full rounded-kiln border border-line bg-white"
+            className="max-h-72 max-w-full rounded-ollmost border border-line bg-white"
           />
         ))}
       <div className="flex flex-wrap gap-1.5">
@@ -341,7 +341,7 @@ function CodeRunCard({ e, conversationId }: { e: ToolEvent; conversationId: stri
           {!e.pending && <ChevronRight className={cn('size-3 shrink-0 transition-transform', open && 'rotate-90')} />}
         </button>
         {open && (
-          <div className="mt-1.5 space-y-2 rounded-kiln border border-line bg-panel p-2.5 font-ui text-xs">
+          <div className="mt-1.5 space-y-2 rounded-ollmost border border-line bg-panel p-2.5 font-ui text-xs">
             <div className="max-h-80 overflow-auto">
               <CodeBlock code={String(e.args.code ?? '')} lang={language} />
             </div>
@@ -369,7 +369,7 @@ function ApprovalCard({ e, conversationId, messageId, index }: { e: ToolEvent; c
     }
   }
   return (
-    <div data-testid="approval-card" className="basis-full rounded-kiln border border-warn/50 bg-panel p-3 font-ui text-[13px]">
+    <div data-testid="approval-card" className="basis-full rounded-ollmost border border-warn/50 bg-panel p-3 font-ui text-[13px]">
       <div className="flex items-center gap-2">
         <Hand className="size-4 shrink-0 text-warn" />
         <span className="min-w-0 flex-1">
@@ -405,7 +405,7 @@ function ApprovalCard({ e, conversationId, messageId, index }: { e: ToolEvent; c
       )}
       {e.everyTime && (
         <div className="mt-2 text-xs text-muted">
-          In a chat with tools on or files shared, Kiln asks before every page it fetches: a web address can carry data out.
+          In a chat with tools on or files shared, Ollmost asks before every page it fetches: a web address can carry data out.
         </div>
       )}
       <div className="mt-3 flex flex-wrap justify-end gap-2">
@@ -564,7 +564,7 @@ export const AssistantMessage = memo(function AssistantMessage({
       {working && !content && !thinking && <div className="stream-caret h-6" aria-label="Waiting for reply" />}
       {working && content && <span className="stream-caret" />}
       {message.error && !streaming && (
-        <div className="mt-2 flex items-start gap-2 rounded-kiln border border-danger/40 bg-[color-mix(in_srgb,var(--k-danger)_8%,transparent)] px-3 py-2.5 text-sm">
+        <div className="mt-2 flex items-start gap-2 rounded-ollmost border border-danger/40 bg-[color-mix(in_srgb,var(--o-danger)_8%,transparent)] px-3 py-2.5 text-sm">
           <TriangleAlert className="mt-0.5 size-4 shrink-0 text-danger" />
           <div className="flex-1 selectable">{message.error}</div>
           {isLast && (
@@ -575,7 +575,7 @@ export const AssistantMessage = memo(function AssistantMessage({
         </div>
       )}
       {!streaming && !message.error && message.stats?.doneReason === 'length' && (
-        <div className="mt-2 flex items-start gap-2 rounded-kiln border border-warn/40 bg-[color-mix(in_srgb,var(--k-warn)_8%,transparent)] px-3 py-2.5 text-sm">
+        <div className="mt-2 flex items-start gap-2 rounded-ollmost border border-warn/40 bg-[color-mix(in_srgb,var(--o-warn)_8%,transparent)] px-3 py-2.5 text-sm">
           <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warn" />
           <div className="flex-1">This reply hit the model's length limit and was cut off.</div>
           {isLast && (
@@ -586,7 +586,7 @@ export const AssistantMessage = memo(function AssistantMessage({
         </div>
       )}
       {!streaming && message.stats?.unavailableTools?.length ? (
-        <div className="mt-2 flex items-start gap-2 rounded-kiln border border-line px-3 py-2 text-xs text-muted">
+        <div className="mt-2 flex items-start gap-2 rounded-ollmost border border-line px-3 py-2 text-xs text-muted">
           <TriangleAlert className="mt-px size-3.5 shrink-0 text-warn" />
           <div className="selectable space-y-0.5">
             <div>Some of this chat's tools weren't available for this reply:</div>
@@ -597,7 +597,7 @@ export const AssistantMessage = memo(function AssistantMessage({
         </div>
       ) : null}
       {!streaming && !message.error && message.stats?.doneReason !== 'length' && message.stats?.toolRoundLimit && (
-        <div className="mt-2 flex items-start gap-2 rounded-kiln border border-warn/40 bg-[color-mix(in_srgb,var(--k-warn)_8%,transparent)] px-3 py-2.5 text-sm">
+        <div className="mt-2 flex items-start gap-2 rounded-ollmost border border-warn/40 bg-[color-mix(in_srgb,var(--o-warn)_8%,transparent)] px-3 py-2.5 text-sm">
           <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warn" />
           <div className="flex-1">
             The model was still using tools after {message.stats.toolRoundLimit} rounds, so it had to answer with what it had.

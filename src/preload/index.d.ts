@@ -1,8 +1,8 @@
-import type { KilnApi } from '../shared/ipc'
+import type { OllmostApi } from '../shared/ipc'
 
 declare global {
   interface Window {
-    kiln: KilnApi
+    ollmost: OllmostApi
   }
 }
 

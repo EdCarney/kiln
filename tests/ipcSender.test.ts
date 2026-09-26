@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { type AppPages, isAppFrame } from '../src/main/ipcSender'
 
-const packaged: AppPages = { file: 'file:///Applications/Kiln.app/Contents/Resources/app.asar/out/renderer/index.html', devOrigin: null }
-const dev: AppPages = { file: 'file:///Users/me/kiln/out/renderer/index.html', devOrigin: 'http://localhost:5173' }
+const packaged: AppPages = { file: 'file:///Applications/Ollmost.app/Contents/Resources/app.asar/out/renderer/index.html', devOrigin: null }
+const dev: AppPages = { file: 'file:///Users/me/ollmost/out/renderer/index.html', devOrigin: 'http://localhost:5173' }
 const top = (url: string) => ({ url, parent: null })
 
 describe('isAppFrame', () => {
@@ -36,8 +36,8 @@ describe('isAppFrame', () => {
   })
 
   it('compares paths exactly, spaces and all', () => {
-    const spaced: AppPages = { file: 'file:///Users/me/My%20Apps/Kiln.app/out/renderer/index.html', devOrigin: null }
-    expect(isAppFrame(top('file:///Users/me/My%20Apps/Kiln.app/out/renderer/index.html'), spaced)).toBe(true)
-    expect(isAppFrame(top('file:///Users/me/My%20Apps/Kiln.app/out/renderer/other.html'), spaced)).toBe(false)
+    const spaced: AppPages = { file: 'file:///Users/me/My%20Apps/Ollmost.app/out/renderer/index.html', devOrigin: null }
+    expect(isAppFrame(top('file:///Users/me/My%20Apps/Ollmost.app/out/renderer/index.html'), spaced)).toBe(true)
+    expect(isAppFrame(top('file:///Users/me/My%20Apps/Ollmost.app/out/renderer/other.html'), spaced)).toBe(false)
   })
 })

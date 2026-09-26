@@ -60,7 +60,7 @@ export function ChatsView() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search your chats…"
-              className="h-11 w-full rounded-kiln border border-line bg-panel pl-9 pr-3 text-sm outline-none placeholder:text-subtle focus:border-line-strong focus:ring-2 focus:ring-accent-soft"
+              className="h-11 w-full rounded-ollmost border border-line bg-panel pl-9 pr-3 text-sm outline-none placeholder:text-subtle focus:border-line-strong focus:ring-2 focus:ring-accent-soft"
             />
           </div>
 

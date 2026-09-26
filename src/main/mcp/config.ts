@@ -24,7 +24,7 @@ interface StoredServer extends Omit<McpServer, 'envKeys' | 'missingEnv'> {
   trusted?: Record<string, string>
 }
 
-/** A server as Kiln starts it: the stored definition with its environment decrypted. */
+/** A server as Ollmost starts it: the stored definition with its environment decrypted. */
 export interface ServerConfig extends McpServer {
   env: Record<string, string>
 }
@@ -63,7 +63,8 @@ const publicView = (s: StoredServer, env = decryptEnv(s.env)): McpServer => {
 
 function encryptEnv(env: Record<string, string>): string | null {
   if (!Object.keys(env).length) return null
-  if (!safeStorage.isEncryptionAvailable()) throw new Error("OS encryption is unavailable, so Kiln can't store this server's environment.")
+  if (!safeStorage.isEncryptionAvailable())
+    throw new Error("OS encryption is unavailable, so Ollmost can't store this server's environment.")
   return safeStorage.encryptString(JSON.stringify(env)).toString('base64')
 }
 
@@ -252,7 +253,7 @@ export function reviewTrust(id: string, current: ReadonlyMap<string, string>): s
 // ---- Importing --------------------------------------------------------------
 
 /**
- * Add servers read from JSON (pasted, or another app's config), skipping names Kiln already has. Each gets every
+ * Add servers read from JSON (pasted, or another app's config), skipping names Ollmost already has. Each gets every
  * tool on Ask; `defaultOn` decides whether new chats start with it.
  */
 export function addImported(servers: ImportedServer[], defaultOn: boolean, skipped: string[] = []): McpImportResult {
@@ -261,7 +262,7 @@ export function addImported(servers: ImportedServer[], defaultOn: boolean, skipp
   for (const server of servers) {
     const taken = listServers().some((s) => s.name.toLowerCase() === server.name.toLowerCase())
     if (taken) {
-      notes.push(`${server.name}: Kiln already has a server with that name`)
+      notes.push(`${server.name}: Ollmost already has a server with that name`)
       continue
     }
     try {
@@ -273,16 +274,16 @@ export function addImported(servers: ImportedServer[], defaultOn: boolean, skipp
   return { added, skipped: notes }
 }
 
-/** Other apps' MCP configs Kiln can copy servers from. Tests point these elsewhere. */
+/** Other apps' MCP configs Ollmost can copy servers from. Tests point these elsewhere. */
 const IMPORT_FILES: Array<{ id: McpImportSource['id']; label: string; path: () => string }> = [
   {
     id: 'claude-desktop',
     label: 'Claude Desktop',
     path: () =>
-      process.env.KILN_CLAUDE_DESKTOP_CONFIG ?? join(homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json')
+      process.env.OLLMOST_CLAUDE_DESKTOP_CONFIG ?? join(homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json')
   },
   // Claude Code keeps user-wide servers at the top level of ~/.claude.json (project ones are left alone).
-  { id: 'claude-code', label: 'Claude Code', path: () => process.env.KILN_CLAUDE_CODE_CONFIG ?? join(homedir(), '.claude.json') }
+  { id: 'claude-code', label: 'Claude Code', path: () => process.env.OLLMOST_CLAUDE_CODE_CONFIG ?? join(homedir(), '.claude.json') }
 ]
 
 async function readImportFile(path: string) {
@@ -296,7 +297,7 @@ async function readImportFile(path: string) {
   }
 }
 
-/** Configs on this Mac that list MCP servers, with how many Kiln could add. */
+/** Configs on this Mac that list MCP servers, with how many Ollmost could add. */
 export async function importSources(): Promise<McpImportSource[]> {
   const found = await Promise.all(
     IMPORT_FILES.map(async (f) => {
@@ -308,7 +309,7 @@ export async function importSources(): Promise<McpImportSource[]> {
   return found.filter((f): f is McpImportSource => !!f)
 }
 
-/** Copy another app's servers into Kiln (a one-time copy, not a link). They start switched off for new chats. */
+/** Copy another app's servers into Ollmost (a one-time copy, not a link). They start switched off for new chats. */
 export async function importFrom(id: McpImportSource['id']): Promise<McpImportResult> {
   const file = IMPORT_FILES.find((f) => f.id === id)
   const parsed = file ? await readImportFile(file.path()) : null

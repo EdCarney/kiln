@@ -20,12 +20,12 @@ function capabilities(web: WebStatus, grants: readonly ToolGrant[]): string {
   const [lacks, cant] = code
     ? ['no internet access', 'open links, browse or search the web']
     : ['no internet access and no code execution', 'open links, browse, search the web or run code']
-  return `Kiln gives you ${lacks} right now: you can't ${cant}, and the only tools you have are any listed with this request. When something needs live or online information, say you can't fetch it and offer what you can do instead. Never claim to have fetched, searched or looked something up.${hint}`
+  return `Ollmost gives you ${lacks} right now: you can't ${cant}, and the only tools you have are any listed with this request. When something needs live or online information, say you can't fetch it and offer what you can do instead. Never claim to have fetched, searched or looked something up.${hint}`
 }
 
 export function basePrompt(opts: { userName: string; model: string; date: Date; web: WebStatus; grants: readonly ToolGrant[] }): string {
   const who = opts.userName ? `You are talking with ${opts.userName}.` : ''
-  return `You are a helpful, thoughtful assistant running inside Kiln, a desktop chat app. ${who}
+  return `You are a helpful, thoughtful assistant running inside Ollmost, a desktop chat app. ${who}
 The current date is ${opts.date.toDateString()}. You are the model "${opts.model}".
 
 ${capabilities(opts.web, opts.grants)}

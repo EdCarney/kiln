@@ -145,7 +145,7 @@ export function ProjectView({ id }: { id: string }) {
         </div>
 
         <aside className="w-80 shrink-0 space-y-4">
-          <section className="rounded-kiln-lg border border-line bg-panel p-4">
+          <section className="rounded-ollmost-lg border border-line bg-panel p-4">
             <div className="mb-2 flex items-center justify-between">
               <h2 className="text-sm font-medium">Instructions</h2>
               <IconButton
@@ -164,7 +164,7 @@ export function ProjectView({ id }: { id: string }) {
             </p>
           </section>
 
-          <section className="rounded-kiln-lg border border-line bg-panel p-4">
+          <section className="rounded-ollmost-lg border border-line bg-panel p-4">
             <div className="mb-2 flex items-center justify-between">
               <h2 className="text-sm font-medium">Knowledge</h2>
               <IconButton label="Add files" size="sm" onClick={addFiles} disabled={uploading}>

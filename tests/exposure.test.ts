@@ -13,7 +13,7 @@ const { previewsAllowed } = await import('../src/main/chat/exposure')
 const { paths } = await import('../src/main/paths')
 
 beforeAll(() => {
-  paths.data = mkdtempSync(join(tmpdir(), 'kiln-exposure-'))
+  paths.data = mkdtempSync(join(tmpdir(), 'ollmost-exposure-'))
   openDatabase(':memory:')
 })
 

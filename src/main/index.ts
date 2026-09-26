@@ -28,13 +28,13 @@ import { stopAll as stopServers } from './mcp/manager'
 import { hasChildren, stopAllGroups, trackProcesses } from './processes'
 import { handleProtocols, registerSchemes } from './protocols'
 import { codeMayBeRunning } from './runner/lock'
-import { KILN_DIR } from './runner/sandbox'
+import { OLLMOST_DIR } from './runner/sandbox'
 import { clearPreviews, clearPreviewsSync, sweepWorkspaces } from './runner/workspace'
 import { refreshPrices } from './usage/pricing'
 
-app.setName('Kiln')
-// Tests and experiments can point Kiln at a throwaway data folder.
-if (process.env.KILN_USER_DATA) app.setPath('userData', process.env.KILN_USER_DATA)
+app.setName('Ollmost')
+// Tests and experiments can point Ollmost at a throwaway data folder.
+if (process.env.OLLMOST_USER_DATA) app.setPath('userData', process.env.OLLMOST_USER_DATA)
 // Before anything can create the data folder: move the old app's there, if it left one (#60).
 const dataDir = app.getPath('userData')
 const move = moveKilnData(dataDir)
@@ -161,21 +161,21 @@ app.whenReady().then(async () => {
   if (migrating) renameDatabase(paths.data, paths.db)
   // Before anything starts a process: record live process groups, and stop any a crashed run left behind.
   void trackProcesses(join(paths.data, 'processes.json')).then((n) => {
-    if (n) console.warn(`Kiln: stopped ${n} process ${n === 1 ? 'group' : 'groups'} left running by an earlier session`)
+    if (n) console.warn(`Ollmost: stopped ${n} process ${n === 1 ? 'group' : 'groups'} left running by an earlier session`)
   })
   openDatabase(paths.db)
-  if (migrating) await finishMigration(paths.data, KILN_DIR)
-  // Ask the login shell for its PATH now, so a tool Kiln starts later doesn't wait for it.
+  if (migrating) await finishMigration(paths.data, OLLMOST_DIR)
+  // Ask the login shell for its PATH now, so a tool Ollmost starts later doesn't wait for it.
   void childPath().then((path) => {
-    if (process.env.KILN_DEBUG)
+    if (process.env.OLLMOST_DEBUG)
       appendFileSync(join(paths.data, 'debug.log'), `${new Date().toISOString()} PATH for spawned tools: ${path}\n`)
   })
   // Code a run left running before a crash (it can outlive its process group) is stopped (#73), and the folders of
   // chats deleted while their code couldn't be stopped go.
   void clearPreviews()
   void sweepWorkspaces({ removeOrphans: true })
-    .then((n) => n && console.warn(`Kiln: stopped ${n} ${n === 1 ? 'process' : 'processes'} code left running in an earlier session`))
-    .catch((err) => console.warn("Kiln: couldn't check for code left running:", err))
+    .then((n) => n && console.warn(`Ollmost: stopped ${n} ${n === 1 ? 'process' : 'processes'} code left running in an earlier session`))
+    .catch((err) => console.warn("Ollmost: couldn't check for code left running:", err))
   markInterruptedReplies()
   settleStaleTraces()
   await removeFiles(staleAttachmentPaths(Date.now() - 24 * 60 * 60 * 1000))
@@ -194,7 +194,7 @@ app.whenReady().then(async () => {
 
 /**
  * Tool calls waiting for approval show on the Dock icon, since they may be in a chat you aren't looking at. A new one
- * bounces the icon once while Kiln is in the background.
+ * bounces the icon once while Ollmost is in the background.
  */
 function watchApprovals(): void {
   let shown = 0
@@ -218,7 +218,7 @@ async function waitThenRelaunch(): Promise<void> {
 }
 
 // Quitting mid-reply: stop the stream (which denies any call waiting for approval) and save what arrived, then stop
-// the processes Kiln started, before the process exits. Anything still running after that is killed on exit.
+// the processes Ollmost started, before the process exits. Anything still running after that is killed on exit.
 let quitting = false
 app.on('before-quit', (event) => {
   if (quitting || (!isReplying() && !hasChildren() && !codeMayBeRunning())) return
@@ -231,7 +231,7 @@ app.on('before-quit', (event) => {
     .then(() => stopAllGroups())
     // Code a run left running outside its process group (#73); normally each run's end already stopped it.
     .then(() => sweepWorkspaces())
-    .catch((err) => console.warn('Kiln: while quitting:', err))
+    .catch((err) => console.warn('Ollmost: while quitting:', err))
   void Promise.race([stopped, timeout]).finally(() => app.quit())
 })
 

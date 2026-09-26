@@ -2,62 +2,62 @@
 
 /*
  * Every colour, font and radius comes from CSS variables that applyTheme() writes on <html>.
- * `@theme inline` maps them to Tailwind utilities (bg-canvas, text-muted, rounded-kiln…),
+ * `@theme inline` maps them to Tailwind utilities (bg-canvas, text-muted, rounded-ollmost…),
  * so a theme switch is a handful of style.setProperty calls — no re-render.
  */
 @theme inline {
-  --color-canvas: var(--k-canvas);
-  --color-sidebar: var(--k-sidebar);
-  --color-panel: var(--k-panel);
-  --color-hover: var(--k-hover);
-  --color-bubble: var(--k-bubble);
-  --color-code: var(--k-code);
-  --color-fg: var(--k-fg);
-  --color-muted: var(--k-muted);
-  --color-subtle: var(--k-subtle);
-  --color-line: var(--k-line);
-  --color-line-strong: var(--k-lineStrong);
-  --color-accent: var(--k-accent);
-  --color-accent-fg: var(--k-accentFg);
-  --color-accent-soft: var(--k-accentSoft);
-  --color-danger: var(--k-danger);
-  --color-danger-fg: var(--k-dangerFg);
-  --color-success: var(--k-success);
-  --color-warn: var(--k-warn);
+  --color-canvas: var(--o-canvas);
+  --color-sidebar: var(--o-sidebar);
+  --color-panel: var(--o-panel);
+  --color-hover: var(--o-hover);
+  --color-bubble: var(--o-bubble);
+  --color-code: var(--o-code);
+  --color-fg: var(--o-fg);
+  --color-muted: var(--o-muted);
+  --color-subtle: var(--o-subtle);
+  --color-line: var(--o-line);
+  --color-line-strong: var(--o-lineStrong);
+  --color-accent: var(--o-accent);
+  --color-accent-fg: var(--o-accentFg);
+  --color-accent-soft: var(--o-accentSoft);
+  --color-danger: var(--o-danger);
+  --color-danger-fg: var(--o-dangerFg);
+  --color-success: var(--o-success);
+  --color-warn: var(--o-warn);
 
-  --font-ui: var(--k-font-ui);
-  --font-reading: var(--k-font-reading);
-  --font-mono: var(--k-font-mono);
+  --font-ui: var(--o-font-ui);
+  --font-reading: var(--o-font-reading);
+  --font-mono: var(--o-font-mono);
 
-  --radius-kiln: var(--k-radius);
-  --radius-kiln-lg: calc(var(--k-radius) * 1.5);
+  --radius-ollmost: var(--o-radius);
+  --radius-ollmost-lg: calc(var(--o-radius) * 1.5);
 }
 
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
   /* Fallbacks until the theme loads (Clay light). */
-  --k-canvas: #faf9f5;
-  --k-fg: #141413;
-  --k-font-ui: 'Inter Variable', system-ui, sans-serif;
-  --k-font-reading: 'Source Serif 4 Variable', Georgia, serif;
-  --k-font-mono: 'JetBrains Mono Variable', ui-monospace, monospace;
-  --k-radius: 12px;
-  --k-font-size: 16px;
-  --k-chat-width: 768px;
-  --k-response-font: var(--k-font-reading);
+  --o-canvas: #faf9f5;
+  --o-fg: #141413;
+  --o-font-ui: 'Inter Variable', system-ui, sans-serif;
+  --o-font-reading: 'Source Serif 4 Variable', Georgia, serif;
+  --o-font-mono: 'JetBrains Mono Variable', ui-monospace, monospace;
+  --o-radius: 12px;
+  --o-font-size: 16px;
+  --o-chat-width: 768px;
+  --o-response-font: var(--o-font-reading);
 
-  --shiki-foreground: var(--k-fg);
+  --shiki-foreground: var(--o-fg);
   --shiki-background: transparent;
-  --shiki-token-keyword: var(--k-synKeyword);
-  --shiki-token-string: var(--k-synString);
-  --shiki-token-string-expression: var(--k-synString);
-  --shiki-token-comment: var(--k-synComment);
-  --shiki-token-function: var(--k-synFunction);
-  --shiki-token-constant: var(--k-synConstant);
-  --shiki-token-parameter: var(--k-fg);
-  --shiki-token-punctuation: var(--k-synPunctuation);
-  --shiki-token-link: var(--k-synFunction);
+  --shiki-token-keyword: var(--o-synKeyword);
+  --shiki-token-string: var(--o-synString);
+  --shiki-token-string-expression: var(--o-synString);
+  --shiki-token-comment: var(--o-synComment);
+  --shiki-token-function: var(--o-synFunction);
+  --shiki-token-constant: var(--o-synConstant);
+  --shiki-token-parameter: var(--o-fg);
+  --shiki-token-punctuation: var(--o-synPunctuation);
+  --shiki-token-link: var(--o-synFunction);
 }
 
 @layer base {
@@ -69,9 +69,9 @@
 
   body {
     margin: 0;
-    background: var(--k-canvas);
-    color: var(--k-fg);
-    font-family: var(--k-font-ui);
+    background: var(--o-canvas);
+    color: var(--o-fg);
+    font-family: var(--o-font-ui);
     font-size: 14px;
     -webkit-font-smoothing: antialiased;
     user-select: none;
@@ -105,17 +105,17 @@
   }
 
   ::selection {
-    background: var(--k-accentSoft);
+    background: var(--o-accentSoft);
   }
 
   /* Quiet scrollbars that match the theme. */
   * {
     scrollbar-width: thin;
-    scrollbar-color: var(--k-lineStrong) transparent;
+    scrollbar-color: var(--o-lineStrong) transparent;
   }
 
   :focus-visible {
-    outline: 2px solid var(--k-accent);
+    outline: 2px solid var(--o-accent);
     outline-offset: 2px;
   }
 }
@@ -123,106 +123,106 @@
 @layer components {
   /* ---- Reading typography for assistant replies and markdown artifacts ---- */
 
-  .prose-kiln {
-    font-family: var(--k-response-font);
-    font-size: var(--k-font-size);
+  .prose-ollmost {
+    font-family: var(--o-response-font);
+    font-size: var(--o-font-size);
     line-height: 1.65;
-    color: var(--k-fg);
+    color: var(--o-fg);
     overflow-wrap: anywhere;
   }
-  .prose-kiln > :first-child {
+  .prose-ollmost > :first-child {
     margin-top: 0;
   }
-  .prose-kiln > :last-child {
+  .prose-ollmost > :last-child {
     margin-bottom: 0;
   }
-  .prose-kiln p {
+  .prose-ollmost p {
     margin: 0 0 0.9em;
   }
-  .prose-kiln h1,
-  .prose-kiln h2,
-  .prose-kiln h3,
-  .prose-kiln h4 {
+  .prose-ollmost h1,
+  .prose-ollmost h2,
+  .prose-ollmost h3,
+  .prose-ollmost h4 {
     font-weight: 600;
     line-height: 1.3;
     margin: 1.4em 0 0.5em;
   }
-  .prose-kiln h1 {
+  .prose-ollmost h1 {
     font-size: 1.5em;
   }
-  .prose-kiln h2 {
+  .prose-ollmost h2 {
     font-size: 1.25em;
   }
-  .prose-kiln h3 {
+  .prose-ollmost h3 {
     font-size: 1.1em;
   }
-  .prose-kiln ul,
-  .prose-kiln ol {
+  .prose-ollmost ul,
+  .prose-ollmost ol {
     margin: 0 0 0.9em;
     padding-left: 1.5em;
   }
-  .prose-kiln ul {
+  .prose-ollmost ul {
     list-style: disc;
   }
-  .prose-kiln ol {
+  .prose-ollmost ol {
     list-style: decimal;
   }
-  .prose-kiln li {
+  .prose-ollmost li {
     margin: 0.25em 0;
   }
-  .prose-kiln li > p {
+  .prose-ollmost li > p {
     margin: 0.25em 0;
   }
-  .prose-kiln a {
-    color: var(--k-accent);
+  .prose-ollmost a {
+    color: var(--o-accent);
     text-decoration: underline;
     text-underline-offset: 2px;
   }
-  .prose-kiln blockquote {
-    border-left: 3px solid var(--k-lineStrong);
+  .prose-ollmost blockquote {
+    border-left: 3px solid var(--o-lineStrong);
     padding-left: 1em;
-    color: var(--k-muted);
+    color: var(--o-muted);
     margin: 0 0 0.9em;
   }
-  .prose-kiln hr {
+  .prose-ollmost hr {
     border: 0;
-    border-top: 1px solid var(--k-line);
+    border-top: 1px solid var(--o-line);
     margin: 1.5em 0;
   }
-  .prose-kiln :not(pre) > code {
-    font-family: var(--k-font-mono);
+  .prose-ollmost :not(pre) > code {
+    font-family: var(--o-font-mono);
     font-size: 0.85em;
-    background: var(--k-code);
-    border: 1px solid var(--k-line);
+    background: var(--o-code);
+    border: 1px solid var(--o-line);
     border-radius: 5px;
     padding: 0.1em 0.35em;
   }
-  .prose-kiln table {
+  .prose-ollmost table {
     border-collapse: collapse;
-    font-family: var(--k-font-ui);
+    font-family: var(--o-font-ui);
     font-size: 0.9em;
     width: max-content;
     max-width: 100%;
   }
-  .prose-kiln th,
-  .prose-kiln td {
-    border: 1px solid var(--k-line);
+  .prose-ollmost th,
+  .prose-ollmost td {
+    border: 1px solid var(--o-line);
     padding: 0.45em 0.75em;
     text-align: left;
     vertical-align: top;
   }
-  .prose-kiln th {
-    background: var(--k-code);
+  .prose-ollmost th {
+    background: var(--o-code);
     font-weight: 600;
   }
-  .prose-kiln .katex-display {
+  .prose-ollmost .katex-display {
     overflow-x: auto;
     overflow-y: hidden;
     padding: 0.25em 0;
   }
-  .prose-kiln img {
+  .prose-ollmost img {
     max-width: 100%;
-    border-radius: var(--k-radius);
+    border-radius: var(--o-radius);
   }
 
   /* Debugger JSON: long strings (system prompts) wrap instead of running off-screen. */
@@ -235,7 +235,7 @@
     margin: 0;
     padding: 14px 16px;
     overflow-x: auto;
-    font-family: var(--k-font-mono);
+    font-family: var(--o-font-mono);
     font-size: 13px;
     line-height: 1.6;
     background: transparent !important;
@@ -250,12 +250,12 @@
   height: 0.55em;
   margin-left: 0.25em;
   border-radius: 999px;
-  background: var(--k-accent);
+  background: var(--o-accent);
   vertical-align: middle;
-  animation: kiln-pulse 1s ease-in-out infinite;
+  animation: ollmost-pulse 1s ease-in-out infinite;
 }
 
-@keyframes kiln-pulse {
+@keyframes ollmost-pulse {
   0%,
   100% {
     opacity: 0.35;
@@ -268,15 +268,15 @@
 }
 
 .shimmer-text {
-  background: linear-gradient(90deg, var(--k-subtle) 0%, var(--k-fg) 50%, var(--k-subtle) 100%);
+  background: linear-gradient(90deg, var(--o-subtle) 0%, var(--o-fg) 50%, var(--o-subtle) 100%);
   background-size: 200% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  animation: kiln-shimmer 2s linear infinite;
+  animation: ollmost-shimmer 2s linear infinite;
 }
 
-@keyframes kiln-shimmer {
+@keyframes ollmost-shimmer {
   from {
     background-position: 100% 0;
   }
@@ -291,6 +291,6 @@
     animation: none;
   }
   .shimmer-text {
-    color: var(--k-muted);
+    color: var(--o-muted);
   }
 }

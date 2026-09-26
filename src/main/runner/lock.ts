@@ -2,10 +2,10 @@ import { basename } from 'node:path'
 import { chatVenvDir } from './python'
 import { reap } from './reaper'
 
-// Kiln works in a chat's folders outside the sandbox (getting the workspace ready, listing and marking its files,
+// Ollmost works in a chat's folders outside the sandbox (getting the workspace ready, listing and marking its files,
 // deleting it, resetting environments), so it must never do that while code that could change them runs: code could
-// swap a folder for a link between Kiln's check and its write, and Kiln would follow it (#71). Code runs in a chat's
-// folders two ways: a run in progress, or a process a run left behind (#73). So Kiln's work in a workspace goes inside
+// swap a folder for a link between Ollmost's check and its write, and Ollmost would follow it (#71). Code runs in a chat's
+// folders two ways: a run in progress, or a process a run left behind (#73). So Ollmost's work in a workspace goes inside
 // its lock (quiesce): no run in progress, leftovers stopped first, and no run starting until the work is done (#76).
 
 /** Workspaces with code running in them now, by folder (a count: a venv is made in the sandbox before a run). */
@@ -70,7 +70,7 @@ export async function codeEnded(workspace: string): Promise<void> {
   try {
     await exclusive([workspace], () => check([workspace]))
   } catch (err) {
-    console.warn(`Kiln: couldn't stop code left running in ${workspace}:`, err)
+    console.warn(`Ollmost: couldn't stop code left running in ${workspace}:`, err)
   }
 }
 

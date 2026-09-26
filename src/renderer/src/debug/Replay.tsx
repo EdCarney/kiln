@@ -72,7 +72,7 @@ export function Replay({ trace, conversationId }: { trace: TraceDetail; conversa
       <div className="min-h-0 overflow-y-auto">
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-subtle">Result</h3>
         {error && (
-          <div className="flex gap-2 rounded-kiln border border-danger/40 p-3 text-[13px] text-danger">
+          <div className="flex gap-2 rounded-ollmost border border-danger/40 p-3 text-[13px] text-danger">
             <TriangleAlert className="mt-0.5 size-4 shrink-0" /> <span className="selectable">{error}</span>
           </div>
         )}
@@ -86,7 +86,7 @@ export function Replay({ trace, conversationId }: { trace: TraceDetail; conversa
             {result.response.thinking && (
               <div>
                 <div className="mb-1 text-[11px] font-medium text-subtle">Thinking</div>
-                <pre className="selectable whitespace-pre-wrap rounded-kiln border border-line bg-code p-3 font-mono text-[12px] text-muted">
+                <pre className="selectable whitespace-pre-wrap rounded-ollmost border border-line bg-code p-3 font-mono text-[12px] text-muted">
                   {result.response.thinking}
                 </pre>
               </div>
@@ -95,7 +95,7 @@ export function Replay({ trace, conversationId }: { trace: TraceDetail; conversa
               <div className="mb-1 flex items-center justify-between text-[11px] font-medium text-subtle">
                 Content {result.response.content && <CopyButton text={result.response.content} />}
               </div>
-              <pre className="selectable whitespace-pre-wrap rounded-kiln border border-line bg-code p-3 font-mono text-[12px] leading-relaxed">
+              <pre className="selectable whitespace-pre-wrap rounded-ollmost border border-line bg-code p-3 font-mono text-[12px] leading-relaxed">
                 {result.response.content || '(empty)'}
               </pre>
             </div>

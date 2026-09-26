@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-// The lock that keeps Kiln's work in a chat's folders and the chat's code apart (#71, #73, #76), with the check for
+// The lock that keeps Ollmost's work in a chat's folders and the chat's code apart (#71, #73, #76), with the check for
 // leftover code (a macOS sandbox query, reaper.ts) replaced by a mock.
 
 vi.mock('electron', () => ({ app: { getPath: () => '' }, safeStorage: { isEncryptionAvailable: () => false } }))

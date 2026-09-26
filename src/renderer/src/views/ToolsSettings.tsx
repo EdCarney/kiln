@@ -26,7 +26,7 @@ const tokens = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(
 
 function stateText(server: McpServer, status: McpStatus | undefined): string {
   if (server.missingEnv.length)
-    return `Needs ${server.missingEnv.join(', ')} again: Kiln couldn't read the saved values. Edit the server to enter them.`
+    return `Needs ${server.missingEnv.join(', ')} again: Ollmost couldn't read the saved values. Edit the server to enter them.`
   if (!status || status.state === 'stopped') return 'Not running. It starts when a chat uses it.'
   if (status.state === 'starting') return 'Starting…'
   if (status.state === 'error') return status.error ?? "Couldn't start."
@@ -82,7 +82,7 @@ function ServerRow({ server, status, onEdit }: { server: McpServer; status: McpS
   }
 
   return (
-    <div data-testid="mcp-server" className="rounded-kiln border border-line p-3">
+    <div data-testid="mcp-server" className="rounded-ollmost border border-line p-3">
       <div className="flex items-start gap-3">
         <span className={cn('mt-1.5 size-2 shrink-0 rounded-full', DOT[state])} aria-label={state} />
         <div className="min-w-0 flex-1">
@@ -199,7 +199,7 @@ function ImportDialog({ source, onClose }: { source: McpImportSource | 'paste'; 
       description={
         paste
           ? 'The snippet from a server’s README, like {"mcpServers": {"name": {"command": "npx", "args": [...]}}}.'
-          : `Copies the local servers in ${source.path} into Kiln. It’s a one-time copy: later changes there don’t reach Kiln.`
+          : `Copies the local servers in ${source.path} into Ollmost. It’s a one-time copy: later changes there don’t reach Ollmost.`
       }
       wide
       footer={
@@ -253,12 +253,13 @@ function ImportDialog({ source, onClose }: { source: McpImportSource | 'paste'; 
           </div>
           {source.unsupported > 0 && (
             <div className="text-xs text-muted">
-              {source.unsupported} remote {source.unsupported === 1 ? 'server is' : 'servers are'} left out: Kiln runs local servers only.
+              {source.unsupported} remote {source.unsupported === 1 ? 'server is' : 'servers are'} left out: Ollmost runs local servers
+              only.
             </div>
           )}
           <div className="text-xs text-muted">
-            Their environment variables are copied too, and stored encrypted with your Mac&apos;s keychain. Servers whose names Kiln already
-            has are skipped. Imported servers start switched off for new chats.
+            Their environment variables are copied too, and stored encrypted with your Mac&apos;s keychain. Servers whose names Ollmost
+            already has are skipped. Imported servers start switched off for new chats.
           </div>
         </div>
       )}
@@ -323,7 +324,7 @@ function ServerDialog({ server, onClose }: { server: McpServer | null; onClose: 
       open
       onOpenChange={(open) => !open && onClose()}
       title={server ? `Edit ${server.name}` : 'Add an MCP server'}
-      description="A local server Kiln starts with a command, like the ones in an MCP server's README."
+      description="A local server Ollmost starts with a command, like the ones in an MCP server's README."
       wide
       footer={
         <>
@@ -453,7 +454,7 @@ function RunnerSection() {
         />
       </Row>
       <Row
-        label="Kiln's Python environments"
+        label="Ollmost's Python environments"
         hint={
           status?.venvExists
             ? `${packages?.length ?? 0} packages installed across your chats. Resetting deletes them; each chat's next run starts a fresh environment.`
@@ -503,7 +504,7 @@ export function ToolsTab() {
       <RunnerSection />
       <Section
         title="MCP servers"
-        description="Local servers that give models more tools: files, notes, calendars, developer tools. Kiln starts them on this Mac when a chat uses them. They run with your permissions and aren't sandboxed, so add only servers you trust. Models ask before using a tool."
+        description="Local servers that give models more tools: files, notes, calendars, developer tools. Ollmost starts them on this Mac when a chat uses them. They run with your permissions and aren't sandboxed, so add only servers you trust. Models ask before using a tool."
       >
         {mcpServers.length === 0 && <p className="text-sm text-muted">No servers yet.</p>}
         {mcpServers.map((s) => (

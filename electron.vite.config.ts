@@ -9,15 +9,15 @@ const RENDERER_CSP = [
   "default-src 'self'",
   "script-src 'self' 'wasm-unsafe-eval'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: kiln:",
+  "img-src 'self' data: blob: ollmost:",
   "font-src 'self' data:",
   'frame-src artifact:',
-  "connect-src 'self' kiln:"
+  "connect-src 'self' ollmost:"
 ].join('; ')
 
 function injectCsp(): Plugin {
   return {
-    name: 'kiln-inject-csp',
+    name: 'ollmost-inject-csp',
     apply: 'build',
     transformIndexHtml: (html: string) =>
       html.replace('<head>', `<head>\n    <meta http-equiv="Content-Security-Policy" content="${RENDERER_CSP}" />`)

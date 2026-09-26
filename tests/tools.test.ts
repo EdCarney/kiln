@@ -90,19 +90,19 @@ describe('tool registry', () => {
     expect(resolveCall(call('browser.open', { id: 'https://example.com/a' }), ctx())).toBeNull()
   })
 
-  it('explains an unknown tool with what exists and what Kiln lacks', async () => {
+  it('explains an unknown tool with what exists and what Ollmost lacks', async () => {
     const off = await runTool(call('python', { code: '1+1' }), ctx({ skills: true }))
     expect(off.unknown).toBe(true)
     expect(off.event).toMatchObject({ tool: 'python', ok: false })
     expect(off.content).toContain('The only tools available are load_skill, read_skill_file.')
-    expect(off.content).toContain('Kiln has no internet access, browser, web search or code execution.')
+    expect(off.content).toContain('Ollmost has no internet access, browser, web search or code execution.')
 
     const on = await runTool(call('python'), ctx({ web: true }))
-    expect(on.content).toContain('Use web_search and web_fetch for anything online. Kiln cannot run code.')
+    expect(on.content).toContain('Use web_search and web_fetch for anything online. Ollmost cannot run code.')
 
     register(fake('runner', ['run_code'], { grants: ['code'] }))
     const withCode = await runTool(call('python'), ctx())
-    expect(withCode.content).toContain('Kiln has no internet access, browser or web search.')
+    expect(withCode.content).toContain('Ollmost has no internet access, browser or web search.')
     expect(withCode.content).not.toContain('code execution')
   })
 
@@ -168,27 +168,27 @@ describe('grants and capability text', () => {
   const prompt = (web: 'on' | 'off' | 'no-key', c: ToolContext) =>
     basePrompt({ userName: '', model: 'm', date: new Date('2026-09-25'), web, grants: [...toolGrants(c)] })
 
-  // Word for word what Kiln said before the registry, so the refactor can't shift model behaviour.
+  // Word for word what Ollmost said before the registry, so the refactor can't shift model behaviour.
   it('keeps the existing wording with and without web tools', () => {
     expect(prompt('on', ctx({ web: true }))).toContain(
       'You can search the web and read pages with the web_search and web_fetch tools. You cannot run code, and the only tools you have are the ones listed with this request.'
     )
     expect(prompt('no-key', ctx())).toContain(
-      "Kiln gives you no internet access and no code execution right now: you can't open links, browse, search the web or run code, and the only tools you have are any listed with this request. When something needs live or online information, say you can't fetch it and offer what you can do instead. Never claim to have fetched, searched or looked something up. If the user wants web access, they can add an ollama.com API key in Settings → Usage & cost."
+      "Ollmost gives you no internet access and no code execution right now: you can't open links, browse, search the web or run code, and the only tools you have are any listed with this request. When something needs live or online information, say you can't fetch it and offer what you can do instead. Never claim to have fetched, searched or looked something up. If the user wants web access, they can add an ollama.com API key in Settings → Usage & cost."
     )
   })
 
   it('stops claiming no code execution once a provider grants it', () => {
     register(fake('runner', ['run_code'], { grants: ['code'] }))
     const text = prompt('off', ctx())
-    expect(text).toContain("Kiln gives you no internet access right now: you can't open links, browse or search the web")
+    expect(text).toContain("Ollmost gives you no internet access right now: you can't open links, browse or search the web")
     expect(text).not.toMatch(/code execution|run code/)
     expect(prompt('on', ctx({ web: true }))).toContain('web_fetch tools. The only tools you have are the ones listed')
   })
 
   it('names what is missing for errors shown to the user', () => {
-    expect(missingAbilities(toolGrants(ctx()))).toBe("Kiln can't browse the web or run code.")
-    expect(missingAbilities(toolGrants(ctx({ web: true })))).toBe("Kiln can't run code.")
+    expect(missingAbilities(toolGrants(ctx()))).toBe("Ollmost can't browse the web or run code.")
+    expect(missingAbilities(toolGrants(ctx({ web: true })))).toBe("Ollmost can't run code.")
     register(fake('runner', ['run_code'], { grants: ['code'] }))
     expect(missingAbilities(toolGrants(ctx({ web: true })))).toBeNull()
   })
@@ -262,16 +262,16 @@ describe('asking first', () => {
   })
 
   it('tells the model a declined call never ran, and shows it as declined', () => {
-    const pending = { ...pendingEvent(call('web_search', { query: 'kiln' }), ctx({ web: true })), awaiting: true }
-    const result = declinedResult(call('web_search', { query: 'kiln' }), pending)
+    const pending = { ...pendingEvent(call('web_search', { query: 'ollmost' }), ctx({ web: true })), awaiting: true }
+    const result = declinedResult(call('web_search', { query: 'ollmost' }), pending)
     expect(result.content).toMatch(/declined to run web_search, so it didn't run\. Don't call it again unless they ask/)
     expect(result.event).toEqual({
       tool: 'web_search',
-      args: { query: 'kiln' },
+      args: { query: 'ollmost' },
       ok: false,
       pending: false,
       declined: true,
-      summary: 'kiln'
+      summary: 'ollmost'
     })
   })
 
@@ -286,6 +286,6 @@ describe('asking first', () => {
     expect(toolEndpoint(call('web_fetch', { url: 'https://a.io' }), c)).toMatch(/\/api\/web_fetch$/)
     expect(toolEndpoint(call('browser.open', { url: 'https://a.io' }), c)).toMatch(/\/api\/web_fetch$/)
     expect(toolEndpoint(call('notes__read'), c)).toBe('mcp://notes/read')
-    expect(toolEndpoint(call('load_skill', { name: 'pdf' }), c)).toBe('kiln://tools/load_skill')
+    expect(toolEndpoint(call('load_skill', { name: 'pdf' }), c)).toBe('ollmost://tools/load_skill')
   })
 })

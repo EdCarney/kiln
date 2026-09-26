@@ -103,7 +103,7 @@ function GeneralTab({ settings }: { settings: Settings }) {
   return (
     <>
       <Section title="Profile">
-        <Field label="What should Kiln call you?">
+        <Field label="What should Ollmost call you?">
           <BlurField value={settings.userName} onSave={(userName) => update({ userName })} placeholder="Your name" />
         </Field>
         <Field label="Personal preferences" hint="Included in every chat. Describe your background and how you like responses.">
@@ -140,7 +140,7 @@ function ThemeSwatch({
   return (
     <div
       className={cn(
-        'group overflow-hidden rounded-kiln-lg border-2 transition-colors',
+        'group overflow-hidden rounded-ollmost-lg border-2 transition-colors',
         selected ? 'border-accent' : 'border-line hover:border-line-strong'
       )}
     >
@@ -272,7 +272,7 @@ function AppearanceTab({ settings }: { settings: Settings }) {
             max={20}
             value={a.fontSize}
             onChange={(e) => setAppearance({ fontSize: Number(e.target.value) })}
-            className="w-48 accent-[var(--k-accent)]"
+            className="w-48 accent-[var(--o-accent)]"
           />
         </Row>
         <Row label={`Chat width: ${a.chatWidth}px`}>
@@ -283,7 +283,7 @@ function AppearanceTab({ settings }: { settings: Settings }) {
             step={20}
             value={a.chatWidth}
             onChange={(e) => setAppearance({ chatWidth: Number(e.target.value) })}
-            className="w-48 accent-[var(--k-accent)]"
+            className="w-48 accent-[var(--o-accent)]"
           />
         </Row>
       </Section>
@@ -370,7 +370,7 @@ function RawUsage({ refreshKey }: { refreshKey: number }) {
       <summary className="cursor-pointer select-none hover:text-fg">
         Raw response from ollama.com ({new Date(raw.at).toLocaleString()})
       </summary>
-      <pre className="selectable mt-2 max-h-72 overflow-auto rounded-kiln border border-line bg-code p-3 font-mono text-[11px] text-muted">
+      <pre className="selectable mt-2 max-h-72 overflow-auto rounded-ollmost border border-line bg-code p-3 font-mono text-[11px] text-muted">
         {JSON.stringify(raw.json, null, 2)}
       </pre>
     </details>
@@ -429,7 +429,7 @@ function UsageTab({ settings }: { settings: Settings }) {
 
       <Section
         title="Plan & reset times"
-        description="Ollama's API doesn't say when limits reset. Kiln works it out the first time it sees your usage drop, or you can copy the time from ollama.com/settings."
+        description="Ollama's API doesn't say when limits reset. Ollmost works it out the first time it sees your usage drop, or you can copy the time from ollama.com/settings."
       >
         <Row
           label="Weekly limit resets"
@@ -446,7 +446,7 @@ function UsageTab({ settings }: { settings: Settings }) {
               type="datetime-local"
               value={weekly?.resetAt ? toLocalInput(weekly.resetAt) : anchor ? toLocalInput(anchor.at) : ''}
               onChange={(e) => e.target.value && setAnchors({ weekly: { at: new Date(e.target.value).getTime(), source: 'configured' } })}
-              className="h-9 rounded-kiln border border-line bg-canvas px-2 text-sm outline-none"
+              className="h-9 rounded-ollmost border border-line bg-canvas px-2 text-sm outline-none"
             />
             {anchor && (
               <Button size="sm" variant="ghost" onClick={() => setAnchors({ weekly: null })}>
@@ -469,7 +469,7 @@ function UsageTab({ settings }: { settings: Settings }) {
               await update({ usage: { poolUsd: e.target.value ? Math.max(1, Number(e.target.value)) : null } })
               await load(true)
             }}
-            className="h-9 w-24 rounded-kiln border border-line bg-canvas px-2 text-sm outline-none"
+            className="h-9 w-24 rounded-ollmost border border-line bg-canvas px-2 text-sm outline-none"
           />
         </Row>
         <Row label="Monthly credits refresh on day" hint="For credit-based plans, which reset on the day your subscription started.">
@@ -480,7 +480,7 @@ function UsageTab({ settings }: { settings: Settings }) {
             value={u.monthlyDay ?? ''}
             placeholder="—"
             onChange={(e) => update({ usage: { monthlyDay: e.target.value ? Math.min(31, Math.max(1, Number(e.target.value))) : null } })}
-            className="h-9 w-20 rounded-kiln border border-line bg-canvas px-2 text-sm outline-none"
+            className="h-9 w-20 rounded-ollmost border border-line bg-canvas px-2 text-sm outline-none"
           />
         </Row>
       </Section>
@@ -493,7 +493,7 @@ function UsageTab({ settings }: { settings: Settings }) {
           <select
             value={u.headerWindow}
             onChange={(e) => update({ usage: { headerWindow: e.target.value } })}
-            className="h-9 rounded-kiln border border-line bg-canvas px-2 text-sm outline-none"
+            className="h-9 rounded-ollmost border border-line bg-canvas px-2 text-sm outline-none"
           >
             <option value="auto">Automatic</option>
             {(account?.windows ?? []).map((w) => (
@@ -508,7 +508,7 @@ function UsageTab({ settings }: { settings: Settings }) {
       {activity.length > 0 && (
         <Section
           title="Ollama activity, all apps"
-          description="Requests per model as reported by ollama.com, including apps other than Kiln."
+          description="Requests per model as reported by ollama.com, including apps other than Ollmost."
         >
           {activity.map((w) => (
             <table key={w.id} className="w-full text-[13px] tabular-nums">
@@ -536,8 +536,8 @@ function UsageTab({ settings }: { settings: Settings }) {
       )}
 
       <Section
-        title="Spend in Kiln, last 30 days"
-        description="From token counts Kiln recorded. Other apps using your Ollama account aren't included."
+        title="Spend in Ollmost, last 30 days"
+        description="From token counts Ollmost recorded. Other apps using your Ollama account aren't included."
       >
         {summary && summary.total.requests > 0 ? (
           <table className="w-full text-[13px] tabular-nums">
@@ -578,7 +578,7 @@ function UsageTab({ settings }: { settings: Settings }) {
         title="Prices"
         description={
           prices
-            ? `Per million tokens, ${prices.source === 'ollama.com' ? 'read from ollama.com/pricing' : 'from the snapshot bundled with Kiln'} (updated ${new Date(prices.updatedAt).toLocaleDateString()}). Estimates use the full input rate.`
+            ? `Per million tokens, ${prices.source === 'ollama.com' ? 'read from ollama.com/pricing' : 'from the snapshot bundled with Ollmost'} (updated ${new Date(prices.updatedAt).toLocaleDateString()}). Estimates use the full input rate.`
             : undefined
         }
       >
@@ -705,7 +705,7 @@ function ModelsTab({ settings }: { settings: Settings }) {
     <select
       value={value ?? ''}
       onChange={(e) => onChange(e.target.value || null)}
-      className="h-9 w-64 rounded-kiln border border-line bg-canvas px-2 text-sm outline-none"
+      className="h-9 w-64 rounded-ollmost border border-line bg-canvas px-2 text-sm outline-none"
     >
       <option value="">{emptyLabel}</option>
       {models.map((m) => (
@@ -721,7 +721,7 @@ function ModelsTab({ settings }: { settings: Settings }) {
     <>
       <Section
         title="Connection"
-        description="Kiln talks to Ollama. Cloud models work through the Ollama app once you've run `ollama signin`."
+        description="Ollmost talks to Ollama. Cloud models work through the Ollama app once you've run `ollama signin`."
       >
         <Segmented
           value={conn.mode}
@@ -762,7 +762,7 @@ function ModelsTab({ settings }: { settings: Settings }) {
           <select
             value={settings.localNumCtx}
             onChange={(e) => updateSettings({ localNumCtx: Number(e.target.value) })}
-            className="h-9 rounded-kiln border border-line bg-canvas px-2 text-sm outline-none"
+            className="h-9 rounded-ollmost border border-line bg-canvas px-2 text-sm outline-none"
           >
             {[8192, 16384, 32768, 65536, 131072].map((n) => (
               <option key={n} value={n}>
@@ -853,7 +853,7 @@ function FeaturesTab({ settings }: { settings: Settings }) {
         </Row>
         <Row
           label="Show page previews when hovering links"
-          hint="Hovering a link always shows where it goes. With this on, Kiln also fetches the page's title and image from this Mac, which lets the site know you looked. Local-network addresses are never fetched, and neither are links in chats with tools or files, where a link could carry their contents out."
+          hint="Hovering a link always shows where it goes. With this on, Ollmost also fetches the page's title and image from this Mac, which lets the site know you looked. Local-network addresses are never fetched, and neither are links in chats with tools or files, where a link could carry their contents out."
         >
           <Switch checked={settings.links.previews} onChange={(previews) => update({ links: { previews } })} />
         </Row>
@@ -895,7 +895,7 @@ function DataTab() {
     <>
       <Section
         title="Debugger"
-        description="Kiln can record every request it sends (each chat round, tool call and title) so you can inspect it in the debugger window. Traces include your messages and are stored locally; deleting a chat deletes its traces, and only the newest 500 are kept."
+        description="Ollmost can record every request it sends (each chat round, tool call and title) so you can inspect it in the debugger window. Traces include your messages and are stored locally; deleting a chat deletes its traces, and only the newest 500 are kept."
       >
         <Row label="Record requests for the debugger">
           <Switch checked={!!settings?.debug.record} onChange={(record) => updateSettings({ debug: { record } })} />

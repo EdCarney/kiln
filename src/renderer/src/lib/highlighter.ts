@@ -2,7 +2,7 @@ import { bundledLanguages, createCssVariablesTheme, createHighlighter, type High
 import { createJavaScriptRegexEngine } from 'shiki/engine/javascript'
 
 // Token colours come from CSS variables (see index.css), so code follows the active app theme.
-const theme = createCssVariablesTheme({ name: 'kiln', variablePrefix: '--shiki-', fontStyle: true })
+const theme = createCssVariablesTheme({ name: 'ollmost', variablePrefix: '--shiki-', fontStyle: true })
 
 const ALIASES: Record<string, string> = {
   js: 'javascript',
@@ -46,7 +46,7 @@ export async function highlight(code: string, lang: string | null | undefined): 
   if (hit) return hit
   const h = await getHighlighter()
   if (!h.getLoadedLanguages().includes(language)) await h.loadLanguage(language as keyof typeof bundledLanguages)
-  const html = h.codeToHtml(code, { lang: language, theme: 'kiln' })
+  const html = h.codeToHtml(code, { lang: language, theme: 'ollmost' })
   if (cache.size > 300) cache.delete(cache.keys().next().value!)
   cache.set(key, html)
   return html

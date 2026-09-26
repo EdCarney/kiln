@@ -75,7 +75,7 @@ export function Sidebar() {
 
       <div className="flex items-center gap-2 px-4 pb-3">
         <OllmostMark className="size-5 text-accent" />
-        <span className="font-reading text-lg font-semibold tracking-tight">Kiln</span>
+        <span className="font-reading text-lg font-semibold tracking-tight">Ollmost</span>
       </div>
 
       <nav className="space-y-0.5 px-2">

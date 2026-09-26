@@ -11,9 +11,9 @@ const PNG = Buffer.from(
 )
 
 // A copy of the module loaded without the test override, so the lookup applies its real checks.
-delete process.env.KILN_ALLOW_PRIVATE_PREVIEWS
+delete process.env.OLLMOST_ALLOW_PRIVATE_PREVIEWS
 const { publicOnlyLookup } = await import('../src/main/links/preview')
-process.env.KILN_ALLOW_PRIVATE_PREVIEWS = '1'
+process.env.OLLMOST_ALLOW_PRIVATE_PREVIEWS = '1'
 
 describe('publicOnlyLookup (checked when the socket connects)', () => {
   // Stands in for DNS, including a rebinding answer that points a public name at the local network.
@@ -54,7 +54,7 @@ describe('linkPreview', () => {
   const server = createServer((req, res) => {
     if (req.url === '/start') return res.writeHead(302, { location: '/page' }).end()
     if (req.url === '/page') {
-      const html = `<html><head><title>Fallback</title><meta property="og:title" content="Kiln release notes"><meta property="og:description" content="What changed"><meta property="og:image" content="${base}/img.png"></head><body>…</body></html>`
+      const html = `<html><head><title>Fallback</title><meta property="og:title" content="Ollmost release notes"><meta property="og:description" content="What changed"><meta property="og:image" content="${base}/img.png"></head><body>…</body></html>`
       return res.writeHead(200, { 'content-type': 'text/html', 'content-encoding': 'gzip' }).end(gzipSync(html))
     }
     if (req.url === '/img.png') return res.writeHead(200, { 'content-type': 'image/png' }).end(PNG)
@@ -71,7 +71,7 @@ describe('linkPreview', () => {
     vi.resetModules()
     const { linkPreview } = await import('../src/main/links/preview')
     const preview = await linkPreview(`${base}/start`)
-    expect(preview).toMatchObject({ title: 'Kiln release notes', description: 'What changed' })
+    expect(preview).toMatchObject({ title: 'Ollmost release notes', description: 'What changed' })
     expect(preview?.image).toMatch(/^data:image\/png;base64,/)
   })
 })

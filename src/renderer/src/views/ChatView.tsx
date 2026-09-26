@@ -100,7 +100,7 @@ export function ChatView({ id }: { id: string }) {
             <Spinner />
           </div>
         ) : (
-          <div className="mx-auto space-y-8 px-6 pb-10 pt-4" style={{ maxWidth: 'calc(var(--k-chat-width) + 48px)' }}>
+          <div className="mx-auto space-y-8 px-6 pb-10 pt-4" style={{ maxWidth: 'calc(var(--o-chat-width) + 48px)' }}>
             {messages.map((m, i) =>
               m.role === 'user' ? (
                 <UserMessage key={m.id} message={m} disabled={!!stream} onEdit={(content) => editMessage(m, content, messages)} />
@@ -133,7 +133,7 @@ export function ChatView({ id }: { id: string }) {
             <ArrowDown className="size-4" />
           </button>
         )}
-        <div className="mx-auto" style={{ maxWidth: 'var(--k-chat-width)' }}>
+        <div className="mx-auto" style={{ maxWidth: 'var(--o-chat-width)' }}>
           <Composer
             conversation={current}
             draftKey={id}

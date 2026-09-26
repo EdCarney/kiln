@@ -317,7 +317,7 @@ export function Composer({ conversation, draftKey, streaming, onSubmit, onStop, 
   return (
     <div className="relative">
       {slash && slashMatches.length > 0 && (
-        <div className="absolute bottom-full left-0 z-30 mb-2 w-[360px] rounded-kiln border border-line bg-panel p-1 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
+        <div className="absolute bottom-full left-0 z-30 mb-2 w-[360px] rounded-ollmost border border-line bg-panel p-1 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
           <div className="px-2 pb-1 pt-1.5 text-xs font-medium text-subtle">Skills</div>
           {slashMatches.map((s, i) => (
             <button
@@ -340,7 +340,7 @@ export function Composer({ conversation, draftKey, streaming, onSubmit, onStop, 
 
       <div
         className={cn(
-          'relative rounded-[calc(var(--k-radius)*1.6)] border bg-panel shadow-[0_2px_12px_rgba(0,0,0,0.05)] transition-colors',
+          'relative rounded-[calc(var(--o-radius)*1.6)] border bg-panel shadow-[0_2px_12px_rgba(0,0,0,0.05)] transition-colors',
           dragging ? 'border-accent ring-4 ring-accent-soft' : 'border-line focus-within:border-line-strong'
         )}
       >
@@ -525,7 +525,7 @@ function AttachmentChip({ pending, onRemove }: { pending: PendingFile; onRemove:
   if (a?.kind === 'image')
     return (
       <div className="group relative size-14 overflow-hidden rounded-lg border border-line">
-        <img src={`kiln://attachment/${a.id}`} alt={a.name} className="size-full object-cover" />
+        <img src={`ollmost://attachment/${a.id}`} alt={a.name} className="size-full object-cover" />
         <RemoveButton onRemove={onRemove} />
       </div>
     )

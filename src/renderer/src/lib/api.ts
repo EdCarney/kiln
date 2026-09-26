@@ -1,3 +1,3 @@
-import type { KilnApi } from '@shared/ipc'
+import type { OllmostApi } from '@shared/ipc'
 
-export const api: KilnApi = window.kiln
+export const api: OllmostApi = window.ollmost

@@ -20,7 +20,7 @@ export function openDebugWindow(conversationId: string | null, background: strin
     height: 820,
     minWidth: 800,
     minHeight: 500,
-    title: 'Kiln Debugger',
+    title: 'Ollmost Debugger',
     backgroundColor: background,
     show: false,
     webPreferences: {

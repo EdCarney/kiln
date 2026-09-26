@@ -8,13 +8,13 @@ import { isPlainId, paths } from '../paths'
 import { quarantineInWorkspace } from '../quarantine'
 import { forgetWorkspace, quiesce, quiesceEvery } from './lock'
 import { chatVenvDir, chatVenvsDir, removeChatVenv, resetVenv } from './python'
-import { KILN_DIR } from './sandbox'
+import { OLLMOST_DIR } from './sandbox'
 
 // Each chat that runs code gets a folder: code runs there, the chat's attachments are copied into uploads/, and
 // what code writes is listed on the run's card. It's deleted with the chat.
 //
-// Code can write anything in the folder, and Kiln works in it outside the sandbox, so Kiln must never follow a link
-// code left there (#71). The sandbox won't let code replace the folder itself or .kiln (see policyFor). Otherwise Kiln
+// Code can write anything in the folder, and Ollmost works in it outside the sandbox, so Ollmost must never follow a link
+// code left there (#71). The sandbox won't let code replace the folder itself or .ollmost (see policyFor). Otherwise Ollmost
 // changes or lists the folder only under its lock (quiesce: none of the chat's code running, none starting until the
 // work is done), replacing any link where it expects a folder; and it hands a file out only by opening it with no link
 // anywhere in its path.
@@ -41,7 +41,7 @@ async function ensureFolder(dir: string): Promise<void> {
 }
 
 /**
- * The workspace folder itself, as a real folder. Safe outside the lock: the folder holding it is Kiln's, and the
+ * The workspace folder itself, as a real folder. Safe outside the lock: the folder holding it is Ollmost's, and the
  * sandbox pins it (only a link left from before the pin can be there). It must exist for its code to be found.
  */
 async function ensureWorkspace(dir: string): Promise<void> {
@@ -50,11 +50,11 @@ async function ensureWorkspace(dir: string): Promise<void> {
 }
 
 /**
- * Kiln's folders in a workspace (the sandbox's HOME and TMPDIR, which code may have deleted) as real folders, and
+ * Ollmost's folders in a workspace (the sandbox's HOME and TMPDIR, which code may have deleted) as real folders, and
  * the chat's own Python environment, which its code can write, never a link. Under the workspace's lock.
  */
 async function fixFolders(dir: string): Promise<void> {
-  for (const sub of [KILN_DIR, join(KILN_DIR, 'home'), join(KILN_DIR, 'tmp')]) await ensureFolder(join(dir, sub))
+  for (const sub of [OLLMOST_DIR, join(OLLMOST_DIR, 'home'), join(OLLMOST_DIR, 'tmp')]) await ensureFolder(join(dir, sub))
   const venv = chatVenvDir(basename(dir))
   const found = await lstat(venv).catch(() => null)
   if (found && !found.isDirectory()) await rm(venv, { force: true })
@@ -105,7 +105,7 @@ async function copyUploads(conversationId: string, dir: string): Promise<string[
 }
 
 /**
- * Before code runs in a workspace: it and Kiln's folders in it are real folders, and none of its code is still
+ * Before code runs in a workspace: it and Ollmost's folders in it are real folders, and none of its code is still
  * running (see quiesce). Throws if leftover code can't be stopped.
  */
 export async function readyForRun(dir: string): Promise<void> {
@@ -145,13 +145,13 @@ async function listFiles(dir: string, skip: (rel: string, name: string) => boole
 }
 
 /**
- * Every file in the workspace except Kiln's own and the uploads, with its size and modification time. Throws while
+ * Every file in the workspace except Ollmost's own and the uploads, with its size and modification time. Throws while
  * the chat's code runs (see quiesce).
  */
 export function snapshot(dir: string): Promise<Snapshot> {
   return quiesce(dir, async () => {
     const files: Snapshot = new Map()
-    for (const rel of await listFiles(dir, (rel, name) => rel === KILN_DIR || rel === UPLOADS_DIR || name === '__pycache__')) {
+    for (const rel of await listFiles(dir, (rel, name) => rel === OLLMOST_DIR || rel === UPLOADS_DIR || name === '__pycache__')) {
       const s = await lstat(join(dir, rel)).catch(() => null)
       if (s?.isFile()) files.set(rel, { size: s.size, mtimeMs: s.mtimeMs })
     }
@@ -159,13 +159,13 @@ export function snapshot(dir: string): Promise<Snapshot> {
   })
 }
 
-/** A chat's workspace by its real path: the folder holding the workspaces is Kiln's own, so its real path is trusted. */
+/** A chat's workspace by its real path: the folder holding the workspaces is Ollmost's own, so its real path is trusted. */
 const realWorkspace = async (conversationId: string) => join(await realpath(paths.workspaces), conversationId)
 
-/** Every file in a chat's workspace a user can see in Finder (not Kiln's hidden .kiln folder), by relative path. */
+/** Every file in a chat's workspace a user can see in Finder (not Ollmost's hidden .ollmost folder), by relative path. */
 async function visibleFiles(conversationId: string): Promise<string[]> {
   const root = await realWorkspace(conversationId).catch(() => null)
-  return root ? listFiles(root, (rel) => rel === KILN_DIR) : []
+  return root ? listFiles(root, (rel) => rel === OLLMOST_DIR) : []
 }
 
 /** The files Show in Finder marks (see markWorkspaceFiles). Throws while the chat's code runs. */
@@ -293,8 +293,8 @@ export async function clearPreviews(): Promise<void> {
 }
 
 /**
- * Remove the preview copies as Kiln quits (synchronously: it's the last thing it does). Not before its folders are
- * known: a second copy of Kiln quits at once, and a relative path would be the working folder's.
+ * Remove the preview copies as Ollmost quits (synchronously: it's the last thing it does). Not before its folders are
+ * known: a second copy of Ollmost quits at once, and a relative path would be the working folder's.
  */
 export function clearPreviewsSync(): void {
   if (paths.runner) rmSync(previewsDir(), { recursive: true, force: true })
@@ -321,7 +321,7 @@ export async function removeWorkspace(conversationId: string): Promise<void> {
   try {
     await quiesce(workspaceDir(conversationId), () => deleteChatFolders(conversationId))
   } catch (err) {
-    console.warn(`Kiln: left the folders of deleted chat ${conversationId} for the next start:`, err)
+    console.warn(`Ollmost: left the folders of deleted chat ${conversationId} for the next start:`, err)
   }
 }
 
@@ -351,7 +351,7 @@ export async function sweepWorkspaces(opts: { removeOrphans?: boolean } = {}): P
   })
 }
 
-/** Delete every Kiln Python environment, with no chat's code running or left running (they may write their own). */
+/** Delete every Ollmost Python environment, with no chat's code running or left running (they may write their own). */
 export async function resetEnvironments(): Promise<void> {
   const ids = await chatsWithFolders()
   await quiesceEvery(ids.map(workspaceDir), { work: () => resetVenv(ids) })

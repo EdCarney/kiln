@@ -33,7 +33,7 @@ export function CopyButton({ text, label = 'Copy' }: { text: string; label?: str
 export function JsonBlock({ value, className }: { value: unknown; className?: string }) {
   const text = useMemo(() => JSON.stringify(value, null, 2) ?? 'null', [value])
   return (
-    <div className={cn('json-wrap overflow-hidden rounded-kiln border border-line bg-code', className)}>
+    <div className={cn('json-wrap overflow-hidden rounded-ollmost border border-line bg-code', className)}>
       {text.length < 120_000 ? (
         <CodeBlock code={text} lang="json" bare />
       ) : (

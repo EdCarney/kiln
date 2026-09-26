@@ -60,7 +60,7 @@ function paceSentence(w: UsageWindow, pace: Pace, now: number): string {
         ? `At this rate you'll hit the limit in about ${formatTimeLeft(pace.runOutAt - now)}, ${formatTimeLeft(w.resetAt - pace.runOutAt)} before the reset.`
         : `At this rate you'll run out before the reset.`
     default:
-      return 'Kiln needs the reset time to work out your pace.'
+      return 'Ollmost needs the reset time to work out your pace.'
   }
 }
 
@@ -68,7 +68,7 @@ function PaceBanner({ w, now, onSetReset }: { w: UsageWindow; now: number; onSet
   const pace = paceOf(w, now)
   const meta = PACE_META[pace.status]
   return (
-    <div className="flex gap-2.5 rounded-kiln bg-hover px-3 py-2.5">
+    <div className="flex gap-2.5 rounded-ollmost bg-hover px-3 py-2.5">
       <meta.icon className={cn('mt-0.5 size-4 shrink-0', meta.text)} />
       <div className="min-w-0 text-[13px]">
         <div className={cn('font-medium', pace.status !== 'unknown' && meta.text)}>
@@ -254,7 +254,7 @@ export function AccountQuota() {
               )}
               {local && (
                 <div className="flex items-baseline justify-between gap-3">
-                  <span className="text-muted">Kiln, last 30 days ({local.total.requests} requests)</span>
+                  <span className="text-muted">Ollmost, last 30 days ({local.total.requests} requests)</span>
                   <span className="font-medium tabular-nums">
                     {local.total.costUsd === null
                       ? '—'

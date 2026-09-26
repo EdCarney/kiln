@@ -105,7 +105,7 @@ export function Anatomy({
               })}
           </div>
         ))}
-        <p className="text-xs text-subtle">Estimates use ~4 characters per token, the same rule Kiln uses to trim long histories.</p>
+        <p className="text-xs text-subtle">Estimates use ~4 characters per token, the same rule Ollmost uses to trim long histories.</p>
       </section>
 
       <section>
@@ -132,7 +132,7 @@ function MessageRow({ index, message: m }: { index: number; message: NonNullable
   const text = m.content ?? ''
   const tokens = Math.ceil((text.length + (m.thinking?.length ?? 0)) / 4)
   return (
-    <div className="rounded-kiln border border-line">
+    <div className="rounded-ollmost border border-line">
       <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px]">
         <ChevronRight className={cn('size-3.5 shrink-0 text-subtle transition-transform', open && 'rotate-90')} />
         <span className={cn('rounded px-1.5 py-px font-mono text-[11px]', ROLE_STYLE[m.role ?? ''] ?? 'bg-hover')}>

@@ -9,7 +9,7 @@ import * as conversations from '../src/main/db/conversations'
 import * as projects from '../src/main/db/projects'
 import { paths, toStored } from '../src/main/paths'
 
-const data = mkdtempSync(join(tmpdir(), 'kiln-paths-'))
+const data = mkdtempSync(join(tmpdir(), 'ollmost-paths-'))
 beforeAll(() => {
   paths.data = data
   openDatabase(':memory:')
@@ -31,7 +31,7 @@ describe('stored file paths', () => {
 
   it('follow the data folder when it moves', () => {
     attach('a2', join(data, 'files', 'a2.png'))
-    const moved = mkdtempSync(join(tmpdir(), 'kiln-moved-'))
+    const moved = mkdtempSync(join(tmpdir(), 'ollmost-moved-'))
     paths.data = moved
     try {
       expect(conversations.getAttachmentRow('a2')?.path).toBe(join(moved, 'files', 'a2.png'))
@@ -75,7 +75,7 @@ describe('the migration to relative paths', () => {
       `INSERT INTO attachments (id, message_id, kind, name, mime, size, path, text, token_est, created_at)
        VALUES (?, NULL, 'image', 'x.png', 'image/png', 1, ?, NULL, 0, 0)`
     )
-    add.run('old', '/Users/me/Library/Application Support/Kiln/files/old.png')
+    add.run('old', '/Users/me/Library/Application Support/Ollmost/files/old.png')
     add.run('new', 'files/new.png')
     d.exec(MIGRATIONS[index])
     const rows = d.prepare('SELECT id, path FROM attachments ORDER BY id').all() as Array<{ id: string; path: string }>

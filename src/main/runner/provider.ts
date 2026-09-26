@@ -11,7 +11,7 @@ import type { ToolProvider, ToolResult } from '../chat/tools'
 import { capText } from '../chat/results'
 import { errorMessage } from '../util'
 import { chatVenvDir, ensureBaseVenv, findPython, venvPython } from './python'
-import { KILN_DIR, policyFor, PRIVATE_ROOTS, runSandboxed, shellQuote } from './sandbox'
+import { OLLMOST_DIR, policyFor, PRIVATE_ROOTS, runSandboxed, shellQuote } from './sandbox'
 import { changedFiles, readyForRun, scriptsDir, snapshot } from './workspace'
 
 // run_code: Python or bash in the chat's workspace, under the sandbox. Each call is a fresh process; files persist.
@@ -61,7 +61,7 @@ const firstLine = (code: string) =>
 let runs = 0
 
 /**
- * Folders code may read inside the hidden ones (see policyFor): skills and tool folders on PATH. Not Kiln's runner
+ * Folders code may read inside the hidden ones (see policyFor): skills and tool folders on PATH. Not Ollmost's runner
  * folder: a run reads only the Python environment it uses, never another chat's.
  */
 async function readableFolders(): Promise<string[]> {
@@ -85,7 +85,7 @@ export function foldersOnPathInside(path: string, hidden: string[]): string[] {
 /**
  * The Python environment a run uses: the chat's own when it may install packages or already has one; otherwise the
  * shared one, which no run can write (#69). A chat's own is made inside the sandbox: its earlier runs could have left
- * links in it that Kiln, writing outside the sandbox, would follow.
+ * links in it that Ollmost, writing outside the sandbox, would follow.
  */
 async function environmentFor(
   workspace: string,
@@ -122,7 +122,7 @@ async function run(language: Language, code: string, workspace: string, signal?:
   if (!code.trim())
     return { content: 'Error: run_code needs the code to run.', event: { tool: 'run_code', args, ok: false, summary: 'no code' } }
 
-  // Nothing an earlier run left is still running (it could change the folder under Kiln), and Kiln's folders are there.
+  // Nothing an earlier run left is still running (it could change the folder under Ollmost), and Ollmost's folders are there.
   try {
     await readyForRun(workspace)
   } catch (err) {
@@ -137,9 +137,9 @@ async function run(language: Language, code: string, workspace: string, signal?:
 
   // Tools that keep caches or config in HOME or TMPDIR find a writable one inside the workspace.
   const baseEnv = {
-    HOME: join(workspace, KILN_DIR, 'home'),
-    TMPDIR: join(workspace, KILN_DIR, 'tmp'),
-    PIP_CACHE_DIR: join(workspace, KILN_DIR, 'tmp', 'pip'),
+    HOME: join(workspace, OLLMOST_DIR, 'home'),
+    TMPDIR: join(workspace, OLLMOST_DIR, 'tmp'),
+    PIP_CACHE_DIR: join(workspace, OLLMOST_DIR, 'tmp', 'pip'),
     // pip checks certificates through macOS's trust service, which the sandbox blocks (SSLCertVerificationError, OSStatus
     // -26276), so every install failed. Its own certificate bundle works.
     PIP_USE_DEPRECATED: 'legacy-certs',
@@ -161,7 +161,7 @@ async function run(language: Language, code: string, workspace: string, signal?:
     command: language === 'python' ? `${shellQuote(venvPython(venv))} ${shellQuote(script)}` : `/bin/bash ${shellQuote(script)}`,
     policy: await sandbox(venv),
     cwd: workspace,
-    // Kiln's environment comes first on PATH for bash too, so `python` and `pip` work there (Homebrew has only python3).
+    // Ollmost's environment comes first on PATH for bash too, so `python` and `pip` work there (Homebrew has only python3).
     env: { ...baseEnv, VIRTUAL_ENV: venv, PATH: `${join(venv, 'bin')}${delimiter}${await childPath()}` },
     timeoutMs: settings.timeoutSec * 1000,
     signal,
@@ -210,7 +210,7 @@ export const runnerTools: ToolProvider = {
     return run(language, code, ctx.workspace!, ctx.signal)
   },
   approval: () => (getSettings().runner.mode === 'allow' ? 'auto' : 'ask'),
-  endpoint: ({ args, via }) => `kiln://runner/${readCall(args, via).language}`,
+  endpoint: ({ args, via }) => `ollmost://runner/${readCall(args, via).language}`,
   // Later turns keep what a run printed and wrote, briefly.
   replay: (e) =>
     e.tool === 'run_code' && e.record

@@ -3,9 +3,9 @@ import { resolveWebCall } from '../src/main/chat/aliases'
 
 describe('resolveWebCall', () => {
   it('passes the real tool names through', () => {
-    expect(resolveWebCall('web_search', { query: 'kiln news', max_results: 3 })).toEqual({
+    expect(resolveWebCall('web_search', { query: 'ollmost news', max_results: 3 })).toEqual({
       tool: 'web_search',
-      query: 'kiln news',
+      query: 'ollmost news',
       maxResults: 3
     })
     expect(resolveWebCall('web_fetch', { url: 'https://example.com' })).toEqual({ tool: 'web_fetch', url: 'https://example.com' })

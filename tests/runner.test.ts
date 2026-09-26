@@ -41,7 +41,7 @@ const { reap } = await import('../src/main/runner/reaper')
 const { quiesce } = await import('../src/main/runner/lock')
 const { foldersOnPathInside } = await import('../src/main/runner/provider')
 
-const root = mkdtempSync(join(tmpdir(), 'kiln-runner-test-'))
+const root = mkdtempSync(join(tmpdir(), 'ollmost-runner-test-'))
 beforeAll(() => {
   openDatabase(':memory:')
   paths.data = root
@@ -69,7 +69,7 @@ describe('the sandbox policy', () => {
         denyRead: ['/Users/me', '/Users', '/Volumes', '/private/var/folders', '/private/tmp'],
         allowRead: ['/w', '/Users/me/.claude/skills', '/Users/me/k/venv'],
         allowWrite: ['/w'],
-        denyWrite: ['/private/tmp/claude', '/w/.kiln/.pinned']
+        denyWrite: ['/private/tmp/claude', '/w/.ollmost/.pinned']
       }
     })
   })
@@ -93,7 +93,7 @@ describe('the sandbox policy', () => {
     expect(p.network.allowedDomains).toEqual(['pypi.org', 'files.pythonhosted.org'])
     expect(p.filesystem.allowWrite).toEqual(['/w', '/Users/me/k/venv'])
     // #71: a path code can't write pins every folder above it, so none can be swapped for a link.
-    expect(p.filesystem.denyWrite).toEqual(['/private/tmp/claude', '/w/.kiln/.pinned', '/Users/me/k/venv/.pinned'])
+    expect(p.filesystem.denyWrite).toEqual(['/private/tmp/claude', '/w/.ollmost/.pinned', '/Users/me/k/venv/.pinned'])
   })
 })
 
@@ -123,10 +123,10 @@ describe('workspaces', () => {
     const ws = await workspace.prepareWorkspace(c.id)
     expect(ws.uploads).toEqual(['data.csv', 'data (2).csv'])
     expect(readFileSync(join(ws.dir, 'uploads', 'data.csv'), 'utf8')).toBe('x,y\n1,2\n')
-    expect(existsSync(join(ws.dir, '.kiln', 'home'))).toBe(true)
+    expect(existsSync(join(ws.dir, '.ollmost', 'home'))).toBe(true)
   })
 
-  it('lists files that are new or changed, leaving out uploads and Kiln’s own', () => {
+  it('lists files that are new or changed, leaving out uploads and Ollmost’s own', () => {
     const before = new Map([
       ['same.txt', { size: 1, mtimeMs: 1 }],
       ['edited.txt', { size: 1, mtimeMs: 1 }]
@@ -160,7 +160,7 @@ describe('workspaces', () => {
   // #71: code can swap any folder in its workspace for a link, so a link anywhere in the path is refused, not only
   // one that points outside: it could point elsewhere by the time the file is read.
   it('hands out nothing through a link anywhere in its path, the workspace folder included', async () => {
-    const outside = mkdtempSync(join(tmpdir(), 'kiln-outside-'))
+    const outside = mkdtempSync(join(tmpdir(), 'ollmost-outside-'))
     writeFileSync(join(outside, 'secret.txt'), 'secret')
     const id = 'chat-linked-folder'
     const dir = workspace.workspaceDir(id)
@@ -172,7 +172,7 @@ describe('workspaces', () => {
     expect(await workspace.workspaceFile(id, 'inside/mine.txt')).toBeNull()
     expect(await workspace.readWorkspaceFile(id, 'out/secret.txt')).toBeNull()
     expect((await workspace.readWorkspaceFile(id, 'real/mine.txt'))?.toString()).toBe('mine')
-    const copy = join(mkdtempSync(join(tmpdir(), 'kiln-copy-')), 'copy.txt')
+    const copy = join(mkdtempSync(join(tmpdir(), 'ollmost-copy-')), 'copy.txt')
     expect(await workspace.copyWorkspaceFile(id, 'out/secret.txt', copy)).toBe(false)
     expect(existsSync(copy)).toBe(false)
     expect(await workspace.copyWorkspaceFile(id, 'real/mine.txt', copy)).toBe(true)
@@ -187,8 +187,8 @@ describe('workspaces', () => {
     expect(await workspace.snapshot(workspace.workspaceDir(rooted))).toEqual(new Map())
   })
 
-  it('makes a real folder of a workspace, or its .kiln or uploads, that a link replaced, writing nothing through it', async () => {
-    const outside = mkdtempSync(join(tmpdir(), 'kiln-outside-'))
+  it('makes a real folder of a workspace, or its .ollmost or uploads, that a link replaced, writing nothing through it', async () => {
+    const outside = mkdtempSync(join(tmpdir(), 'ollmost-outside-'))
     const file = join(outside, 'notes.txt')
     writeFileSync(file, 'keep')
     const c = createConversation({ projectId: null, model: 'm', think: null, skills: [] })
@@ -214,7 +214,7 @@ describe('workspaces', () => {
     expect(lstatSync(dir).isDirectory()).toBe(true)
     untouched()
 
-    for (const sub of ['.kiln', 'uploads']) {
+    for (const sub of ['.ollmost', 'uploads']) {
       rmSync(join(dir, sub), { recursive: true })
       symlinkSync(outside, join(dir, sub))
       await workspace.prepareWorkspace(c.id)
@@ -232,15 +232,15 @@ describe('workspaces', () => {
   })
 
   // Show in Finder marks these: Finder shows the whole folder, not only the file (#67).
-  it('lists every file Finder would show, nearest first, leaving out .kiln and never following links', async () => {
+  it('lists every file Finder would show, nearest first, leaving out .ollmost and never following links', async () => {
     const id = 'chat-finder'
     const dir = workspace.workspaceDir(id)
     mkdirSync(join(dir, 'a', 'b'), { recursive: true })
-    mkdirSync(join(dir, '.kiln'), { recursive: true })
+    mkdirSync(join(dir, '.ollmost'), { recursive: true })
     mkdirSync(join(dir, 'uploads'), { recursive: true })
-    const outside = mkdtempSync(join(tmpdir(), 'kiln-outside-'))
+    const outside = mkdtempSync(join(tmpdir(), 'ollmost-outside-'))
     writeFileSync(join(outside, 'mine.txt'), 'x')
-    for (const f of ['a/b/deep.txt', 'a/mid.txt', 'top.command', 'uploads/data.csv', '.kiln/run-1.py']) writeFileSync(join(dir, f), 'x')
+    for (const f of ['a/b/deep.txt', 'a/mid.txt', 'top.command', 'uploads/data.csv', '.ollmost/run-1.py']) writeFileSync(join(dir, f), 'x')
     symlinkSync(outside, join(dir, 'linked'))
     symlinkSync(join(outside, 'mine.txt'), join(dir, 'mine.txt'))
     const files = await workspace.workspaceFiles(id)
@@ -302,7 +302,7 @@ describe('workspaces, further', () => {
   })
 })
 
-// A run exits, then Kiln stops what it left and drains its output: the time limit and Stop must still be right.
+// A run exits, then Ollmost stops what it left and drains its output: the time limit and Stop must still be right.
 describe('supervising a run', () => {
   const fake = () => {
     const child = Object.assign(new EventEmitter(), { stdout: new PassThrough(), stderr: new PassThrough() })
@@ -333,7 +333,7 @@ describe('supervising a run', () => {
 })
 
 // #69: with PyPI allowed, a shared writable environment would let one chat's code run in every other.
-describe("Kiln's Python environments", () => {
+describe("Ollmost's Python environments", () => {
   const plantPackage = (venv: string, name: string, version: string) =>
     mkdirSync(join(venv, 'lib', 'python3.12', 'site-packages', `${name}-${version}.dist-info`), { recursive: true })
 
@@ -351,7 +351,7 @@ describe("Kiln's Python environments", () => {
   })
 
   it("deletes a chat's environment with the chat, and every environment on reset, without following links", async () => {
-    const outside = mkdtempSync(join(tmpdir(), 'kiln-outside-'))
+    const outside = mkdtempSync(join(tmpdir(), 'ollmost-outside-'))
     writeFileSync(join(outside, 'keep.txt'), 'keep')
     plantPackage(python.chatVenvDir('chat-c'), 'six', '1.16.0')
     symlinkSync(outside, join(python.chatVenvDir('chat-c'), 'lib', 'link'))
@@ -403,7 +403,7 @@ describe('handing out files a run wrote', () => {
   })
 
   it('marks handed-out files the way browsers mark downloads', () => {
-    expect(quarantineValue(Date.UTC(2026, 0, 1))).toBe(`0081;${(Date.UTC(2026, 0, 1) / 1000).toString(16)};Kiln;`)
+    expect(quarantineValue(Date.UTC(2026, 0, 1))).toBe(`0081;${(Date.UTC(2026, 0, 1) / 1000).toString(16)};Ollmost;`)
   })
 
   it.runIf(process.platform === 'darwin')('writes the quarantine mark on macOS', async () => {
@@ -411,7 +411,7 @@ describe('handing out files a run wrote', () => {
     writeFileSync(file, 'x')
     await quarantine(file)
     const { execFileSync } = await import('node:child_process')
-    expect(execFileSync('/usr/bin/xattr', ['-p', QUARANTINE_ATTR, file]).toString().trim()).toMatch(/^0081;[0-9a-f]+;Kiln;$/)
+    expect(execFileSync('/usr/bin/xattr', ['-p', QUARANTINE_ATTR, file]).toString().trim()).toMatch(/^0081;[0-9a-f]+;Ollmost;$/)
     await expect(quarantine(join(root, 'missing.txt'))).rejects.toThrow()
   })
 
@@ -419,11 +419,11 @@ describe('handing out files a run wrote', () => {
   it.runIf(process.platform === 'darwin')('marks every file Finder shows in a chat’s folder, and nothing through a link', async () => {
     const id = 'chat-mark'
     const dir = workspace.workspaceDir(id)
-    const outside = mkdtempSync(join(tmpdir(), 'kiln-outside-'))
+    const outside = mkdtempSync(join(tmpdir(), 'ollmost-outside-'))
     writeFileSync(join(outside, 'mine.txt'), 'x')
     mkdirSync(join(dir, 'out'), { recursive: true })
-    mkdirSync(join(dir, '.kiln'), { recursive: true })
-    for (const f of ['shown.txt', 'out/run.command', '.kiln/run-1.py']) writeFileSync(join(dir, f), 'x')
+    mkdirSync(join(dir, '.ollmost'), { recursive: true })
+    for (const f of ['shown.txt', 'out/run.command', '.ollmost/run-1.py']) writeFileSync(join(dir, f), 'x')
     symlinkSync(outside, join(dir, 'linked'))
     await workspace.markWorkspaceFiles(id, 'shown.txt')
     const { execFileSync } = await import('node:child_process')
@@ -435,13 +435,13 @@ describe('handing out files a run wrote', () => {
       }
     }
     expect([join(dir, 'shown.txt'), join(dir, 'out', 'run.command')].map(marked)).toEqual([true, true])
-    expect([join(dir, '.kiln', 'run-1.py'), join(outside, 'mine.txt')].map(marked)).toEqual([false, false])
+    expect([join(dir, '.ollmost', 'run-1.py'), join(outside, 'mine.txt')].map(marked)).toEqual([false, false])
   })
 
   it.runIf(process.platform === 'darwin')(
     'marks nothing in a workspace when a path has a link anywhere in it, writable or not',
     async () => {
-      const dir = realpathSync(mkdtempSync(join(tmpdir(), 'kiln-marks-')))
+      const dir = realpathSync(mkdtempSync(join(tmpdir(), 'ollmost-marks-')))
       mkdirSync(join(dir, 'real'))
       writeFileSync(join(dir, 'real', 'writable.txt'), 'x')
       writeFileSync(join(dir, 'real', 'locked.txt'), 'x')
@@ -460,8 +460,8 @@ describe('handing out files a run wrote', () => {
 
   // Code can make a file read-only, and the mark needs write permission: that mustn't leave a script unmarked.
   it.runIf(process.platform === 'darwin')('marks many files at once, read-only ones too, and a link itself, not its target', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'kiln-marks-'))
-    const target = join(mkdtempSync(join(tmpdir(), 'kiln-target-')), 'target.txt')
+    const dir = mkdtempSync(join(tmpdir(), 'ollmost-marks-'))
+    const target = join(mkdtempSync(join(tmpdir(), 'ollmost-target-')), 'target.txt')
     writeFileSync(target, 'elsewhere')
     const files = [join(dir, 'a b.txt'), join(dir, 'setup.command'), ...Array.from({ length: 250 }, (_, i) => join(dir, `f${i}`))]
     for (const f of files) writeFileSync(f, 'x')
@@ -486,9 +486,9 @@ describe('handing out files a run wrote', () => {
 // The sandbox itself is macOS's (sandbox-exec); CI runs on Linux.
 describe.runIf(process.platform === 'darwin' && existsSync('/usr/bin/sandbox-exec'))('running code in the sandbox', () => {
   // Real paths, as run_code uses: the pin (and so the leftover check) matches the real path.
-  const ws = realpathSync(mkdtempSync(join(tmpdir(), 'kiln-ws-')))
-  const fakeHome = mkdtempSync(join(tmpdir(), 'kiln-home-'))
-  const elsewhere = mkdtempSync(join(tmpdir(), 'kiln-elsewhere-'))
+  const ws = realpathSync(mkdtempSync(join(tmpdir(), 'ollmost-ws-')))
+  const fakeHome = mkdtempSync(join(tmpdir(), 'ollmost-home-'))
+  const elsewhere = mkdtempSync(join(tmpdir(), 'ollmost-elsewhere-'))
   writeFileSync(join(fakeHome, 'private.txt'), 'private')
   const policy = policyFor({ workspace: ws, home: fakeHome, readable: [], venv: join(root, 'venv'), pypi: false })
   const sandboxed = (command: string, extra: { timeoutMs?: number; signal?: AbortSignal; env?: Record<string, string> } = {}) =>
@@ -516,8 +516,8 @@ describe.runIf(process.platform === 'darwin' && existsSync('/usr/bin/sandbox-exe
 
   // #68: outside the home folder too. The test folders are in the per-user temp folder (/private/var/folders).
   it('reads nothing in /Users/Shared, the temp folders or other disks, but still its workspace', async () => {
-    const shared = join('/Users/Shared', `kiln-test-${process.pid}.txt`)
-    const tmp = join('/private/tmp', `kiln-test-${process.pid}.txt`)
+    const shared = join('/Users/Shared', `ollmost-test-${process.pid}.txt`)
+    const tmp = join('/private/tmp', `ollmost-test-${process.pid}.txt`)
     writeFileSync(shared, 'shared')
     writeFileSync(tmp, 'tmp')
     writeFileSync(join(elsewhere, 'draft.txt'), 'draft')
@@ -544,10 +544,10 @@ describe.runIf(process.platform === 'darwin' && existsSync('/usr/bin/sandbox-exe
     const own = await sandboxed('echo "TMPDIR=$TMPDIR" && echo kept > "$TMPDIR/t" && cat "$TMPDIR/t"', { env: { TMPDIR: tmp } })
     expect(own.code).toBe(0)
     expect(own.output).toBe(`TMPDIR=${tmp}\nkept\n`)
-    const shared = await sandboxed('mkdir -p /tmp/claude/kiln-test && echo x > /tmp/claude/kiln-test/f', { env: { TMPDIR: tmp } })
+    const shared = await sandboxed('mkdir -p /tmp/claude/ollmost-test && echo x > /tmp/claude/ollmost-test/f', { env: { TMPDIR: tmp } })
     expect(shared.code).not.toBe(0)
     expect(shared.output).toMatch(/Operation not permitted/)
-    expect(existsSync('/tmp/claude/kiln-test/f')).toBe(false)
+    expect(existsSync('/tmp/claude/ollmost-test/f')).toBe(false)
   })
 
   it('has no network, and says so', async () => {
@@ -589,7 +589,7 @@ describe.runIf(process.platform === 'darwin' && existsSync('/usr/bin/sandbox-exe
     })
 
     it('runs Python in its own environment, reports output and the files it wrote', async () => {
-      const dir = mkdtempSync(join(tmpdir(), 'kiln-run-'))
+      const dir = mkdtempSync(join(tmpdir(), 'ollmost-run-'))
       const code = "import sys\nprint(6 * 7)\nprint(sys.prefix.endswith('venv'))\nopen('answer.txt', 'w').write('42')"
       const r = await tools.runTool(call('run_code', { language: 'python', code }), ctx(dir))
       expect(r.content).toMatch(/^Exit code 0\.\n\n42\nTrue\n/)
@@ -603,8 +603,8 @@ describe.runIf(process.platform === 'darwin' && existsSync('/usr/bin/sandbox-exe
 
     // #69: what one chat's code writes into its environment never runs in another chat.
     it('gives each chat that may install packages its own environment, which other chats never run or read', async () => {
-      const a = mkdtempSync(join(tmpdir(), 'kiln-run-'))
-      const b = mkdtempSync(join(tmpdir(), 'kiln-run-'))
+      const a = mkdtempSync(join(tmpdir(), 'ollmost-run-'))
+      const b = mkdtempSync(join(tmpdir(), 'ollmost-run-'))
       const plant = [
         // A .pth file's import lines run at every start (a sitecustomize.py can be shadowed by the base Python's).
         'import sys, sysconfig',
@@ -630,7 +630,7 @@ describe.runIf(process.platform === 'darwin' && existsSync('/usr/bin/sandbox-exe
         updateSettings({ runner: { pypi: false } })
       }
       // Without PyPI, a chat with no environment of its own uses the shared one, and can't write it.
-      const c = mkdtempSync(join(tmpdir(), 'kiln-run-'))
+      const c = mkdtempSync(join(tmpdir(), 'ollmost-run-'))
       const shared = await tools.runTool(call('run_code', { language: 'python', code: plant.replace('print(sys.prefix)', '') }), ctx(c))
       expect(shared.content).toMatch(/Operation not permitted/)
       expect(existsSync(python.chatVenvDir(basename(c)))).toBe(false)
@@ -639,8 +639,8 @@ describe.runIf(process.platform === 'darwin' && existsSync('/usr/bin/sandbox-exe
 
     // pip checks certificates through macOS's trust service, which the sandbox blocks. Needs the network (pypi.org).
     it('installs a package from PyPI into the chat’s own environment', async () => {
-      const dir = mkdtempSync(join(tmpdir(), 'kiln-run-'))
-      mkdirSync(join(dir, '.kiln', 'tmp'), { recursive: true })
+      const dir = mkdtempSync(join(tmpdir(), 'ollmost-run-'))
+      mkdirSync(join(dir, '.ollmost', 'tmp'), { recursive: true })
       updateSettings({ runner: { pypi: true } })
       try {
         const code = 'pip install -q --disable-pip-version-check --no-deps six && python -c "import six; print(six.__file__)"'
@@ -653,7 +653,7 @@ describe.runIf(process.platform === 'darwin' && existsSync('/usr/bin/sandbox-exe
     }, 180_000)
 
     it("answers gpt-oss's built-in python tool, whose code can arrive as plain text", async () => {
-      const dir = mkdtempSync(join(tmpdir(), 'kiln-run-'))
+      const dir = mkdtempSync(join(tmpdir(), 'ollmost-run-'))
       expect(tools.resolveCall(call('python', 'print(1 + 1)'), ctx(dir))).toMatchObject({ name: 'run_code', via: 'python' })
       const r = await tools.runTool(call('python', 'print(1 + 1)'), ctx(dir))
       expect(r.content).toMatch(/^Exit code 0\.\n\n2/)
@@ -697,10 +697,10 @@ describe.runIf(process.platform === 'darwin' && existsSync('/usr/bin/sandbox-exe
       }
     }, 60_000)
 
-    // Kiln's sandbox for a chat is the only one that may write its folder but not the folder above it. macOS agents and
+    // Ollmost's sandbox for a chat is the only one that may write its folder but not the folder above it. macOS agents and
     // browser helpers may write the temp folder the test workspaces are in: those must never be touched.
     it("stops only that chat's code: not another chat's, a program outside the sandbox, or a sandbox that may write more", async () => {
-      const other = realpathSync(mkdtempSync(join(tmpdir(), 'kiln-ws-')))
+      const other = realpathSync(mkdtempSync(join(tmpdir(), 'ollmost-ws-')))
       const otherChat = await leftBehind(
         other,
         policyFor({ workspace: other, home: fakeHome, readable: [], venv: join(root, 'venv'), pypi: false })
@@ -736,8 +736,8 @@ describe.runIf(process.platform === 'darwin' && existsSync('/usr/bin/sandbox-exe
     }, 60_000)
   })
 
-  // #76: a run waits while Kiln works in its folder; Stop pressed meanwhile must still stop it.
-  it('waits for Kiln’s work in the folder to finish before code starts, and heeds Stop pressed meanwhile', async () => {
+  // #76: a run waits while Ollmost works in its folder; Stop pressed meanwhile must still stop it.
+  it('waits for Ollmost’s work in the folder to finish before code starts, and heeds Stop pressed meanwhile', async () => {
     let release = () => {}
     const work = quiesce(ws, () => new Promise<void>((resolve) => (release = resolve)))
     await new Promise((resolve) => setTimeout(resolve, 100))
@@ -753,7 +753,7 @@ describe.runIf(process.platform === 'darwin' && existsSync('/usr/bin/sandbox-exe
     expect(existsSync(join(ws, 'started-too-soon'))).toBe(false)
   }, 30_000)
 
-  // #71: Kiln works in a chat's folder outside the sandbox, so it must never follow a link code left there.
+  // #71: Ollmost works in a chat's folder outside the sandbox, so it must never follow a link code left there.
   describe('links code leaves in its workspace', () => {
     const ctx = (dir: string) => ({ skills: false, web: false, sources: ['code'], workspace: dir })
     const call = (name: string, args: Record<string, unknown>) => ({ function: { name, arguments: args } })
@@ -762,18 +762,18 @@ describe.runIf(process.platform === 'darwin' && existsSync('/usr/bin/sandbox-exe
       return { id: c.id, dir: (await workspace.prepareWorkspace(c.id)).dir }
     }
 
-    it('can’t replace the workspace or its .kiln folder, so later runs still work there', async () => {
+    it('can’t replace the workspace or its .ollmost folder, so later runs still work there', async () => {
       const { dir } = await chat()
-      const elsewhere = mkdtempSync(join(tmpdir(), 'kiln-elsewhere-'))
+      const elsewhere = mkdtempSync(join(tmpdir(), 'ollmost-elsewhere-'))
       const swap = [
         `cd / && rm -rf "${dir}"; mv "${dir}" "${dir}.moved"; ln -s "${elsewhere}" "${dir}.link" && mv "${dir}.link" "${dir}"`,
-        `cd "${dir}" && rm -rf .kiln; mv .kiln .kiln-moved; ln -s "${elsewhere}" .kiln-link && mv -f .kiln-link .kiln`,
+        `cd "${dir}" && rm -rf .ollmost; mv .ollmost .ollmost-moved; ln -s "${elsewhere}" .ollmost-link && mv -f .ollmost-link .ollmost`,
         'true'
       ].join('; ')
       const r = await tools.runTool(call('run_code', { language: 'bash', code: swap }), ctx(dir))
       expect(r.content).toMatch(/Operation not permitted/)
       expect(lstatSync(dir).isDirectory()).toBe(true)
-      expect(lstatSync(join(dir, '.kiln')).isDirectory()).toBe(true)
+      expect(lstatSync(join(dir, '.ollmost')).isDirectory()).toBe(true)
       const next = await tools.runTool(
         call('run_code', { language: 'python', code: "open('ok.txt', 'w').write('ok')\nprint('ok')" }),
         ctx(dir)
@@ -796,12 +796,12 @@ describe.runIf(process.platform === 'darwin' && existsSync('/usr/bin/sandbox-exe
       const r = await tools.runTool(call('run_code', { language: 'python', code }), ctx(dir))
       expect(r.content).toContain(workspace.scriptsDir(id))
       expect(r.content).toMatch(/refused 1\b/)
-      expect(readdirSync(join(dir, '.kiln')).filter((f) => f.startsWith('run-'))).toEqual([])
+      expect(readdirSync(join(dir, '.ollmost')).filter((f) => f.startsWith('run-'))).toEqual([])
     }, 120_000)
 
     it('lists nothing through a link, and waits for none of the chat’s code to be running to list its files', async () => {
       const { id, dir } = await chat()
-      const elsewhere = mkdtempSync(join(tmpdir(), 'kiln-elsewhere-'))
+      const elsewhere = mkdtempSync(join(tmpdir(), 'ollmost-elsewhere-'))
       writeFileSync(join(elsewhere, 'secret.txt'), 'secret')
       const code = `mkdir out && echo x > out/a.txt && rm -rf out && ln -s "${elsewhere}" out`
       const r = await tools.runTool(call('run_code', { language: 'bash', code }), ctx(dir))
@@ -821,7 +821,7 @@ describe.runIf(process.platform === 'darwin' && existsSync('/usr/bin/sandbox-exe
   // #60: moving the data folder must cut off code an earlier session left running there. Its policy names the old
   // path, and Seatbelt checks the path an access resolves to at the time, even through the working directory.
   it('stops code writing a workspace once the folder above it is renamed', async () => {
-    const before = realpathSync(mkdtempSync(join(tmpdir(), 'kiln-move-a-')))
+    const before = realpathSync(mkdtempSync(join(tmpdir(), 'ollmost-move-a-')))
     const after = `${before}-moved`
     const workspace = join(before, 'workspaces', 'c1')
     mkdirSync(workspace, { recursive: true })

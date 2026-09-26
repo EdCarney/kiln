@@ -13,10 +13,10 @@ const ICON_BYTES = 64 * 1024
 const TIMEOUT_MS = 6000
 const MAX_REDIRECTS = 5
 const CACHE_TTL = 30 * 60 * 1000
-const USER_AGENT = 'Mozilla/5.0 (Macintosh) KilnLinkPreview/1.0'
+const USER_AGENT = 'Mozilla/5.0 (Macintosh) OllmostLinkPreview/1.0'
 
 // Tests serve pages from 127.0.0.1; never set in normal use.
-const allowPrivate = !!process.env.KILN_ALLOW_PRIVATE_PREVIEWS
+const allowPrivate = !!process.env.OLLMOST_ALLOW_PRIVATE_PREVIEWS
 
 type LookupCallback = (err: NodeJS.ErrnoException | null, address: string | LookupAddress[], family?: number) => void
 type Resolver = (

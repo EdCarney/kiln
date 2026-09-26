@@ -25,7 +25,7 @@ const IMAGE_TYPES: Record<string, string> = {
 export function registerSchemes(): void {
   protocol.registerSchemesAsPrivileged([
     { scheme: 'artifact', privileges: { standard: true, secure: true } },
-    { scheme: 'kiln', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }
+    { scheme: 'ollmost', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }
   ])
 }
 
@@ -82,7 +82,7 @@ export function handleProtocols(): void {
 
   // Attachments are served by id only, never by path, so the renderer can't read arbitrary files. Images a code run
   // wrote are served by chat and path, only from inside that chat's workspace (see workspaceFile).
-  protocol.handle('kiln', async (req) => {
+  protocol.handle('ollmost', async (req) => {
     const url = new URL(req.url)
     if (url.hostname === 'attachment') {
       const row = getAttachmentRow(url.pathname.slice(1))

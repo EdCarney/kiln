@@ -72,7 +72,7 @@ function Toasts() {
           key={t.id}
           role="status"
           className={cn(
-            'pointer-events-auto flex max-w-lg items-start gap-3 rounded-kiln border px-4 py-2.5 text-sm shadow-lg',
+            'pointer-events-auto flex max-w-lg items-start gap-3 rounded-ollmost border px-4 py-2.5 text-sm shadow-lg',
             t.kind === 'error' ? 'border-danger/40 bg-panel text-fg' : 'border-line bg-fg text-canvas'
           )}
         >

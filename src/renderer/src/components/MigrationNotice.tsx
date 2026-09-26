@@ -20,7 +20,7 @@ export function MigrationNotice() {
     void api.app.dismissMigrationNotice()
   }
   return (
-    <div data-testid="migration-notice" className="mb-4 space-y-2 rounded-kiln border border-line bg-panel p-4 text-sm">
+    <div data-testid="migration-notice" className="mb-4 space-y-2 rounded-ollmost border border-line bg-panel p-4 text-sm">
       <div>
         <div className="font-medium">{NOTICE_TITLE}</div>
         <div className="mt-1 text-muted">{NOTICE_BODY}</div>

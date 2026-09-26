@@ -12,12 +12,12 @@ export const paths = {
   runner: ''
 }
 
-/** Whether `id` is a plain id (letters, digits, `_`, `-`): safe as one folder name under Kiln's own folders. */
+/** Whether `id` is a plain id (letters, digits, `_`, `-`): safe as one folder name under Ollmost's own folders. */
 export const isPlainId = (id: string): boolean => /^[\w-]+$/.test(id)
 
 export function initPaths(dataDir: string): void {
   paths.data = dataDir
-  paths.db = join(paths.data, 'kiln.db')
+  paths.db = join(paths.data, 'ollmost.db')
   paths.files = join(paths.data, 'files')
   paths.skills = join(paths.data, 'skills')
   paths.workspaces = join(paths.data, 'workspaces')

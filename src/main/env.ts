@@ -3,11 +3,11 @@ import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { delimiter, join } from 'node:path'
 
-// macOS starts apps from the Dock or Finder with a bare PATH (/usr/bin:/bin:/usr/sbin:/sbin), so anything Kiln
+// macOS starts apps from the Dock or Finder with a bare PATH (/usr/bin:/bin:/usr/sbin:/sbin), so anything Ollmost
 // spawns (MCP servers via npx or uvx, a code runner via python3) wouldn't find tools from Homebrew, nvm, uv and
-// the like. Kiln asks the user's login shell for its PATH once, and gives it to every process it starts.
+// the like. Ollmost asks the user's login shell for its PATH once, and gives it to every process it starts.
 
-const MARK = '__KILN_ENV__'
+const MARK = '__OLLMOST_ENV__'
 const LOGIN_TIMEOUT_MS = 3_000
 
 /** Where these tools usually live, for when the login shell can't be asked. Only ones that exist are used. */
@@ -46,7 +46,7 @@ export function readLoginPath(shell: string, timeoutMs = LOGIN_TIMEOUT_MS): Prom
   })
 }
 
-/** The PATH for processes Kiln starts: the login shell's, else Kiln's own plus the usual tool folders. */
+/** The PATH for processes Ollmost starts: the login shell's, else Ollmost's own plus the usual tool folders. */
 export async function loginPath(
   opts: { shell?: string; timeoutMs?: number; basePath?: string; fallbackDirs?: string[] } = {}
 ): Promise<string> {
@@ -59,15 +59,15 @@ export async function loginPath(
 
 let resolved: Promise<string> | null = null
 
-/** Kiln's PATH for child processes, worked out once (call early at startup so the first spawn doesn't wait). */
+/** Ollmost's PATH for child processes, worked out once (call early at startup so the first spawn doesn't wait). */
 export function childPath(): Promise<string> {
   resolved ??= loginPath()
   return resolved
 }
 
 /**
- * The variables a process Kiln starts inherits from Kiln: the MCP SDK's own list (its StdioClientTransport passes only
- * these), plus the temp folder and locale. Anything else in Kiln's environment (a terminal launch carries AWS_*,
+ * The variables a process Ollmost starts inherits from Ollmost: the MCP SDK's own list (its StdioClientTransport passes only
+ * these), plus the temp folder and locale. Anything else in Ollmost's environment (a terminal launch carries AWS_*,
  * GITHUB_TOKEN and the like) stays out; a server that needs a variable gets it from its own settings.
  */
 export const INHERITED_ENV = ['HOME', 'LOGNAME', 'SHELL', 'TERM', 'USER', 'TMPDIR', 'LANG', 'LC_ALL', 'LC_CTYPE']
@@ -82,7 +82,7 @@ export function inheritedEnv(env: NodeJS.ProcessEnv = process.env): Record<strin
   return kept
 }
 
-/** The environment for a process Kiln starts: the inherited variables, the login shell's PATH, then its own. */
+/** The environment for a process Ollmost starts: the inherited variables, the login shell's PATH, then its own. */
 export async function childEnv(extra: Record<string, string> = {}): Promise<NodeJS.ProcessEnv> {
   return { ...inheritedEnv(), PATH: await childPath(), ...extra }
 }

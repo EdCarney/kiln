@@ -18,7 +18,7 @@ export function appPages(isPackaged: boolean): AppPages {
 }
 
 /**
- * Whether an IPC call comes from one of Kiln's own windows: a top-level frame showing the app's page. Artifact
+ * Whether an IPC call comes from one of Ollmost's own windows: a top-level frame showing the app's page. Artifact
  * frames can't reach the bridge anyway; this closes the door on anything else (a subframe, a page the window
  * was somehow navigated to) before IPC can approve tools or start processes (#31).
  */

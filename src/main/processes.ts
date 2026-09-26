@@ -2,22 +2,22 @@ import { type ChildProcess, execFile, spawn, type StdioOptions } from 'node:chil
 import { readFileSync, writeFileSync } from 'node:fs'
 import { promisify } from 'node:util'
 
-// Every process Kiln starts (MCP servers, sandboxed code) leads its own process group, so stopping it stops whatever
+// Every process Ollmost starts (MCP servers, sandboxed code) leads its own process group, so stopping it stops whatever
 // it started too: `npx` runs the real server as a child, and a script can leave background jobs behind. Signalling
-// only the direct child would leave those running after Kiln quits.
+// only the direct child would leave those running after Ollmost quits.
 
 const DEFAULT_GRACE_MS = 2_000
 
 /** Groups that may still have processes in them, by the leader's pid (which is also the group id). */
 const live = new Map<number, GroupRecord>()
 
-/** What the pidfile keeps of a group, so a later start can find it if Kiln died without stopping it. */
+/** What the pidfile keeps of a group, so a later start can find it if Ollmost died without stopping it. */
 export interface GroupRecord {
   startedAt: number
   command: string
 }
 
-// A crash or a force quit skips the exit handler below, and detached groups outlive Kiln (sandboxed code stuck in a
+// A crash or a force quit skips the exit handler below, and detached groups outlive Ollmost (sandboxed code stuck in a
 // loop, a server that ignores stdin closing). The live groups are written to a file, and the next start stops them.
 let pidFile: string | null = null
 
@@ -83,15 +83,15 @@ export function spawnGroup(
   return { child, stop: (graceMs = DEFAULT_GRACE_MS) => stopGroup(pgid, graceMs) }
 }
 
-/** Whether any process Kiln started may still be running. */
+/** Whether any process Ollmost started may still be running. */
 export const hasChildren = (): boolean => live.size > 0
 
-/** Stop every process Kiln started (before quitting). */
+/** Stop every process Ollmost started (before quitting). */
 export async function stopAllGroups(graceMs = DEFAULT_GRACE_MS): Promise<void> {
   await Promise.all([...live.keys()].map((pgid) => stopGroup(pgid, graceMs)))
 }
 
-// Last resort when Kiln exits without stopping them (a quit that timed out, an exception in the main process).
+// Last resort when Ollmost exits without stopping them (a quit that timed out, an exception in the main process).
 process.once('exit', () => {
   for (const pgid of live.keys()) signalGroup(pgid, 'SIGKILL')
   live.clear()
@@ -126,19 +126,19 @@ export interface PsRow {
   startedAt: number
 }
 
-/** How far a group leader's start (ps has whole seconds) may be from the time Kiln recorded when it spawned it. */
+/** How far a group leader's start (ps has whole seconds) may be from the time Ollmost recorded when it spawned it. */
 const LEADER_SLACK_MS = 3_000
 /** How soon after the record the oldest process of a group whose leader has exited must have started. */
 const LEADERLESS_WINDOW_MS = 60_000
 
 /**
- * Whether a recorded group id still names the group Kiln started (#70). Process ids are reused, and a group id is
- * its leader's pid, so a newer unrelated group can have it: it's only Kiln's when recorded since this Mac started,
- * and its leader started when Kiln recorded it. A group id isn't reused while any process is in the group, so one
- * whose leader has exited is Kiln's when its oldest process started just after the record (a reused id would need
- * Kiln's group gone, the id taken by a new leader, and that leader gone too, all within the window).
+ * Whether a recorded group id still names the group Ollmost started (#70). Process ids are reused, and a group id is
+ * its leader's pid, so a newer unrelated group can have it: it's only Ollmost's when recorded since this Mac started,
+ * and its leader started when Ollmost recorded it. A group id isn't reused while any process is in the group, so one
+ * whose leader has exited is Ollmost's when its oldest process started just after the record (a reused id would need
+ * Ollmost's group gone, the id taken by a new leader, and that leader gone too, all within the window).
  */
-export function isKilnsGroup(r: GroupRecord & { pgid: number }, rows: PsRow[], booted: number): boolean {
+export function isOllmostsGroup(r: GroupRecord & { pgid: number }, rows: PsRow[], booted: number): boolean {
   if (r.startedAt <= booted) return false
   const group = rows.filter((p) => p.pgid === r.pgid)
   if (!group.length) return false
@@ -160,7 +160,7 @@ export function parsePs(table: string, now: number): PsRow[] {
 
 /**
  * Start recording live groups in `file`, first stopping any a previous run recorded and left behind, when each is
- * still Kiln's (see isKilnsGroup). The file keeps the old records until then, so a crash during cleanup doesn't lose
+ * still Ollmost's (see isOllmostsGroup). The file keeps the old records until then, so a crash during cleanup doesn't lose
  * them. Returns how many groups were stopped.
  */
 export async function trackProcesses(file: string): Promise<number> {
@@ -186,5 +186,5 @@ async function findOrphans(recorded: Array<GroupRecord & { pgid: number }>): Pro
     return []
   }
   const rows = parsePs(table, Date.now())
-  return recorded.filter((r) => !live.has(r.pgid) && isKilnsGroup(r, rows, booted))
+  return recorded.filter((r) => !live.has(r.pgid) && isOllmostsGroup(r, rows, booted))
 }

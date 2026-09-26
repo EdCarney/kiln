@@ -6,7 +6,7 @@ import { errorMessage } from '../util'
 import { codeEnded, codeStarting } from './lock'
 
 // Code the model writes runs under macOS's Seatbelt sandbox through @anthropic-ai/sandbox-runtime (the one Claude
-// Code uses). The package is ESM-only and Kiln's main process is CommonJS, so it's loaded with import() on first use.
+// Code uses). The package is ESM-only and Ollmost's main process is CommonJS, so it's loaded with import() on first use.
 // Nothing ever runs unsandboxed: if the sandbox can't start, the runner isn't offered.
 
 type Manager = (typeof import('@anthropic-ai/sandbox-runtime'))['SandboxManager']
@@ -31,12 +31,12 @@ export const PRIVATE_ROOTS = ['/Users', '/Volumes', '/private/var/folders', '/pr
  */
 export const RUNTIME_TMPDIR = '/private/tmp/claude'
 
-/** Kiln's own files in a workspace: the sandbox's HOME and TMPDIR. */
-export const KILN_DIR = '.kiln'
+/** Ollmost's own files in a workspace: the sandbox's HOME and TMPDIR. */
+export const OLLMOST_DIR = '.ollmost'
 
 /**
  * A path code may never write, inside a folder it may. The runtime then also denies deleting, renaming or creating
- * every folder above it, so code can't swap the folder, or any folder above it, for a link (#71): writes Kiln makes
+ * every folder above it, so code can't swap the folder, or any folder above it, for a link (#71): writes Ollmost makes
  * there outside the sandbox would follow it. It needn't exist.
  */
 const pin = (folder: string) => join(folder, '.pinned')
@@ -51,7 +51,7 @@ export interface PolicyInput {
   home: string
   /** Folders code may read inside the hidden folders: skills, tool folders on PATH, the chat's scripts. */
   readable: string[]
-  /** Kiln's Python environment, writable only when packages may be installed. */
+  /** Ollmost's Python environment, writable only when packages may be installed. */
   venv: string
   pypi: boolean
 }
@@ -59,7 +59,7 @@ export interface PolicyInput {
 /**
  * What code may touch. Reads: the system (libraries, Homebrew, Python), but in the home folder and PRIVATE_ROOTS only
  * the workspace and `readable`. Writes: the workspace (and the Python environment when PyPI is allowed), never the
- * runtime's shared temp folder, and never so as to replace the workspace, its .kiln folder or the environment.
+ * runtime's shared temp folder, and never so as to replace the workspace, its .ollmost folder or the environment.
  * Network: none, or PyPI's two hosts.
  */
 export function policyFor(p: PolicyInput): SandboxRuntimeConfig {
@@ -69,7 +69,7 @@ export function policyFor(p: PolicyInput): SandboxRuntimeConfig {
       denyRead: [...new Set([p.home, ...PRIVATE_ROOTS])],
       allowRead: [p.workspace, ...p.readable, p.venv],
       allowWrite: p.pypi ? [p.workspace, p.venv] : [p.workspace],
-      denyWrite: [RUNTIME_TMPDIR, pin(join(p.workspace, KILN_DIR)), ...(p.pypi ? [pin(p.venv)] : [])]
+      denyWrite: [RUNTIME_TMPDIR, pin(join(p.workspace, OLLMOST_DIR)), ...(p.pypi ? [pin(p.venv)] : [])]
     }
   }
 }
@@ -148,7 +148,7 @@ export async function runSandboxed(opts: {
   let ended: Promise<void> | null = null
   const end = () => (ended ??= codeEnded(opts.cwd))
   try {
-    // Stop may have come while the start waited for Kiln's work in the folder.
+    // Stop may have come while the start waited for Ollmost's work in the folder.
     opts.signal?.throwIfAborted()
     const proc = spawnGroup(argv[0], argv.slice(1), { cwd: opts.cwd, env: procEnv, stdio: ['ignore', 'pipe', 'pipe'] })
     const { code, output, timedOut, truncated } = await supervise(proc, opts, end)

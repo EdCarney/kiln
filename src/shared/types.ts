@@ -362,7 +362,7 @@ export interface SkillDetail extends Skill {
 /** Whether a tool asks before each call, runs without asking, or isn't offered at all. */
 export type ToolPolicy = 'ask' | 'allow' | 'off'
 
-/** A local (stdio) MCP server Kiln starts. Environment values stay in the main process; the renderer sees names. */
+/** A local (stdio) MCP server Ollmost starts. Environment values stay in the main process; the renderer sees names. */
 export interface McpServer {
   /** Fixed when the server is added: its tools are named `<id>__<tool>`. */
   id: string
@@ -400,14 +400,14 @@ export interface McpServerInput {
   defaultOn: boolean
 }
 
-/** Another app's MCP config that Kiln can copy servers from. */
+/** Another app's MCP config that Ollmost can copy servers from. */
 export interface McpImportSource {
   id: 'claude-desktop' | 'claude-code'
   label: string
   path: string
   /** Names of the local servers it lists. */
   servers: string[]
-  /** Entries Kiln can't use (remote servers). */
+  /** Entries Ollmost can't use (remote servers). */
   unsupported: number
 }
 
@@ -444,9 +444,9 @@ export interface RunnerStatus {
   available: boolean
   reason: string | null
   python: { path: string; version: string } | null
-  /** Kiln's shared Python environment (chats that may install packages each get their own), created on first use. */
+  /** Ollmost's shared Python environment (chats that may install packages each get their own), created on first use. */
   venv: string
-  /** Whether any of Kiln's Python environments exists. */
+  /** Whether any of Ollmost's Python environments exists. */
   venvExists: boolean
 }
 

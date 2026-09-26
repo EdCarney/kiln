@@ -54,7 +54,7 @@ export function ArtifactCard({ segment, messageId, occurrence, artifacts, stream
     <button
       onClick={open}
       className={cn(
-        'my-3 flex w-full max-w-md items-center gap-3 rounded-kiln border bg-panel p-2 pr-4 text-left font-ui transition-colors hover:border-line-strong',
+        'my-3 flex w-full max-w-md items-center gap-3 rounded-ollmost border bg-panel p-2 pr-4 text-left font-ui transition-colors hover:border-line-strong',
         isOpen ? 'border-line-strong' : 'border-line'
       )}
     >

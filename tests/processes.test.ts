@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { elapsedMs, hasChildren, isKilnsGroup, parsePs, spawnGroup, stopAllGroups, trackProcesses } from '../src/main/processes'
+import { elapsedMs, hasChildren, isOllmostsGroup, parsePs, spawnGroup, stopAllGroups, trackProcesses } from '../src/main/processes'
 
 const alive = (pid: number) => {
   try {
@@ -59,7 +59,7 @@ describe('process groups', () => {
   })
 
   it('reports a missing command as an error, like spawn', async () => {
-    const proc = spawnGroup('kiln-no-such-command-xyz', [])
+    const proc = spawnGroup('ollmost-no-such-command-xyz', [])
     const err = await new Promise<Error>((resolve) => proc.child.once('error', resolve))
     expect(err.message).toMatch(/ENOENT/)
     await proc.stop() // nothing to stop
@@ -67,10 +67,10 @@ describe('process groups', () => {
 })
 
 describe('cleaning up after a crash', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'kiln-pidfile-'))
+  const dir = mkdtempSync(join(tmpdir(), 'ollmost-pidfile-'))
   const recorded = (file: string) => (JSON.parse(readFileSync(file, 'utf8')) as Array<{ pgid: number }>).map((r) => r.pgid)
 
-  /** A group started the way Kiln starts one, but not tracked: what a crashed run leaves behind. Resolves with its pids. */
+  /** A group started the way Ollmost starts one, but not tracked: what a crashed run leaves behind. Resolves with its pids. */
   async function orphan() {
     const child = spawn('sh', ['-c', 'sleep 30 & echo $!; wait'], { detached: true, stdio: ['ignore', 'pipe', 'ignore'] })
     const bg = await new Promise<number>((resolve) => child.stdout!.once('data', (d) => resolve(Number(String(d).trim()))))
@@ -95,7 +95,7 @@ describe('cleaning up after a crash', () => {
     expect(recorded(file)).toEqual([])
   })
 
-  it("leaves alone a group id that can't be Kiln's any more", async () => {
+  it("leaves alone a group id that can't be Ollmost's any more", async () => {
     const other = await orphan()
     const file = join(dir, 'stale.json')
     // Recorded before this Mac started, and recorded after the processes now using that id had started.
@@ -115,7 +115,7 @@ describe('cleaning up after a crash', () => {
   it('leaves alone a newer group that reuses a recorded id', async () => {
     const other = await orphan()
     const file = join(dir, 'reused.json')
-    // Kiln's group with this id was recorded 30 s before the group now using it started.
+    // Ollmost's group with this id was recorded 30 s before the group now using it started.
     writeFileSync(file, JSON.stringify([{ pgid: other.pgid, startedAt: Date.now() - 30_000, command: 'sh' }]))
     expect(await trackProcesses(file)).toBe(0)
     expect(other.pids.every(alive)).toBe(true)
@@ -132,31 +132,31 @@ describe('cleaning up after a crash', () => {
     expect(recorded(file)).toEqual([])
   })
 
-  describe("telling Kiln's group from another with the same id", () => {
+  describe("telling Ollmost's group from another with the same id", () => {
     const t = 1_700_000_000_000
     const record = { pgid: 500, startedAt: t, command: 'npx -y server' }
     const rows = (...ps: Array<[pid: number, pgid: number, startedAt: number]>) =>
       ps.map(([pid, pgid, startedAt]) => ({ pid, pgid, startedAt }))
 
-    it('is Kiln’s when its leader started when Kiln recorded it', () => {
-      expect(isKilnsGroup(record, rows([500, 500, t + 800], [501, 500, t + 5_000]), 0)).toBe(true)
-      expect(isKilnsGroup(record, rows([500, 500, t - 1_000]), 0)).toBe(true)
+    it('is Ollmost’s when its leader started when Ollmost recorded it', () => {
+      expect(isOllmostsGroup(record, rows([500, 500, t + 800], [501, 500, t + 5_000]), 0)).toBe(true)
+      expect(isOllmostsGroup(record, rows([500, 500, t - 1_000]), 0)).toBe(true)
     })
 
     it('isn’t when its leader is newer or older, however new its other processes', () => {
-      expect(isKilnsGroup(record, rows([500, 500, t + 60_000], [501, 500, t + 61_000]), 0)).toBe(false)
-      expect(isKilnsGroup(record, rows([500, 500, t - 60_000], [501, 500, t + 1_000]), 0)).toBe(false)
+      expect(isOllmostsGroup(record, rows([500, 500, t + 60_000], [501, 500, t + 61_000]), 0)).toBe(false)
+      expect(isOllmostsGroup(record, rows([500, 500, t - 60_000], [501, 500, t + 1_000]), 0)).toBe(false)
     })
 
-    it('with its leader gone, is Kiln’s only when its oldest process started just after the record', () => {
-      expect(isKilnsGroup(record, rows([501, 500, t + 2_000], [502, 500, t + 90_000]), 0)).toBe(true)
-      expect(isKilnsGroup(record, rows([501, 500, t + 120_000]), 0)).toBe(false)
-      expect(isKilnsGroup(record, rows([501, 500, t - 10_000]), 0)).toBe(false)
+    it('with its leader gone, is Ollmost’s only when its oldest process started just after the record', () => {
+      expect(isOllmostsGroup(record, rows([501, 500, t + 2_000], [502, 500, t + 90_000]), 0)).toBe(true)
+      expect(isOllmostsGroup(record, rows([501, 500, t + 120_000]), 0)).toBe(false)
+      expect(isOllmostsGroup(record, rows([501, 500, t - 10_000]), 0)).toBe(false)
     })
 
     it('isn’t when recorded before the Mac started, or when nothing is in the group', () => {
-      expect(isKilnsGroup(record, rows([500, 500, t]), t + 1)).toBe(false)
-      expect(isKilnsGroup(record, rows([600, 600, t]), 0)).toBe(false)
+      expect(isOllmostsGroup(record, rows([500, 500, t]), t + 1)).toBe(false)
+      expect(isOllmostsGroup(record, rows([600, 600, t]), 0)).toBe(false)
     })
 
     it("reads ps's table", () => {

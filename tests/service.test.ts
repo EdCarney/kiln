@@ -9,7 +9,7 @@ import { line, type MockOllama, startMockOllama, streamChunks } from './ollamaMo
 // Everything above the Electron line is real: SQLite (in memory), settings, prompt assembly, the
 // Ollama client and the tool loop. Only Electron itself is faked, and Ollama is a local mock server.
 const events = vi.hoisted(() => {
-  process.env.KILN_WEB_URL = 'http://127.0.0.1:1' // replaced once the mock is listening
+  process.env.OLLMOST_WEB_URL = 'http://127.0.0.1:1' // replaced once the mock is listening
   return [] as ChatEvent[]
 })
 vi.mock('electron', () => ({
@@ -26,7 +26,7 @@ vi.mock('electron', () => ({
 
 // web.ts reads its base URL at import, so the mock must be listening before the service loads.
 const ollama: MockOllama = await startMockOllama()
-process.env.KILN_WEB_URL = ollama.url
+process.env.OLLMOST_WEB_URL = ollama.url
 
 const { openDatabase } = await import('../src/main/db/index')
 const { updateSettings, setApiKey } = await import('../src/main/settings')
@@ -48,7 +48,7 @@ const approvals = await import('../src/main/chat/approvals')
 const mcpConfig = await import('../src/main/mcp/config')
 const mcpManager = await import('../src/main/mcp/manager')
 const { paths } = await import('../src/main/paths')
-paths.data = mkdtempSync(join(tmpdir(), 'kiln-service-data-'))
+paths.data = mkdtempSync(join(tmpdir(), 'ollmost-service-data-'))
 
 type ChatHandler = (body: Record<string, unknown>, res: ServerResponse, call: number) => unknown
 let chat: ChatHandler
@@ -270,7 +270,7 @@ describe('reply loop', () => {
     expect(traces.every((t) => t.status !== 'running')).toBe(true)
   })
 
-  it('withdraws tools after the model only calls tools Kiln lacks', async () => {
+  it('withdraws tools after the model only calls tools Ollmost lacks', async () => {
     chat = (_b, res, n) => (n === 1 ? void res.writeHead(200).end(toolCall('python', { code: '1+1' })) : reply('2')(_b, res, n))
     const r = start('what is 1+1')
     const done = await doneEvent(r.conversation.id)
@@ -287,10 +287,10 @@ describe('reply loop', () => {
         ? void res
             .writeHead(200)
             .end(
-              line({ message: { role: 'assistant', content: 'Let me check.' }, done: false }) + toolCall('web_search', { query: 'kiln' })
+              line({ message: { role: 'assistant', content: 'Let me check.' }, done: false }) + toolCall('web_search', { query: 'ollmost' })
             )
         : reply('Found it.')(b, res, n)
-    web = (_p, res) => res.writeHead(200).end(JSON.stringify({ results: [{ title: 'Kilns', url: 'https://k.io', content: 'hot' }] }))
+    web = (_p, res) => res.writeHead(200).end(JSON.stringify({ results: [{ title: 'Ollmosts', url: 'https://k.io', content: 'hot' }] }))
     const r = start('look it up')
     const done = await doneEvent(r.conversation.id)
     expect(done.message.content).toBe('Let me check.\n\nFound it.')
@@ -312,13 +312,13 @@ describe('reply loop', () => {
     setApiKey('test-key')
     chat = (b, res, n) =>
       n === 1
-        ? void res.writeHead(200).end(toolCall('web_search', { query: 'kiln news' }))
+        ? void res.writeHead(200).end(toolCall('web_search', { query: 'ollmost news' }))
         : reply(n === 2 ? 'Two stories today.' : 'Opening it.')(b, res, n)
     web = (_p, res) =>
       res.writeHead(200).end(
         JSON.stringify({
           results: [
-            { title: 'Kilns are back', url: 'https://a.example/kilns', content: 'x' },
+            { title: 'Ollmosts are back', url: 'https://a.example/ollmosts', content: 'x' },
             { title: 'Pottery prices', url: 'https://b.example/pots', content: 'y' }
           ]
         })
@@ -342,7 +342,7 @@ describe('reply loop', () => {
     const replayed = followUp.find((m) => m.role === 'tool')
     expect(replayed?.content).toContain('https://b.example/pots')
     expect(followUp.find((m) => m.tool_calls)?.tool_calls).toEqual([
-      { function: { name: 'web_search', arguments: { query: 'kiln news' } } }
+      { function: { name: 'web_search', arguments: { query: 'ollmost news' } } }
     ])
   })
 
@@ -413,7 +413,7 @@ describe('reply loop', () => {
       const done = await doneEvent(start('compare these two pages').conversation.id)
       expect(done.message.content).toBe('Compared.')
       const [first, second] = toolMessages(chatCalls[2])
-      expect(first.content).toMatch(/^\[Kiln shortened this earlier web_fetch result .*It was: Page 1\./)
+      expect(first.content).toMatch(/^\[Ollmost shortened this earlier web_fetch result .*It was: Page 1\./)
       expect(second.content).toContain('MARK-2')
       expect(done.message.stats?.shortenedToolResults).toBe(1)
       // The round that produced the newest result saw the older one whole.
@@ -445,15 +445,15 @@ describe('reply loop', () => {
       }
     })
 
-    it("uses Ollama's own token count when it's higher than Kiln's estimate", async () => {
+    it("uses Ollama's own token count when it's higher than Ollmost's estimate", async () => {
       setApiKey('test-key')
       page = 0
-      // Small pages, so Kiln's estimate fits easily; but Ollama reports the second request at 6,000 tokens.
+      // Small pages, so Ollmost's estimate fits easily; but Ollama reports the second request at 6,000 tokens.
       chat = (b, res, n) => fetchRound(b, res, n, n === 2 ? 6_000 : 100)
       web = pages(2_000)
       const done = await doneEvent(start('compare these two pages').conversation.id)
       const [first, second] = toolMessages(chatCalls[2])
-      expect(first.content).toMatch(/^\[Kiln shortened/)
+      expect(first.content).toMatch(/^\[Ollmost shortened/)
       expect(second.content).toContain('MARK-2')
       expect(done.message.stats?.shortenedToolResults).toBe(1)
     })
@@ -730,13 +730,20 @@ describe('MCP servers in a reply', () => {
   })
 
   it("says which of the chat's servers couldn't be used", async () => {
-    const broken = mcpConfig.saveServer({ name: 'Broken', command: 'kiln-no-such-server', args: [], cwd: null, env: {}, defaultOn: false })
+    const broken = mcpConfig.saveServer({
+      name: 'Broken',
+      command: 'ollmost-no-such-server',
+      args: [],
+      cwd: null,
+      env: {},
+      defaultOn: false
+    })
     chat = reply('Answered without it.')
     const r = sendIn(null, 'hello', [`mcp:${broken.id}`])
     const done = await doneEvent(r.conversation.id)
     expect(done.message.content).toBe('Answered without it.')
     expect(done.message.stats?.unavailableTools).toEqual([
-      expect.stringMatching(/^Broken couldn't start: Couldn't find "kiln-no-such-server"/)
+      expect.stringMatching(/^Broken couldn't start: Couldn't find "ollmost-no-such-server"/)
     ])
     expect(chatCalls[0].tools).toBeUndefined()
   })
@@ -873,7 +880,7 @@ describe.runIf(process.platform === 'darwin')('the code runner in a reply', () =
     const { mkdtempSync } = await import('node:fs')
     const { tmpdir } = await import('node:os')
     const { join } = await import('node:path')
-    const dir = mkdtempSync(join(tmpdir(), 'kiln-service-runner-'))
+    const dir = mkdtempSync(join(tmpdir(), 'ollmost-service-runner-'))
     paths.workspaces = join(dir, 'workspaces')
     paths.runner = join(dir, 'runner')
     chat = (b, res, n) =>
@@ -922,7 +929,7 @@ describe('markInterruptedReplies', () => {
     updateMessage(cut.id, {
       content: 'so far',
       toolEvents: [
-        { tool: 'web_search', args: {}, ok: true, pending: true, summary: 'kiln' },
+        { tool: 'web_search', args: {}, ok: true, pending: true, summary: 'ollmost' },
         { tool: 'notes__delete', args: {}, ok: true, pending: true, awaiting: true, summary: 'note 7' }
       ]
     })

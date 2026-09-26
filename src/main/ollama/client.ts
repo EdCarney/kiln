@@ -131,7 +131,7 @@ function parseChunk(line: string): ChatChunk {
   try {
     return JSON.parse(line) as ChatChunk
   } catch {
-    throw new OllamaError(`Ollama sent a response Kiln couldn't read: ${line.slice(0, 120)}`)
+    throw new OllamaError(`Ollama sent a response Ollmost couldn't read: ${line.slice(0, 120)}`)
   }
 }
 
