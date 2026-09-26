@@ -11,6 +11,11 @@ import { LinkCard } from './LinkCard'
 
 interface Props {
   text: string
+  /**
+   * The chat this text belongs to (a reply, or one of its artifacts), or null outside a chat (a skill's instructions).
+   * Required so every caller decides: the main process refuses link previews for chats with tools or files.
+   */
+  conversationId: string | null
   className?: string
   onOpenAsArtifact?: (code: string, lang: string | null) => void
 }
@@ -28,7 +33,7 @@ function textOf(children: ReactNode): string {
   return ''
 }
 
-export const Markdown = memo(function Markdown({ text, className, onOpenAsArtifact }: Props) {
+export const Markdown = memo(function Markdown({ text, conversationId, className, onOpenAsArtifact }: Props) {
   const components: Components = {
     pre: ({ children }) => <>{children}</>,
     code: ({ className: cls, children }) => {
@@ -40,7 +45,7 @@ export const Markdown = memo(function Markdown({ text, className, onOpenAsArtifa
     },
     a: ({ href, children }) =>
       href ? (
-        <LinkCard href={href} text={textOf(children)}>
+        <LinkCard href={href} text={textOf(children)} conversationId={conversationId}>
           {children}
         </LinkCard>
       ) : (

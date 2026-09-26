@@ -145,7 +145,7 @@ function ServerRow({ server, status, onEdit }: { server: McpServer; status: McpS
                 {(t.title || t.description) && <div className="mt-0.5 line-clamp-2 text-xs text-muted">{t.description || t.title}</div>}
                 {server.changed?.includes(t.name) && (
                   <div data-testid="mcp-tool-changed" className="mt-0.5 text-xs text-warn">
-                    The server changed this tool since you allowed it, so it asks again.
+                    The server changed this tool's description or inputs since you allowed it, so it asks again.
                   </div>
                 )}
               </div>

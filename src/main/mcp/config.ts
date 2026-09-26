@@ -6,7 +6,7 @@ import { safeStorage } from 'electron'
 import { type ImportedServer, parseServersJson } from '@shared/mcpImport'
 import type { McpImportResult, McpImportSource, McpServer, McpServerInput, ToolPolicy } from '@shared/types'
 import { mcpAllowKey } from '@shared/toolAllow'
-import { forgetAllowKeyInChats, forgetServerInChats } from '../db/conversations'
+import { anyChatAllows, forgetAllowKeyInChats, forgetServerInChats } from '../db/conversations'
 import { readSetting, writeSetting } from '../db/kv'
 
 // MCP server definitions live in the settings table under their own key, not in Settings: their environment often
@@ -194,8 +194,8 @@ export function recordTrust(id: string, tool: string, fingerprint: string): void
 /**
  * Check a server's tools, as it lists them now, against the versions that were trusted. A trusted tool whose
  * fingerprint changed goes back to Ask: Always allow is cleared, chats forget "Allow for this chat" for it, and it's
- * marked as changed for Settings. A tool on Always allow with no fingerprint yet (set before fingerprints were kept)
- * is recorded as it is. Returns the tools that went back to Ask.
+ * marked as changed for Settings. A trusted tool with no fingerprint yet (Always allow, or allowed in some chat, before
+ * fingerprints were kept) is recorded as it is. Returns the tools that went back to Ask.
  */
 export function reviewTrust(id: string, current: ReadonlyMap<string, string>): string[] {
   const servers = stored()
@@ -207,7 +207,8 @@ export function reviewTrust(id: string, current: ReadonlyMap<string, string>): s
   for (const [tool, fingerprint] of current) {
     const was = trusted[tool]
     if (was === undefined) {
-      if (tools[tool] === 'allow') trusted[tool] = fingerprint
+      // Trust given before fingerprints were kept (Always allow, or a chat's answer): take the tool as it is now.
+      if (tools[tool] === 'allow' || anyChatAllows(mcpAllowKey(id, tool))) trusted[tool] = fingerprint
       continue
     }
     if (was === fingerprint) continue

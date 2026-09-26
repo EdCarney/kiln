@@ -127,6 +127,14 @@ export function forgetServerInChats(serverId: string, opts: { source: boolean })
   )
 }
 
+/** Whether any chat holds this "Allow for this chat" answer. */
+export function anyChatAllows(key: string): boolean {
+  return !!get<{ one: number }>(
+    'SELECT 1 AS one FROM conversations, json_each(conversations.allowed_tools) WHERE json_each.value = ? LIMIT 1',
+    key
+  )
+}
+
 /** Drop one "Allow for this chat" answer from every chat. Returns how many chats had it. */
 export function forgetAllowKeyInChats(key: string): number {
   return forgetInChats(

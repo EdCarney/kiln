@@ -547,7 +547,8 @@ export const AssistantMessage = memo(function AssistantMessage({
     if (item.kind === 'tools')
       return <ToolGroup key={`t${item.events[0].index}`} events={item.events} conversationId={conversationId} messageId={message.id} />
     const seg = item.segment
-    if (seg.kind === 'text') return <Markdown key={i} text={seg.text} onOpenAsArtifact={streaming ? undefined : openAsArtifact} />
+    if (seg.kind === 'text')
+      return <Markdown key={i} text={seg.text} conversationId={conversationId} onOpenAsArtifact={streaming ? undefined : openAsArtifact} />
     const n = occurrences.get(seg.identifier) ?? 0
     occurrences.set(seg.identifier, n + 1)
     return <ArtifactCard key={i} segment={seg} messageId={message.id} occurrence={n} artifacts={artifacts} streaming={streaming} />

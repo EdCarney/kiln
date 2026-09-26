@@ -112,12 +112,12 @@ export function listProjectFiles(projectId: string): ProjectFile[] {
   return all<ProjectFileRow>('SELECT * FROM project_files WHERE project_id = ? ORDER BY created_at', projectId).map(toFile)
 }
 
-/** Files with their extracted text, for prompt assembly. */
 /** Whether a project has any knowledge files. */
 export function hasProjectFiles(projectId: string): boolean {
   return !!get<{ one: number }>('SELECT 1 AS one FROM project_files WHERE project_id = ? LIMIT 1', projectId)
 }
 
+/** Files with their extracted text, for prompt assembly. */
 export function projectKnowledge(projectId: string): Array<{ name: string; text: string }> {
   return all<{ name: string; text: string | null }>(
     'SELECT name, text FROM project_files WHERE project_id = ? ORDER BY created_at',

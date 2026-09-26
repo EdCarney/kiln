@@ -184,7 +184,7 @@ export function SkillsView({ selectedId }: { selectedId?: string }) {
                 </div>
               </div>
               <div className="rounded-kiln-lg border border-line bg-panel p-6">
-                <Markdown text={detail.body} />
+                <Markdown text={detail.body} conversationId={null} />
               </div>
               {detail.files.length > 0 && (
                 <div className="mt-4 text-xs text-subtle">
@@ -299,7 +299,7 @@ function SkillEditor({
         </div>
         {preview ? (
           <div className="min-h-[320px] flex-1 overflow-y-auto rounded-kiln border border-line bg-panel p-5">
-            <Markdown text={draft.body} />
+            <Markdown text={draft.body} conversationId={null} />
           </div>
         ) : (
           <TextArea

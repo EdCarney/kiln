@@ -6,7 +6,6 @@ import { hostnameOf, middleTruncate, mismatchedLinkText } from '@shared/links'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/format'
 import { useApp } from '@/stores/app'
-import { useChat } from '@/stores/chat'
 
 const isWeb = (href: string) => /^https?:\/\//i.test(href)
 
@@ -39,10 +38,19 @@ function CardLink({
  * A link that shows where it goes on hover: hostname and full URL always, plus the page's title,
  * description and image when link previews are turned on (they're fetched from this Mac, so opt-in).
  */
-export function LinkCard({ href, text, children }: { href: string; text: string; children: ReactNode }) {
+export function LinkCard({
+  href,
+  text,
+  conversationId,
+  children
+}: {
+  href: string
+  text: string
+  /** The chat the link is shown in, or null outside a chat; the main process decides whether it may preview. */
+  conversationId: string | null
+  children: ReactNode
+}) {
   const previewsOn = useApp((s) => !!s.settings?.links.previews)
-  // The chat the link is shown in (a reply, or one of its artifacts); the main process decides whether it may preview.
-  const conversationId = useChat((s) => s.conversation?.id ?? null)
   const [open, setOpen] = useState(false)
   const [preview, setPreview] = useState<LinkPreview | null | 'loading' | 'none'>(null)
 

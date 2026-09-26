@@ -439,4 +439,20 @@ describe('a tool that changes after it was allowed', () => {
     await manager.stop(s.id)
     config.removeServer(s.id)
   })
+
+  it('also covers a chat answer given before fingerprints were kept, from the next listing on', async () => {
+    const s = fixture('Older')
+    await manager.connect(s.id)
+    // An answer stored with no fingerprint (between #61 and fingerprints), then the server starts again.
+    const chat = createConversation({ projectId: null, model: 'm', think: null, skills: [], toolSources: [`mcp:${s.id}`] })
+    updateConversation(chat.id, { allowedTools: [mcpAllowKey(s.id, 'env')] })
+    await manager.restart(s.id)
+    expect(getConversation(chat.id)!.allowedTools).toEqual([mcpAllowKey(s.id, 'env')])
+
+    await manager.callTool(s.id, 'rewrite', { name: 'env' })
+    expect(await until(() => getConversation(chat.id)!.allowedTools.length === 0)).toBe(true)
+    expect(config.getServer(s.id)!.changed).toEqual(['env'])
+    await manager.stop(s.id)
+    config.removeServer(s.id)
+  })
 })
