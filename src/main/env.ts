@@ -65,7 +65,24 @@ export function childPath(): Promise<string> {
   return resolved
 }
 
-/** The environment for a process Kiln starts: Kiln's own, with the login shell's PATH. */
+/**
+ * The variables a process Kiln starts inherits from Kiln: the MCP SDK's own list (its StdioClientTransport passes only
+ * these), plus the temp folder and locale. Anything else in Kiln's environment (a terminal launch carries AWS_*,
+ * GITHUB_TOKEN and the like) stays out; a server that needs a variable gets it from its own settings.
+ */
+export const INHERITED_ENV = ['HOME', 'LOGNAME', 'SHELL', 'TERM', 'USER', 'TMPDIR', 'LANG', 'LC_ALL', 'LC_CTYPE']
+
+/** The inherited variables from `env`, leaving out exported shell functions (`() { …`), as the SDK does. */
+export function inheritedEnv(env: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const kept: Record<string, string> = {}
+  for (const key of INHERITED_ENV) {
+    const value = env[key]
+    if (value !== undefined && !value.startsWith('()')) kept[key] = value
+  }
+  return kept
+}
+
+/** The environment for a process Kiln starts: the inherited variables, the login shell's PATH, then its own. */
 export async function childEnv(extra: Record<string, string> = {}): Promise<NodeJS.ProcessEnv> {
-  return { ...process.env, PATH: await childPath(), ...extra }
+  return { ...inheritedEnv(), PATH: await childPath(), ...extra }
 }

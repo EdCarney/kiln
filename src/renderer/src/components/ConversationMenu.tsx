@@ -1,6 +1,7 @@
 import { Ellipsis, FolderInput, FolderMinus, Hand, Pencil, Pin, PinOff, ScrollText, Trash2 } from 'lucide-react'
 import { type ReactNode, useState } from 'react'
-import type { Conversation } from '@shared/types'
+import { describeAllowKey } from '@shared/toolAllow'
+import type { Conversation, McpServer } from '@shared/types'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/format'
 import { reportError, useApp } from '@/stores/app'
@@ -22,6 +23,14 @@ import {
   Tooltip
 } from './ui'
 
+/** An allowed tool as the menu shows it: the tool, and the server or site it's allowed for. */
+function allowLabel(key: string, servers: McpServer[]): { tool: string; where: string | null } {
+  const { tool, serverId, host } = describeAllowKey(key)
+  if (host) return { tool, where: host }
+  if (serverId) return { tool, where: servers.find((s) => s.id === serverId)?.name ?? serverId }
+  return { tool, where: null }
+}
+
 async function patch(conversation: Conversation, p: Parameters<typeof api.conversations.update>[1]) {
   try {
     const updated = await api.conversations.update(conversation.id, p)
@@ -42,6 +51,7 @@ export function ConversationMenu({
   align?: 'start' | 'end'
 }) {
   const projects = useApp((s) => s.projects)
+  const mcpServers = useApp((s) => s.mcpServers)
   const [renaming, setRenaming] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [title, setTitle] = useState(conversation.title)
@@ -120,11 +130,15 @@ export function ConversationMenu({
           {conversation.allowedTools.length > 0 && (
             <MenuSub label="Tools allowed in this chat" icon={<Hand className="size-4" />}>
               <MenuLabel>These run without asking here:</MenuLabel>
-              {conversation.allowedTools.map((tool) => (
-                <MenuLabel key={tool}>
-                  <span className="font-mono">{tool}</span>
-                </MenuLabel>
-              ))}
+              {conversation.allowedTools.map((key) => {
+                const { tool, where } = allowLabel(key, mcpServers)
+                return (
+                  <MenuLabel key={key}>
+                    <span className="font-mono">{tool}</span>
+                    {where && <span className="text-muted"> · {where}</span>}
+                  </MenuLabel>
+                )
+              })}
               <MenuSeparator />
               <MenuItem onSelect={() => patch(conversation, { allowedTools: [] })}>Ask again before each tool</MenuItem>
             </MenuSub>

@@ -81,6 +81,8 @@ export interface ToolEvent {
   unknown?: boolean
   /** Waiting for you to allow or deny the call; it hasn't run. */
   awaiting?: boolean
+  /** While waiting: what "Allow for this chat" would cover (src/shared/toolAllow.ts). */
+  allowKey?: string
   /** You denied the call, so it didn't run. */
   declined?: boolean
   /** Where the tool comes from, for its card: an MCP server's name. */

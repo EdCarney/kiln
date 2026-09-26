@@ -23,6 +23,10 @@ interface Connection {
   /** stderr of the latest start, kept after the server stops so a failure can be read. */
   log: string[]
   starting: Promise<void> | null
+  /** The generation `starting` belongs to: a stop or restart since then means it must not be reused. */
+  startingGeneration: number
+  /** The transport of a start still connecting, so a stop can close it rather than let it run on. */
+  connecting: ProcessTransport | null
   /** Bumped by every start and stop, so a start that was overtaken leaves things alone. */
   generation: number
 }
@@ -35,7 +39,17 @@ const stopped = (id: string): McpStatus => ({ id, state: 'stopped', error: null,
 function connection(id: string): Connection {
   let c = connections.get(id)
   if (!c) {
-    c = { status: stopped(id), client: null, tools: [], transport: null, log: [], starting: null, generation: 0 }
+    c = {
+      status: stopped(id),
+      client: null,
+      tools: [],
+      transport: null,
+      log: [],
+      starting: null,
+      startingGeneration: 0,
+      connecting: null,
+      generation: 0
+    }
     connections.set(id, c)
   }
   return c
@@ -118,13 +132,11 @@ async function start(id: string, c: Connection): Promise<void> {
   if (!config) return
   const generation = ++c.generation
   update(c, { state: 'starting', error: null, tools: [], serverInfo: null })
-  const transport = new ProcessTransport({
-    command: config.command,
-    args: config.args,
-    cwd: config.cwd ?? homedir(),
-    env: await childEnv(config.env)
-  })
+  const env = await childEnv(config.env)
+  if (c.generation !== generation) return // stopped while the environment was worked out
+  const transport = new ProcessTransport({ command: config.command, args: config.args, cwd: config.cwd ?? homedir(), env })
   c.log = transport.log
+  c.connecting = transport
   const client = new Client(CLIENT, {
     listChanged: {
       tools: {
@@ -154,6 +166,8 @@ async function start(id: string, c: Connection): Promise<void> {
   } catch (err) {
     await transport.close().catch(() => undefined)
     if (c.generation === generation) update(c, { state: 'error', error: startError(err, config.command, transport) })
+  } finally {
+    if (c.connecting === transport) c.connecting = null
   }
 }
 
@@ -161,10 +175,14 @@ async function start(id: string, c: Connection): Promise<void> {
 export function connect(id: string): Promise<void> {
   const c = connection(id)
   if (c.client && c.status.state === 'ready') return Promise.resolve()
-  c.starting ??= start(id, c).finally(() => {
-    c.starting = null
+  // A start that a stop or restart overtook is finishing for nothing: begin a new one rather than wait on it.
+  if (c.starting && c.startingGeneration === c.generation) return c.starting
+  const starting: Promise<void> = start(id, c).finally(() => {
+    if (c.starting === starting) c.starting = null
   })
-  return c.starting
+  c.starting = starting
+  c.startingGeneration = c.generation // start() has already claimed its generation
+  return starting
 }
 
 /**
@@ -190,11 +208,14 @@ export async function stop(id: string): Promise<void> {
   if (!c) return
   c.generation++
   const client = c.client
+  // A start still connecting is stopped too, so its process doesn't run on (with an old command or secrets).
+  const connecting = c.connecting
   c.client = null
   c.transport = null
+  c.connecting = null
   c.tools = []
   update(c, stopped(id))
-  await client?.close().catch(() => undefined)
+  await Promise.all([client?.close().catch(() => undefined), connecting?.close().catch(() => undefined)])
 }
 
 export async function restart(id: string): Promise<void> {

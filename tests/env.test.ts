@@ -2,7 +2,7 @@ import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { loginPath, mergePath, readLoginPath } from '../src/main/env'
+import { childEnv, INHERITED_ENV, inheritedEnv, loginPath, mergePath, readLoginPath } from '../src/main/env'
 
 const dir = mkdtempSync(join(tmpdir(), 'kiln-env-'))
 
@@ -63,5 +63,33 @@ describe('loginPath', () => {
 describe('mergePath', () => {
   it('keeps the first of each directory and drops empty entries', () => {
     expect(mergePath('/a:/b:', '/b:/c', null, undefined, '::/a:/d')).toBe('/a:/b:/c:/d')
+  })
+})
+
+describe('childEnv', () => {
+  it("passes on only the inherited variables, the login shell's PATH and the server's own", async () => {
+    const keys = ['GITHUB_TOKEN', 'AWS_SECRET_ACCESS_KEY', 'HOME', 'LANG']
+    const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]))
+    try {
+      process.env.GITHUB_TOKEN = 'ghp_secret'
+      process.env.AWS_SECRET_ACCESS_KEY = 'aws_secret'
+      process.env.HOME = '/Users/me'
+      process.env.LANG = 'en_US.UTF-8'
+      const env = await childEnv({ API_KEY: 'mine' })
+      expect(env.GITHUB_TOKEN).toBeUndefined()
+      expect(env.AWS_SECRET_ACCESS_KEY).toBeUndefined()
+      expect(env).toMatchObject({ HOME: '/Users/me', LANG: 'en_US.UTF-8', API_KEY: 'mine' })
+      expect(env.PATH).toBeTruthy()
+      expect(Object.keys(env).every((k) => INHERITED_ENV.includes(k) || k === 'PATH' || k === 'API_KEY')).toBe(true)
+    } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k]
+        else process.env[k] = v
+      }
+    }
+  })
+
+  it('leaves out exported shell functions', () => {
+    expect(inheritedEnv({ HOME: '/Users/me', TERM: '() { :; }; echo pwned' })).toEqual({ HOME: '/Users/me' })
   })
 })

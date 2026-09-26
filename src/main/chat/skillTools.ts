@@ -38,6 +38,8 @@ export const skillTools: ToolProvider = {
   id: 'skills',
   tools: (ctx) => (ctx.skills ? SKILL_TOOLS : []),
   pending: ({ name, args }) => ({ tool: name, args, ok: true, pending: true, summary: String(args.name ?? '') }),
+  // They only read the skills the user installed.
+  approval: () => 'auto',
   run: async ({ name, args }, ctx) => {
     const skillName = String(args.name ?? '')
     const skill = await findSkillByName(skillName)

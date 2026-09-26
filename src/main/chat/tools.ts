@@ -20,6 +20,11 @@ export interface ToolContext {
   workspace: string | null
   /** The reply's stop signal: long-running tools are cancelled with it. */
   signal?: AbortSignal
+  /**
+   * The most this call's result may add to the request, when the reply's room is shared between several calls.
+   * Defaults to TOOL_RESULT_CHARS.
+   */
+  maxResultChars?: number
 }
 
 /** A tool's run also knows what the whole request grants (a skill with scripts needs to know if code can run). */
@@ -63,10 +68,16 @@ export interface ToolProvider {
   /** What later turns keep of a finished call; null or absent keeps nothing. */
   replay?(event: ToolEvent): PastToolCall | null
   /**
-   * Whether a call runs straight away ('auto', the default) or waits for the user to allow it ('ask'). Tools that act
-   * on this Mac or the user's accounts ask; the user can still allow one for a whole chat.
+   * Whether a call runs straight away ('auto') or waits for the user to allow it ('ask', the default, so a provider
+   * that doesn't say never runs unasked). Tools that act on this Mac or the user's accounts ask; the user can still
+   * allow one for a whole chat.
    */
   approval?(call: ResolvedCall, ctx: ToolContext): 'auto' | 'ask'
+  /**
+   * What "Allow for this chat" and a denial cover for this call (see src/shared/toolAllow.ts). Defaults to the tool's
+   * name. MCP tools use their server and own name; web_fetch uses the site.
+   */
+  allowKey?(call: ResolvedCall): string
   /** Where a call goes, for the debugger (a web API, an MCP server). Defaults to kiln://tools/<name>. */
   endpoint?(call: ResolvedCall): string
 }
@@ -161,7 +172,7 @@ const preview = (content: string) => (content.length > PREVIEW_CHARS ? `${conten
  */
 export function settleToolEvent(e: ToolEvent): ToolEvent {
   if (e.awaiting) {
-    const { awaiting: _awaiting, ...rest } = e
+    const { awaiting: _awaiting, allowKey: _allowKey, ...rest } = e
     return { ...rest, pending: false, ok: false, summary: `${e.summary} (not run)` }
   }
   return e.pending ? { ...e, pending: false, ok: false, summary: `${e.summary} (stopped)` } : e
@@ -174,10 +185,20 @@ export function pendingEvent(call: ToolCall, ctx: ToolContext): ToolEvent {
   return { tool: call.function.name, args: argsOf(call), ok: true, pending: true, summary: call.function.name, unknown: true }
 }
 
-/** Whether a call must wait for the user's answer before it runs. Calls to tools nothing offers never ask. */
+/**
+ * Whether a call must wait for the user's answer before it runs. A provider that doesn't say asks. Calls to tools
+ * nothing offers never ask: they don't run.
+ */
 export function approvalFor(call: ToolCall, ctx: ToolContext): 'auto' | 'ask' {
   const resolved = resolveCall(call, ctx)
-  return resolved?.provider.approval?.(resolved, ctx) ?? 'auto'
+  if (!resolved) return 'auto'
+  return resolved.provider.approval?.(resolved, ctx) ?? 'ask'
+}
+
+/** What an answer to this call covers: "Allow for this chat" is stored under it, and a denial applies to it. */
+export function allowKeyFor(call: ToolCall, ctx: ToolContext): string {
+  const resolved = resolveCall(call, ctx)
+  return (resolved && resolved.provider.allowKey?.(resolved)) ?? resolved?.name ?? call.function.name
 }
 
 /** Where a call goes, for its debugger trace. */
@@ -188,7 +209,7 @@ export function toolEndpoint(call: ToolCall, ctx: ToolContext): string {
 
 /** What the model hears when the user denies a call, and what the reply shows. The call never ran. */
 export function declinedResult(call: ToolCall, pending: ToolEvent): ToolResult {
-  const { awaiting: _awaiting, ...event } = pending
+  const { awaiting: _awaiting, allowKey: _allowKey, ...event } = pending
   return {
     content: `The user declined to run ${call.function.name}, so it didn't run. Don't call it again unless they ask. Carry on without it, and tell them plainly what you couldn't do.`,
     event: { ...event, pending: false, ok: false, declined: true }
@@ -214,7 +235,8 @@ export async function runTool(call: ToolCall, ctx: ToolContext): Promise<ToolRes
     const message = errorMessage(err)
     result = { content: `Error: ${message}`, event: { tool: resolved.name, args: resolved.args, ok: false, summary: message } }
   }
-  return { ...result, content: capText(result.content, TOOL_RESULT_CHARS), event: { preview: preview(result.content), ...result.event } }
+  const max = Math.min(ctx.maxResultChars ?? TOOL_RESULT_CHARS, TOOL_RESULT_CHARS)
+  return { ...result, content: capText(result.content, max), event: { preview: preview(result.content), ...result.event } }
 }
 
 /** The finished calls behind a reply that later turns keep, in brief, as each tool's provider decides. */

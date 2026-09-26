@@ -49,7 +49,9 @@ import { errorMessage, estimateTokens } from '../util'
 import { waitForDecision } from './approvals'
 import { assemble, type HistoryTurn, promptBudget } from './assemble'
 import { TITLE_PROMPT } from './prompts'
+import { TOOL_RESULT_CHARS } from './results'
 import {
+  allowKeyFor,
   approvalFor,
   declinedResult,
   missingAbilities,
@@ -71,6 +73,11 @@ export const DEFAULT_TOOL_ROUNDS = 6
 export const TOOL_SOURCE_ROUNDS = 12
 /** How long a reply waits for the chat's MCP servers to start; ones still starting are left out of it. */
 const SERVER_WAIT_MS = 30_000
+// Sharing a round's room between its tool results: estimateTokens counts 4 characters a token, and a tenth is left
+// for the notes and framing around them. Each result still gets a little, so the model sees what came back.
+const CHARS_PER_TOKEN = 4
+const ROOM_SHARE = 0.9
+const MIN_RESULT_CHARS = 1_500
 
 /** Settings for one reply, for callers in the main process (the renderer can't set them). */
 export interface ReplyOptions {
@@ -381,9 +388,10 @@ async function generate(
     }
 
     const triedUnknown: string[] = []
-    // Tools the user allowed for this whole chat, and ones they denied in this reply (not asked about again).
-    let allowedTools = conversation.allowedTools
+    // What the user denied in this reply, by allow key (not asked about again). What they allowed for the whole chat
+    // is read from the chat at each call, so "Ask again before each tool" takes effect mid-reply.
     const declined = new Set<string>()
+    const allowedInChat = () => getConversation(conversationId)?.allowedTools ?? []
     // This turn's tool results, oldest first: when the request outgrows the context window, the oldest are shortened.
     const turnResults: Array<{ index: number; round: number; note: string }> = []
     // Ollama's token count for the last request, and what we estimated it at, to correct later estimates.
@@ -477,6 +485,14 @@ async function generate(
       if (!calls.length) break
 
       body.messages.push({ role: 'assistant', content: roundContent, thinking: roundThinking || undefined, tool_calls: calls })
+      // The newest round's results are never shortened, so together they must fit what's left of the budget once this
+      // turn's older results are (next round). Share that room between the calls as they finish.
+      const shortenable = turnResults.reduce(
+        (n, r) => n + estimateTokens(String(body.messages[r.index].content)) - estimateTokens(r.note),
+        0
+      )
+      let roomChars = Math.floor((budget - promptTokens() + shortenable) * CHARS_PER_TOKEN * ROOM_SHARE)
+      let callsLeft = calls.length
       let onlyUnknown = true
       for (const call of calls) {
         const index = toolEvents.length
@@ -488,18 +504,20 @@ async function generate(
         // A tool that acts on this Mac or the user's accounts waits for their answer (unless allowed for this chat).
         // Stop, deleting the chat and quitting abort the wait, and the call never runs.
         let decision: ToolDecision | 'auto' = 'auto'
-        if (approvalFor(call, toolContext) === 'ask' && !allowedTools.includes(pending.tool)) {
-          if (declined.has(pending.tool)) decision = 'deny'
+        const allowKey = allowKeyFor(call, toolContext)
+        if (approvalFor(call, toolContext) === 'ask' && !allowedInChat().includes(allowKey)) {
+          if (declined.has(allowKey)) decision = 'deny'
           else {
-            toolEvents[index] = { ...pending, awaiting: true }
+            toolEvents[index] = { ...pending, awaiting: true, allowKey }
             emit({ type: 'tool', conversationId, messageId, index, event: toolEvents[index] })
             checkpoint(true)
             decision = await waitForDecision(conversationId, messageId, index, controller.signal)
           }
-          if (decision === 'deny') declined.add(pending.tool)
+          if (decision === 'deny') declined.add(allowKey)
           if (decision === 'chat') {
-            allowedTools = [...allowedTools, pending.tool]
-            updateConversation(conversationId, { allowedTools })
+            // Added to the chat's list as it is now, so answers given elsewhere meanwhile (a reset) aren't undone.
+            const allowed = allowedInChat()
+            if (!allowed.includes(allowKey)) updateConversation(conversationId, { allowedTools: [...allowed, allowKey] })
           }
         }
 
@@ -517,7 +535,8 @@ async function generate(
         if (decision === 'deny') result = declinedResult(call, toolEvents[index])
         else {
           try {
-            result = await runTool(call, toolContext)
+            const maxResultChars = Math.min(TOOL_RESULT_CHARS, Math.max(MIN_RESULT_CHARS, Math.floor(roomChars / callsLeft)))
+            result = await runTool(call, { ...toolContext, maxResultChars })
           } catch (err) {
             // Only a stop gets here (tool failures come back as results); close the trace before unwinding.
             toolTrace.finish({ status: 'aborted', response: { error: 'Stopped by you' }, summary: `${pending.tool}: stopped` })
@@ -529,6 +548,8 @@ async function generate(
           response: { result: result.content, error: result.event.ok ? undefined : result.event.summary },
           summary: `${result.event.tool}: ${result.event.declined ? 'declined by you' : result.event.summary}`
         })
+        roomChars -= result.content.length
+        callsLeft--
         if (result.unknown) triedUnknown.push(call.function.name)
         else onlyUnknown = false
         toolEvents[index] = { ...result.event, at: pending.at }
