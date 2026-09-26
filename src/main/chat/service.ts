@@ -345,9 +345,13 @@ async function generate(
       const runner = await runnerStatus()
       if (!runner.available) unavailable.push(`The code runner isn't available: ${runner.reason}`)
       else {
-        const ws = await prepareWorkspace(conversationId)
-        workspace = ws.dir
-        codeRunner = { pypi: settings.runner.pypi, timeoutSec: settings.runner.timeoutSec, uploads: ws.uploads }
+        // Fails when code an earlier run left can't be stopped: then Kiln won't work in the chat's folder (#71).
+        const ws = await prepareWorkspace(conversationId).catch((err: unknown) => new Error(errorMessage(err)))
+        if (ws instanceof Error) unavailable.push(`The code runner isn't available: ${ws.message}`)
+        else {
+          workspace = ws.dir
+          codeRunner = { pypi: settings.runner.pypi, timeoutSec: settings.runner.timeoutSec, uploads: ws.uploads }
+        }
       }
     }
     if (unavailable.length) stats.unavailableTools = unavailable

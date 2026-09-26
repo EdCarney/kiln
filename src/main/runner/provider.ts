@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, delimiter, join } from 'node:path'
 import type { ToolEvent } from '@shared/types'
@@ -9,9 +9,10 @@ import { getSettings } from '../settings'
 import { listSkills } from '../skills/library'
 import type { ToolProvider, ToolResult } from '../chat/tools'
 import { capText } from '../chat/results'
+import { errorMessage } from '../util'
 import { chatVenvDir, ensureBaseVenv, findPython, venvPython } from './python'
-import { policyFor, PRIVATE_ROOTS, runSandboxed } from './sandbox'
-import { changedFiles, KILN_DIR, snapshot } from './workspace'
+import { KILN_DIR, policyFor, PRIVATE_ROOTS, runSandboxed, shellQuote } from './sandbox'
+import { changedFiles, readyForRun, scriptsDir, snapshot } from './workspace'
 
 // run_code: Python or bash in the chat's workspace, under the sandbox. Each call is a fresh process; files persist.
 
@@ -78,19 +79,22 @@ async function readableFolders(): Promise<string[]> {
 async function environmentFor(
   workspace: string,
   pypi: boolean,
-  sandbox: (venv: string) => ReturnType<typeof policyFor>,
+  sandbox: (venv: string) => Promise<ReturnType<typeof policyFor>>,
   env: Record<string, string>,
   signal?: AbortSignal
 ): Promise<{ venv: string } | { error: string }> {
   const own = chatVenvDir(basename(workspace))
+  // The chat's code can write its environment (with PyPI allowed): a link it left in its place goes, never followed.
+  const found = await lstat(own).catch(() => null)
+  if (found && !found.isDirectory()) await rm(own, { force: true })
   if (existsSync(venvPython(own))) return { venv: own }
   if (!pypi) return { venv: await ensureBaseVenv() }
   const python = await findPython()
   if (!python) return { error: 'Python 3 was not found on your PATH.' }
   await mkdir(own, { recursive: true })
   const made = await runSandboxed({
-    command: `"${python.path}" -m venv "${own}"`,
-    policy: sandbox(own),
+    command: `${shellQuote(python.path)} -m venv ${shellQuote(own)}`,
+    policy: await sandbox(own),
     cwd: workspace,
     env,
     timeoutMs: 120_000,
@@ -109,10 +113,18 @@ async function run(language: Language, code: string, workspace: string, signal?:
   if (!code.trim())
     return { content: 'Error: run_code needs the code to run.', event: { tool: 'run_code', args, ok: false, summary: 'no code' } }
 
+  // Nothing an earlier run left is still running (it could change the folder under Kiln), and Kiln's folders are there.
+  try {
+    await readyForRun(workspace)
+  } catch (err) {
+    return { content: `Error: ${errorMessage(err)}`, event: { tool: 'run_code', args, ok: false, summary: 'not run' } }
+  }
   const n = ++runs
-  const script = join(KILN_DIR, `run-${n}.${language === 'python' ? 'py' : 'sh'}`)
-  await mkdir(join(workspace, KILN_DIR), { recursive: true })
-  await writeFile(join(workspace, script), code)
+  // Outside the workspace, where code can't swap it for a link or change it before it runs.
+  const scripts = scriptsDir(basename(workspace))
+  await mkdir(scripts, { recursive: true })
+  const script = join(scripts, `run-${n}.${language === 'python' ? 'py' : 'sh'}`)
+  await writeFile(script, code)
 
   // Tools that keep caches or config in HOME or TMPDIR find a writable one inside the workspace.
   const baseEnv = {
@@ -125,8 +137,11 @@ async function run(language: Language, code: string, workspace: string, signal?:
     MPLBACKEND: 'Agg',
     PYTHONUNBUFFERED: '1'
   }
-  const readable = await readableFolders()
-  const sandbox = (venv: string) => policyFor({ workspace, home: homedir(), readable, venv, pypi: settings.pypi })
+  const readable = [...(await readableFolders()), scripts]
+  // Real paths: the sandbox matches those (see PolicyInput).
+  const real = await realpath(workspace)
+  const sandbox = async (venv: string) =>
+    policyFor({ workspace: real, home: homedir(), readable, venv: await realpath(venv).catch(() => venv), pypi: settings.pypi })
   const environment = await environmentFor(workspace, settings.pypi, sandbox, baseEnv, signal)
   if ('error' in environment)
     return { content: `Error: ${environment.error}`, event: { tool: 'run_code', args, ok: false, summary: 'no Python environment' } }
@@ -134,8 +149,8 @@ async function run(language: Language, code: string, workspace: string, signal?:
 
   const before = await snapshot(workspace)
   const result = await runSandboxed({
-    command: language === 'python' ? `"${venvPython(venv)}" ${script}` : `/bin/bash ${script}`,
-    policy: sandbox(venv),
+    command: language === 'python' ? `${shellQuote(venvPython(venv))} ${shellQuote(script)}` : `/bin/bash ${shellQuote(script)}`,
+    policy: await sandbox(venv),
     cwd: workspace,
     // Kiln's environment comes first on PATH for bash too, so `python` and `pip` work there (Homebrew has only python3).
     env: { ...baseEnv, VIRTUAL_ENV: venv, PATH: `${join(venv, 'bin')}${delimiter}${await childPath()}` },
@@ -143,14 +158,21 @@ async function run(language: Language, code: string, workspace: string, signal?:
     signal,
     id: `run_code:${n}`
   })
-  const files = changedFiles(before, await snapshot(workspace))
+  // The run's leftovers were stopped as it ended; if they couldn't be, its folder isn't listed.
+  let files: Array<{ path: string; size: number }> = []
+  let unlisted = ''
+  try {
+    files = changedFiles(before, await snapshot(workspace))
+  } catch (err) {
+    unlisted = `\n\nThe files it wrote aren't listed: ${errorMessage(err)}`
+  }
 
   const status = result.timedOut
     ? `Stopped after ${settings.timeoutSec} seconds (the time limit).`
     : `Exit code ${result.code ?? 'none (killed)'}.`
   const output = result.output.trim() ? capText(result.output, OUTPUT_CHARS) : '(no output)'
   const listed = files.length ? `\n\nFiles created or changed:\n${files.map((f) => `- ${f.path} (${f.size} bytes)`).join('\n')}` : ''
-  const content = `${status}${result.truncated ? ' (output was cut short)' : ''}\n\n${output}${listed}`
+  const content = `${status}${result.truncated ? ' (output was cut short)' : ''}\n\n${output}${listed}${unlisted}`
   const ok = !result.timedOut && result.code === 0
   const event: ToolEvent = {
     tool: 'run_code',

@@ -3,7 +3,7 @@ import { net, protocol } from 'electron'
 import type { ArtifactType } from '@shared/types'
 import { IMAGE_FILE } from '@shared/workspace'
 import { getAttachmentRow } from './db/conversations'
-import { workspaceFile } from './runner/workspace'
+import { readWorkspaceFile } from './runner/workspace'
 import { getSettings } from './settings'
 import { uid } from './util'
 
@@ -11,6 +11,15 @@ const CDN_HOSTS = ['https://cdnjs.cloudflare.com', 'https://cdn.jsdelivr.net', '
 
 /** For images a code run wrote: no scripts, and nothing loaded from anywhere (inline styles only, for SVG). */
 const WORKSPACE_CSP = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+/** The media type of each image a chat previews (IMAGE_FILE), by extension. */
+const IMAGE_TYPES: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  svg: 'image/svg+xml'
+}
 
 /** Must run before `app.whenReady()`. */
 export function registerSchemes(): void {
@@ -81,15 +90,15 @@ export function handleProtocols(): void {
     }
     if (url.hostname === 'workspace') {
       const [conversationId, ...rest] = url.pathname.slice(1).split('/').map(decodeURIComponent)
-      const file = IMAGE_FILE.test(rest.join('/')) ? await workspaceFile(conversationId, rest.join('/')) : null
-      if (file) {
+      const path = rest.join('/')
+      const type = IMAGE_TYPES[path.match(IMAGE_FILE)?.[1]?.toLowerCase() ?? '']
+      const data = type ? await readWorkspaceFile(conversationId, path) : null
+      if (data) {
         // Shown only as <img>, but an SVG loaded any other way would run its scripts: this origin gets none, and loads
         // nothing (#67).
-        const res = await net.fetch(pathToFileURL(file).toString())
-        const headers = new Headers(res.headers)
-        headers.set('content-security-policy', WORKSPACE_CSP)
-        headers.set('x-content-type-options', 'nosniff')
-        return new Response(res.body, { status: res.status, headers })
+        return new Response(new Uint8Array(data), {
+          headers: { 'content-type': type, 'content-security-policy': WORKSPACE_CSP, 'x-content-type-options': 'nosniff' }
+        })
       }
     }
     return new Response('Not found', { status: 404 })
