@@ -35,7 +35,7 @@ const workspace = await import('../src/main/runner/workspace')
 const tools = await import('../src/main/chat/tools')
 const python = await import('../src/main/runner/python')
 const { openWith, IMAGE_FILE } = await import('../src/shared/workspace')
-const { quarantine, quarantineValue, QUARANTINE_ATTR } = await import('../src/main/quarantine')
+const { quarantine, quarantineInWorkspace, quarantineValue, QUARANTINE_ATTR } = await import('../src/main/quarantine')
 const { reap } = await import('../src/main/runner/reaper')
 const { quiesce } = await import('../src/main/runner/lock')
 const { foldersOnPathInside } = await import('../src/main/runner/provider')
@@ -435,6 +435,26 @@ describe('handing out files a run wrote', () => {
     expect([join(dir, 'shown.txt'), join(dir, 'out', 'run.command')].map(marked)).toEqual([true, true])
     expect([join(dir, '.kiln', 'run-1.py'), join(outside, 'mine.txt')].map(marked)).toEqual([false, false])
   })
+
+  it.runIf(process.platform === 'darwin')(
+    'marks nothing in a workspace when a path has a link anywhere in it, writable or not',
+    async () => {
+      const dir = realpathSync(mkdtempSync(join(tmpdir(), 'kiln-marks-')))
+      mkdirSync(join(dir, 'real'))
+      writeFileSync(join(dir, 'real', 'writable.txt'), 'x')
+      writeFileSync(join(dir, 'real', 'locked.txt'), 'x')
+      chmodSync(join(dir, 'real', 'locked.txt'), 0o444)
+      writeFileSync(join(dir, 'first.txt'), 'x')
+      symlinkSync(join(dir, 'real'), join(dir, 'linked'))
+      for (const f of ['writable.txt', 'locked.txt'])
+        await expect(quarantineInWorkspace(join(dir, 'first.txt'), join(dir, 'linked', f))).rejects.toThrow()
+      const { execFileSync } = await import('node:child_process')
+      expect(() => execFileSync('/usr/bin/xattr', ['-p', QUARANTINE_ATTR, join(dir, 'first.txt')], { stdio: 'pipe' })).toThrow()
+      expect(statSync(join(dir, 'real', 'locked.txt')).mode & 0o777).toBe(0o444)
+      await quarantineInWorkspace(join(dir, 'first.txt'), join(dir, 'real', 'locked.txt'))
+      expect(statSync(join(dir, 'real', 'locked.txt')).mode & 0o777).toBe(0o644)
+    }
+  )
 
   // Code can make a file read-only, and the mark needs write permission: that mustn't leave a script unmarked.
   it.runIf(process.platform === 'darwin')('marks many files at once, read-only ones too, and a link itself, not its target', async () => {
