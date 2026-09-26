@@ -1,10 +1,10 @@
-import { copyFile, writeFile } from 'node:fs/promises'
+import { copyFile, rm, writeFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from 'electron'
 import { artifactExtension, slugify } from '@shared/artifactParser'
 import { EVENT_CHANNELS, type KilnApi } from '@shared/ipc'
 import { parseServersJson } from '@shared/mcpImport'
-import { OPENABLE_FILE } from '@shared/workspace'
+import { openWith } from '@shared/workspace'
 import { BUILTIN_THEMES } from '@shared/themes'
 import type { ThemeDef } from '@shared/types'
 import { decide } from './chat/approvals'
@@ -36,10 +36,12 @@ import { ingestAll, removeFiles } from './files/ingest'
 import { appPages, isAppFrame } from './ipcSender'
 import { getModelInfo, listModels, setModelOverrides } from './ollama/models'
 import { paths } from './paths'
+import { quarantine } from './quarantine'
+import { errorMessage } from './util'
 import { stageArtifact } from './protocols'
 import { installedPackages, resetVenv } from './runner/python'
 import { runnerStatus } from './runner/status'
-import { removeWorkspace, workspaceFile } from './runner/workspace'
+import { removeWorkspace, workspaceFile, workspaceFiles } from './runner/workspace'
 import { getSettings, setApiKey, updateSettings } from './settings'
 import { getAccountUsage, invalidateAccountUsage, lastRawUsage } from './usage/account'
 import { currentBackground } from './background'
@@ -272,14 +274,26 @@ const impl: Impl = {
     openFile: async (conversationId, path) => {
       const file = await workspaceFile(conversationId, path)
       if (!file) throw new Error('That file is no longer in the chat’s folder.')
-      // Opening runs whatever app handles the type, outside the sandbox: never a script or an app a run wrote.
-      if (!OPENABLE_FILE.test(file)) throw new Error('Kiln only opens documents and images. Use Show in Finder for other files.')
+      // Whatever opens the file runs outside the sandbox, and the file may carry the chat's data: on a Mac it's shown
+      // with Quick Look, not handed to the app for its type, which might run its scripts or load remote content (#67).
+      const how = openWith(file, process.platform)
+      if (!how) throw new Error('Kiln only previews documents and images. Use Show in Finder for other files.')
+      if (how === 'quick-look') {
+        const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+        if (!win) throw new Error('There’s no window to preview the file in.')
+        return win.previewFile(file, basename(file))
+      }
       const failed = await shell.openPath(file)
       if (failed) throw new Error(failed)
     },
     revealFile: async (conversationId, path) => {
       const file = await workspaceFile(conversationId, path)
       if (!file) throw new Error('That file is no longer in the chat’s folder.')
+      // Finder shows the whole folder, so every file in it is marked as downloaded, not only this one: macOS then asks
+      // before running any script or app a run left there.
+      await quarantine(file, ...(await workspaceFiles(conversationId))).catch((err) => {
+        throw new Error(`Couldn’t mark the chat’s files as downloaded, so they weren’t shown: ${errorMessage(err)}`)
+      })
       shell.showItemInFolder(file)
     },
     saveFile: async (conversationId, path) => {
@@ -288,6 +302,11 @@ const impl: Impl = {
       const res = await dialog.showSaveDialog({ defaultPath: basename(file) })
       if (res.canceled || !res.filePath) return false
       await copyFile(file, res.filePath)
+      // A copy without the mark would open like any file of the user's: remove it rather than leave it unmarked.
+      await quarantine(res.filePath).catch(async (err) => {
+        await rm(res.filePath!, { force: true })
+        throw new Error(`Couldn’t mark the copy as downloaded, so it wasn’t saved: ${errorMessage(err)}`)
+      })
       return true
     }
   },

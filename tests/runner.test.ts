@@ -1,6 +1,6 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join, relative } from 'node:path'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 
 vi.mock('electron', () => ({
@@ -13,9 +13,12 @@ const { openDatabase } = await import('../src/main/db/index')
 const { createConversation, insertAttachment, insertMessage, linkAttachments } = await import('../src/main/db/conversations')
 const { updateSettings } = await import('../src/main/settings')
 const { paths } = await import('../src/main/paths')
-const { policyFor, runSandboxed } = await import('../src/main/runner/sandbox')
+const { policyFor, PRIVATE_ROOTS, runSandboxed } = await import('../src/main/runner/sandbox')
 const workspace = await import('../src/main/runner/workspace')
 const tools = await import('../src/main/chat/tools')
+const python = await import('../src/main/runner/python')
+const { openWith, IMAGE_FILE } = await import('../src/shared/workspace')
+const { quarantine, quarantineValue, QUARANTINE_ATTR } = await import('../src/main/quarantine')
 
 const root = mkdtempSync(join(tmpdir(), 'kiln-runner-test-'))
 beforeAll(() => {
@@ -41,12 +44,19 @@ describe('the sandbox policy', () => {
     expect(policyFor({ ...base, pypi: false })).toEqual({
       network: { allowedDomains: [], deniedDomains: [] },
       filesystem: {
-        denyRead: ['/Users/me'],
+        denyRead: ['/Users/me', '/Users', '/Volumes', '/private/var/folders', '/private/tmp'],
         allowRead: ['/w', '/Users/me/.claude/skills', '/Users/me/k/venv'],
         allowWrite: ['/w'],
-        denyWrite: []
+        denyWrite: ['/private/tmp/claude']
       }
     })
+  })
+
+  // #68: the sandbox allows every read it doesn't deny, and user data isn't only in the home folder.
+  it('also hides other accounts, shared and mounted folders, and the temp folders', () => {
+    const { denyRead } = policyFor({ ...base, home: '/Volumes/Home/me', pypi: false }).filesystem
+    expect(denyRead).toEqual(['/Volumes/Home/me', '/Users', '/Volumes', '/private/var/folders', '/private/tmp'])
+    expect(policyFor({ ...base, home: '/Users', pypi: false }).filesystem.denyRead).toEqual(PRIVATE_ROOTS)
   })
 
   it('opens PyPI, and the Python environment for writing, only when allowed', () => {
@@ -115,6 +125,133 @@ describe('workspaces', () => {
     expect(await workspace.workspaceFile('../workspaces/chat-files', 'out/report.txt')).toBeNull()
     expect(await workspace.workspaceFile(id, 'out')).toBeNull()
   })
+
+  // Show in Finder marks these: Finder shows the whole folder, not only the file (#67).
+  it('lists every file Finder would show, nearest first, leaving out .kiln and never following links', async () => {
+    const id = 'chat-finder'
+    const dir = workspace.workspaceDir(id)
+    mkdirSync(join(dir, 'a', 'b'), { recursive: true })
+    mkdirSync(join(dir, '.kiln'), { recursive: true })
+    mkdirSync(join(dir, 'uploads'), { recursive: true })
+    const outside = mkdtempSync(join(tmpdir(), 'kiln-outside-'))
+    writeFileSync(join(outside, 'mine.txt'), 'x')
+    for (const f of ['a/b/deep.txt', 'a/mid.txt', 'top.command', 'uploads/data.csv', '.kiln/run-1.py']) writeFileSync(join(dir, f), 'x')
+    symlinkSync(outside, join(dir, 'linked'))
+    symlinkSync(join(outside, 'mine.txt'), join(dir, 'mine.txt'))
+    const files = (await workspace.workspaceFiles(id)).map((f) => relative(dir, f))
+    expect([...files].sort()).toEqual(['a/b/deep.txt', 'a/mid.txt', 'top.command', 'uploads/data.csv'])
+    expect(files.indexOf('top.command')).toBeLessThan(files.indexOf('a/mid.txt'))
+    expect(files.indexOf('a/mid.txt')).toBeLessThan(files.indexOf('a/b/deep.txt'))
+    expect(await workspace.workspaceFiles('../workspaces')).toEqual([])
+  })
+})
+
+// #69: with PyPI allowed, a shared writable environment would let one chat's code run in every other.
+describe("Kiln's Python environments", () => {
+  const plantPackage = (venv: string, name: string, version: string) =>
+    mkdirSync(join(venv, 'lib', 'python3.12', 'site-packages', `${name}-${version}.dist-info`), { recursive: true })
+
+  it("lists the packages installed in the chats' own environments, each once", async () => {
+    plantPackage(python.chatVenvDir('chat-a'), 'requests', '2.32.0')
+    plantPackage(python.chatVenvDir('chat-a'), 'pip', '24.0')
+    plantPackage(python.chatVenvDir('chat-b'), 'pip', '24.0')
+    plantPackage(python.chatVenvDir('chat-b'), 'numpy', '2.1.0')
+    expect(await python.installedPackages()).toEqual([
+      { name: 'numpy', version: '2.1.0' },
+      { name: 'pip', version: '24.0' },
+      { name: 'requests', version: '2.32.0' }
+    ])
+    expect(python.venvsExist()).toBe(true)
+  })
+
+  it("deletes a chat's environment with the chat, and every environment on reset, without following links", async () => {
+    const outside = mkdtempSync(join(tmpdir(), 'kiln-outside-'))
+    writeFileSync(join(outside, 'keep.txt'), 'keep')
+    plantPackage(python.chatVenvDir('chat-c'), 'six', '1.16.0')
+    symlinkSync(outside, join(python.chatVenvDir('chat-c'), 'lib', 'link'))
+    await workspace.removeWorkspace('chat-c')
+    expect(existsSync(python.chatVenvDir('chat-c'))).toBe(false)
+
+    plantPackage(python.chatVenvDir('chat-d'), 'six', '1.16.0')
+    symlinkSync(outside, join(python.chatVenvDir('chat-d'), 'lib', 'link'))
+    mkdirSync(join(paths.runner, 'venv', 'bin'), { recursive: true })
+    await python.resetVenv()
+    expect(existsSync(python.chatVenvsDir())).toBe(false)
+    expect(existsSync(join(paths.runner, 'venv'))).toBe(false)
+    expect(readFileSync(join(outside, 'keep.txt'), 'utf8')).toBe('keep')
+    expect(await python.installedPackages()).toEqual([])
+    expect(python.venvsExist()).toBe(false)
+  })
+
+  it('replaces the old shared environment with one without pip', async (t) => {
+    if (!(await python.findPython())) t.skip()
+    const legacy = join(paths.runner, 'venv', 'lib', 'python3', 'site-packages')
+    mkdirSync(legacy, { recursive: true })
+    writeFileSync(join(legacy, 'sitecustomize.py'), 'print("planted")')
+    const base = await python.ensureBaseVenv()
+    expect(base).toBe(python.baseVenvDir())
+    expect(existsSync(python.venvPython(base))).toBe(true)
+    expect(existsSync(join(base, 'bin', 'pip'))).toBe(false)
+    expect(existsSync(join(paths.runner, 'venv'))).toBe(false)
+  }, 60_000)
+})
+
+// A file a run wrote may carry the chat's data, and whatever opens it runs outside the sandbox (#67).
+describe('handing out files a run wrote', () => {
+  it('previews documents with Quick Look on a Mac, never in the app for their type', () => {
+    for (const f of ['report.docx', 'data.xlsx', 'notes.md', 'table.csv', 'out.json', 'chart.png', 'doc.pdf', 'a.txt'])
+      expect(openWith(f, 'darwin')).toBe('quick-look')
+  })
+
+  it('elsewhere opens only plain text, PDFs and bitmaps', () => {
+    for (const f of ['a.txt', 'doc.pdf', 'chart.png', 'photo.JPG', 'anim.gif', 'pic.webp']) expect(openWith(f, 'linux')).toBe('default-app')
+    for (const f of ['report.docx', 'deck.pptx', 'data.xlsx', 'notes.md', 'table.csv', 'out.json', 'x.rtf', 'y.odt'])
+      expect(openWith(f, 'linux')).toBeNull()
+  })
+
+  it('never opens an SVG, a script or an app, though an SVG is still shown inline as an image', () => {
+    for (const platform of ['darwin', 'linux', 'win32'])
+      for (const f of ['plot.svg', 'run.command', 'x.sh', 'x.py', 'x.html', 'Evil.app', 'x.webloc', 'x.terminal'])
+        expect(openWith(f, platform)).toBeNull()
+    expect(IMAGE_FILE.test('plot.svg')).toBe(true)
+  })
+
+  it('marks handed-out files the way browsers mark downloads', () => {
+    expect(quarantineValue(Date.UTC(2026, 0, 1))).toBe(`0081;${(Date.UTC(2026, 0, 1) / 1000).toString(16)};Kiln;`)
+  })
+
+  it.runIf(process.platform === 'darwin')('writes the quarantine mark on macOS', async () => {
+    const file = join(root, 'handed-out.txt')
+    writeFileSync(file, 'x')
+    await quarantine(file)
+    const { execFileSync } = await import('node:child_process')
+    expect(execFileSync('/usr/bin/xattr', ['-p', QUARANTINE_ATTR, file]).toString().trim()).toMatch(/^0081;[0-9a-f]+;Kiln;$/)
+    await expect(quarantine(join(root, 'missing.txt'))).rejects.toThrow()
+  })
+
+  // Code can make a file read-only, and the mark needs write permission: that mustn't leave a script unmarked.
+  it.runIf(process.platform === 'darwin')('marks many files at once, read-only ones too, and a link itself, not its target', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kiln-marks-'))
+    const target = join(mkdtempSync(join(tmpdir(), 'kiln-target-')), 'target.txt')
+    writeFileSync(target, 'elsewhere')
+    const files = [join(dir, 'a b.txt'), join(dir, 'setup.command'), ...Array.from({ length: 250 }, (_, i) => join(dir, `f${i}`))]
+    for (const f of files) writeFileSync(f, 'x')
+    chmodSync(join(dir, 'setup.command'), 0o555)
+    symlinkSync(target, join(dir, 'link'))
+    await quarantine(...files, join(dir, 'link'))
+    const { execFileSync } = await import('node:child_process')
+    const mark = (f: string) => {
+      try {
+        return execFileSync('/usr/bin/xattr', ['-s', '-p', QUARANTINE_ATTR, f], { stdio: 'pipe' }).toString().trim()
+      } catch {
+        return null
+      }
+    }
+    for (const f of files) expect(mark(f), f).toMatch(/^0081;/)
+    expect(statSync(join(dir, 'setup.command')).mode & 0o777).toBe(0o755)
+    expect(mark(join(dir, 'link'))).toMatch(/^0081;/)
+    expect(mark(target)).toBeNull()
+  })
 })
 
 // The sandbox itself is macOS's (sandbox-exec); CI runs on Linux.
@@ -124,8 +261,16 @@ describe.runIf(process.platform === 'darwin' && existsSync('/usr/bin/sandbox-exe
   const elsewhere = mkdtempSync(join(tmpdir(), 'kiln-elsewhere-'))
   writeFileSync(join(fakeHome, 'private.txt'), 'private')
   const policy = policyFor({ workspace: ws, home: fakeHome, readable: [], venv: join(root, 'venv'), pypi: false })
-  const sandboxed = (command: string, extra: { timeoutMs?: number; signal?: AbortSignal } = {}) =>
-    runSandboxed({ command, policy, cwd: ws, env: {}, timeoutMs: extra.timeoutMs ?? 30_000, signal: extra.signal, id: command })
+  const sandboxed = (command: string, extra: { timeoutMs?: number; signal?: AbortSignal; env?: Record<string, string> } = {}) =>
+    runSandboxed({
+      command,
+      policy,
+      cwd: ws,
+      env: extra.env ?? {},
+      timeoutMs: extra.timeoutMs ?? 30_000,
+      signal: extra.signal,
+      id: command
+    })
 
   it('writes in the workspace and nowhere else, and reads nothing it was denied', async () => {
     const ok = await sandboxed('echo made > made.txt && cat made.txt')
@@ -137,6 +282,42 @@ describe.runIf(process.platform === 'darwin' && existsSync('/usr/bin/sandbox-exe
     expect(existsSync(join(elsewhere, 'escape.txt'))).toBe(false)
     const denied = await sandboxed(`cat ${join(fakeHome, 'private.txt')}`)
     expect(denied.output).toMatch(/Operation not permitted/)
+  })
+
+  // #68: outside the home folder too. The test folders are in the per-user temp folder (/private/var/folders).
+  it('reads nothing in /Users/Shared, the temp folders or other disks, but still its workspace', async () => {
+    const shared = join('/Users/Shared', `kiln-test-${process.pid}.txt`)
+    const tmp = join('/private/tmp', `kiln-test-${process.pid}.txt`)
+    writeFileSync(shared, 'shared')
+    writeFileSync(tmp, 'tmp')
+    writeFileSync(join(elsewhere, 'draft.txt'), 'draft')
+    writeFileSync(join(ws, 'mine.txt'), 'mine')
+    try {
+      for (const file of [shared, tmp, '/tmp/' + tmp.split('/').at(-1), join(elsewhere, 'draft.txt')]) {
+        const r = await sandboxed(`cat "${file}"`)
+        expect(r.code, file).not.toBe(0)
+        expect(r.output, file).toMatch(/Operation not permitted/)
+      }
+      expect((await sandboxed('ls /Volumes')).output).toMatch(/Operation not permitted/)
+      expect((await sandboxed(`cat ${join(ws, 'mine.txt')}`)).output.trim()).toBe('mine')
+    } finally {
+      rmSync(shared, { force: true })
+      rmSync(tmp, { force: true })
+    }
+  })
+
+  // sandbox-runtime sets TMPDIR=/tmp/claude and lets every sandbox write there: a folder all chats would share, and
+  // (reads being denied in /private/tmp) one whose files couldn't be read back.
+  it('gives code its own temp folder, and none shared with other chats', async () => {
+    const tmp = join(ws, "it's tmp")
+    mkdirSync(tmp, { recursive: true })
+    const own = await sandboxed('echo "TMPDIR=$TMPDIR" && echo kept > "$TMPDIR/t" && cat "$TMPDIR/t"', { env: { TMPDIR: tmp } })
+    expect(own.code).toBe(0)
+    expect(own.output).toBe(`TMPDIR=${tmp}\nkept\n`)
+    const shared = await sandboxed('mkdir -p /tmp/claude/kiln-test && echo x > /tmp/claude/kiln-test/f', { env: { TMPDIR: tmp } })
+    expect(shared.code).not.toBe(0)
+    expect(shared.output).toMatch(/Operation not permitted/)
+    expect(existsSync('/tmp/claude/kiln-test/f')).toBe(false)
   })
 
   it('has no network, and says so', async () => {
@@ -189,6 +370,57 @@ describe.runIf(process.platform === 'darwin' && existsSync('/usr/bin/sandbox-exe
       expect(failed.content).toMatch(/^Exit code 3\.\n\noops/)
       expect(failed.event).toMatchObject({ ok: false, summary: 'exit code 3' })
     }, 120_000)
+
+    // #69: what one chat's code writes into its environment never runs in another chat.
+    it('gives each chat that may install packages its own environment, which other chats never run or read', async () => {
+      const a = mkdtempSync(join(tmpdir(), 'kiln-run-'))
+      const b = mkdtempSync(join(tmpdir(), 'kiln-run-'))
+      const plant = [
+        // A .pth file's import lines run at every start (a sitecustomize.py can be shadowed by the base Python's).
+        'import sys, sysconfig',
+        "open(sysconfig.get_paths()['purelib'] + '/zz_planted.pth', 'w').write('import sys; print(\"PLANTED\")\\n')",
+        'print(sys.prefix)'
+      ].join('\n')
+      updateSettings({ runner: { pypi: true } })
+      try {
+        const planted = await tools.runTool(call('run_code', { language: 'python', code: plant }), ctx(a))
+        expect(planted.content).toMatch(/^Exit code 0\./)
+        const venvA = python.chatVenvDir(basename(a))
+        expect(planted.content).toContain(venvA)
+        expect(existsSync(join(venvA, 'bin', 'pip'))).toBe(true)
+        expect((await tools.runTool(call('run_code', { language: 'python', code: 'print(1)' }), ctx(a))).content).toMatch(/PLANTED/)
+
+        const other = await tools.runTool(call('run_code', { language: 'python', code: 'import sys\nprint(sys.prefix)' }), ctx(b))
+        expect(other.content).toMatch(/^Exit code 0\./)
+        expect(other.content).not.toMatch(/PLANTED/)
+        expect(other.content).toContain(python.chatVenvDir(basename(b)))
+        const peek = await tools.runTool(call('run_code', { language: 'bash', code: `ls "${venvA}"` }), ctx(b))
+        expect(peek.content).toMatch(/Operation not permitted/)
+      } finally {
+        updateSettings({ runner: { pypi: false } })
+      }
+      // Without PyPI, a chat with no environment of its own uses the shared one, and can't write it.
+      const c = mkdtempSync(join(tmpdir(), 'kiln-run-'))
+      const shared = await tools.runTool(call('run_code', { language: 'python', code: plant.replace('print(sys.prefix)', '') }), ctx(c))
+      expect(shared.content).toMatch(/Operation not permitted/)
+      expect(existsSync(python.chatVenvDir(basename(c)))).toBe(false)
+      expect((await tools.runTool(call('run_code', { language: 'python', code: 'print(2)' }), ctx(c))).content).not.toMatch(/PLANTED/)
+    }, 180_000)
+
+    // pip checks certificates through macOS's trust service, which the sandbox blocks. Needs the network (pypi.org).
+    it('installs a package from PyPI into the chat’s own environment', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'kiln-run-'))
+      mkdirSync(join(dir, '.kiln', 'tmp'), { recursive: true })
+      updateSettings({ runner: { pypi: true } })
+      try {
+        const code = 'pip install -q --disable-pip-version-check --no-deps six && python -c "import six; print(six.__file__)"'
+        const r = await tools.runTool(call('run_code', { language: 'bash', code }), ctx(dir))
+        expect(r.content).toMatch(/^Exit code 0\./)
+        expect(r.content).toContain(join(python.chatVenvDir(basename(dir)), 'lib'))
+      } finally {
+        updateSettings({ runner: { pypi: false } })
+      }
+    }, 180_000)
 
     it("answers gpt-oss's built-in python tool, whose code can arrive as plain text", async () => {
       const dir = mkdtempSync(join(tmpdir(), 'kiln-run-'))

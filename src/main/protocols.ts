@@ -9,6 +9,9 @@ import { uid } from './util'
 
 const CDN_HOSTS = ['https://cdnjs.cloudflare.com', 'https://cdn.jsdelivr.net', 'https://unpkg.com']
 
+/** For images a code run wrote: no scripts, and nothing loaded from anywhere (inline styles only, for SVG). */
+const WORKSPACE_CSP = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+
 /** Must run before `app.whenReady()`. */
 export function registerSchemes(): void {
   protocol.registerSchemesAsPrivileged([
@@ -79,7 +82,15 @@ export function handleProtocols(): void {
     if (url.hostname === 'workspace') {
       const [conversationId, ...rest] = url.pathname.slice(1).split('/').map(decodeURIComponent)
       const file = IMAGE_FILE.test(rest.join('/')) ? await workspaceFile(conversationId, rest.join('/')) : null
-      if (file) return net.fetch(pathToFileURL(file).toString())
+      if (file) {
+        // Shown only as <img>, but an SVG loaded any other way would run its scripts: this origin gets none, and loads
+        // nothing (#67).
+        const res = await net.fetch(pathToFileURL(file).toString())
+        const headers = new Headers(res.headers)
+        headers.set('content-security-policy', WORKSPACE_CSP)
+        headers.set('x-content-type-options', 'nosniff')
+        return new Response(res.body, { status: res.status, headers })
+      }
     }
     return new Response('Not found', { status: 404 })
   })

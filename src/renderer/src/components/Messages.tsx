@@ -4,7 +4,7 @@ import {
   ChevronRight,
   Copy,
   Download,
-  ExternalLink,
+  Eye,
   FileText,
   FolderOpen,
   Globe,
@@ -22,7 +22,7 @@ import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { parseMessage, parseMessageRanges, typeForCodeLanguage } from '@shared/artifactParser'
 import { type IndexedToolEvent, interleave } from '@shared/timeline'
 import type { Artifact, Message, ToolDecision, ToolEvent } from '@shared/types'
-import { IMAGE_FILE, OPENABLE_FILE } from '@shared/workspace'
+import { IMAGE_FILE, openWith } from '@shared/workspace'
 import { formatCost } from '@shared/usage'
 import { api } from '@/lib/api'
 import { cn, displayModelName, formatBytes, formatDuration, formatTokens } from '@/lib/format'
@@ -271,7 +271,10 @@ function ToolCard({ e }: { e: ToolEvent }) {
 
 const runLanguage = (e: ToolEvent) => (e.args.language === 'bash' ? 'bash' : 'python')
 
-/** The files a code run wrote: images shown, and every file can be opened (documents), shown in Finder or saved. */
+/** On a Mac, files a run wrote are previewed with Quick Look; elsewhere fewer types are opened (see openWith). */
+const PLATFORM = navigator.userAgent.includes('Macintosh') ? 'darwin' : 'other'
+
+/** The files a code run wrote: images shown, and every file can be previewed (documents), shown in Finder or saved. */
 function RunFiles({ e, conversationId }: { e: ToolEvent; conversationId: string }) {
   if (!e.files?.length) return null
   const act = (fn: () => Promise<unknown>) => () => void fn().catch(reportError)
@@ -295,9 +298,9 @@ function RunFiles({ e, conversationId }: { e: ToolEvent; conversationId: string 
           >
             <span className="font-mono text-fg">{f.path}</span>
             <span className="text-subtle">{formatBytes(f.size)}</span>
-            {OPENABLE_FILE.test(f.path) && (
-              <IconButton label={`Open ${f.path}`} size="sm" onClick={act(() => api.runner.openFile(conversationId, f.path))}>
-                <ExternalLink className="size-3" />
+            {openWith(f.path, PLATFORM) && (
+              <IconButton label={`Preview ${f.path}`} size="sm" onClick={act(() => api.runner.openFile(conversationId, f.path))}>
+                <Eye className="size-3" />
               </IconButton>
             )}
             <IconButton label={`Show ${f.path} in Finder`} size="sm" onClick={act(() => api.runner.revealFile(conversationId, f.path))}>

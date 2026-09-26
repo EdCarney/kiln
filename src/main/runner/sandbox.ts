@@ -15,11 +15,25 @@ export const PYPI_HOSTS = ['pypi.org', 'files.pythonhosted.org']
 /** How much output a run keeps (the model sees less: tool results are capped). */
 const OUTPUT_BYTES = 256 * 1024
 
+/**
+ * Where user data lives outside the home folder: other accounts' homes and /Users/Shared, other disks and mounted
+ * images, and the per-user and shared temp folders (caches, drafts, downloads in progress). Hidden like the home
+ * folder (#68). macOS spells /tmp and /var as /private/tmp and /private/var.
+ */
+export const PRIVATE_ROOTS = ['/Users', '/Volumes', '/private/var/folders', '/private/tmp']
+
+/**
+ * sandbox-runtime puts TMPDIR=/tmp/claude on every command it builds and always lets code write there: one folder for
+ * every chat (and anything else using the runtime), inside /private/tmp, whose reads are denied, so temp files there
+ * couldn't be read back. Code can't write it; each run gets its own TMPDIR instead (see runSandboxed).
+ */
+export const RUNTIME_TMPDIR = '/private/tmp/claude'
+
 export interface PolicyInput {
-  /** The chat's workspace: the only folder code can write to (and read inside the home folder). */
+  /** The chat's workspace: the only folder code can write to (and read inside the hidden folders). */
   workspace: string
   home: string
-  /** Folders code may read inside the home folder: skills, Kiln's Python environment, tool folders on PATH. */
+  /** Folders code may read inside the hidden folders: skills, Kiln's Python environment, tool folders on PATH. */
   readable: string[]
   /** Kiln's Python environment, writable only when packages may be installed. */
   venv: string
@@ -27,18 +41,18 @@ export interface PolicyInput {
 }
 
 /**
- * What code may touch. Reads: everything outside the home folder (system libraries, Homebrew), and inside it only
- * the workspace and `readable`. Writes: the workspace (and the Python environment when PyPI is allowed). Network: none,
- * or PyPI's two hosts.
+ * What code may touch. Reads: the system (libraries, Homebrew, Python), but in the home folder and PRIVATE_ROOTS only
+ * the workspace and `readable`. Writes: the workspace (and the Python environment when PyPI is allowed), never the
+ * runtime's shared temp folder. Network: none, or PyPI's two hosts.
  */
 export function policyFor(p: PolicyInput): SandboxRuntimeConfig {
   return {
     network: { allowedDomains: p.pypi ? PYPI_HOSTS : [], deniedDomains: [] },
     filesystem: {
-      denyRead: [p.home],
+      denyRead: [...new Set([p.home, ...PRIVATE_ROOTS])],
       allowRead: [p.workspace, ...p.readable, p.venv],
       allowWrite: p.pypi ? [p.workspace, p.venv] : [p.workspace],
-      denyWrite: []
+      denyWrite: [RUNTIME_TMPDIR]
     }
   }
 }
@@ -77,6 +91,9 @@ export async function sandboxStatus(): Promise<{ ok: boolean; reason: string | n
   }
 }
 
+/** A word bash reads back as `s` exactly. */
+const shellQuote = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`
+
 export interface RunResult {
   code: number | null
   /** stdout and stderr as they arrived, with any sandbox denials explained at the end. */
@@ -104,7 +121,9 @@ export async function runSandboxed(opts: {
   opts.signal?.throwIfAborted()
   // The network proxy reads the allowlist per request from the global config; the filesystem rules go with the command.
   sb.updateConfig(opts.policy)
-  const { argv, env } = await sb.wrapWithSandboxArgv(opts.command, '/bin/bash', opts.policy, opts.signal, opts.cwd, { commandId: opts.id })
+  // The runtime's TMPDIR=/tmp/claude is part of the command, where the environment can't override it: set ours there.
+  const command = opts.env.TMPDIR ? `export TMPDIR=${shellQuote(opts.env.TMPDIR)}; ${opts.command}` : opts.command
+  const { argv, env } = await sb.wrapWithSandboxArgv(command, '/bin/bash', opts.policy, opts.signal, opts.cwd, { commandId: opts.id })
   const proc = spawnGroup(argv[0], argv.slice(1), {
     cwd: opts.cwd,
     env: { ...(await childEnv()), ...env, ...opts.env },
