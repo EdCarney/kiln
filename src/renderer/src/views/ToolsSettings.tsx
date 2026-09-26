@@ -25,6 +25,8 @@ const policyOf = (server: McpServer, tool: string): ToolPolicy => server.tools[t
 const tokens = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n))
 
 function stateText(server: McpServer, status: McpStatus | undefined): string {
+  if (server.missingEnv.length)
+    return `Needs ${server.missingEnv.join(', ')} again: Kiln couldn't read the saved values. Edit the server to enter them.`
   if (!status || status.state === 'stopped') return 'Not running. It starts when a chat uses it.'
   if (status.state === 'starting') return 'Starting…'
   if (status.state === 'error') return status.error ?? "Couldn't start."
@@ -41,7 +43,7 @@ function ServerRow({ server, status, onEdit }: { server: McpServer; status: McpS
   const [confirming, setConfirming] = useState(false)
   const [showTools, setShowTools] = useState(false)
   const loadMcp = useApp((s) => s.loadMcp)
-  const state = status?.state ?? 'stopped'
+  const state = server.missingEnv.length ? 'error' : (status?.state ?? 'stopped')
   const tools = status?.tools ?? []
 
   const setPolicy = async (tool: string, policy: ToolPolicy) => {
@@ -267,6 +269,8 @@ function ImportDialog({ source, onClose }: { source: McpImportSource | 'paste'; 
 interface EnvRow {
   key: string
   value: string
+  /** Stored, but its value can't be read: it must be entered again. */
+  missing?: boolean
   /** Stored already: its value isn't shown, only kept, replaced or removed. */
   saved: boolean
   removed?: boolean
@@ -279,7 +283,9 @@ function ServerDialog({ server, onClose }: { server: McpServer | null; onClose: 
   const [args, setArgs] = useState(server?.args.join('\n') ?? '')
   const [cwd, setCwd] = useState(server?.cwd ?? '')
   const [defaultOn, setDefaultOn] = useState(server?.defaultOn ?? true)
-  const [env, setEnv] = useState<EnvRow[]>(server?.envKeys.map((key) => ({ key, value: '', saved: true })) ?? [])
+  const [env, setEnv] = useState<EnvRow[]>(
+    server?.envKeys.map((key) => ({ key, value: '', saved: true, missing: server.missingEnv.includes(key) })) ?? []
+  )
   const [saving, setSaving] = useState(false)
 
   const setRow = (i: number, patch: Partial<EnvRow>) => setEnv(env.map((r, j) => (j === i ? { ...r, ...patch } : r)))
@@ -363,7 +369,7 @@ function ServerDialog({ server, onClose }: { server: McpServer | null; onClose: 
                 type="password"
                 disabled={r.removed}
                 onChange={(e) => setRow(i, { value: e.target.value })}
-                placeholder={r.saved ? 'Saved (leave blank to keep)' : 'value'}
+                placeholder={r.missing ? 'Enter again' : r.saved ? 'Saved (leave blank to keep)' : 'value'}
                 aria-label={`Value of ${r.key || 'variable'}`}
                 className="flex-1 font-mono text-[13px]"
               />

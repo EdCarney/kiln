@@ -13,7 +13,7 @@ import { readSetting, writeSetting } from '../db/kv'
 // holds tokens (a GitHub PAT, an API key), so it's encrypted with the OS keychain like the ollama.com key, and only
 // the variable names ever reach the renderer.
 
-interface StoredServer extends Omit<McpServer, 'envKeys'> {
+interface StoredServer extends Omit<McpServer, 'envKeys' | 'missingEnv'> {
   /** The environment as JSON, encrypted with safeStorage and base64-encoded; null when there is none. */
   env: string | null
   envKeys: string[]
@@ -42,15 +42,23 @@ const store = (servers: StoredServer[]) => {
   cache = servers
 }
 
-const publicView = ({ env: _env, trusted: _trusted, ...server }: StoredServer): McpServer => server
-
-function decryptEnv(enc: string | null): Record<string, string> {
+/** The stored environment, or null when it can't be decrypted (the keychain entry that encrypted it is gone). */
+function decryptEnv(enc: string | null): Record<string, string> | null {
   if (!enc) return {}
   try {
-    return JSON.parse(safeStorage.decryptString(Buffer.from(enc, 'base64'))) as Record<string, string>
+    const env = JSON.parse(safeStorage.decryptString(Buffer.from(enc, 'base64'))) as unknown
+    return env && typeof env === 'object' && !Array.isArray(env) ? (env as Record<string, string>) : null
   } catch {
-    return {}
+    return null
   }
+}
+
+/** Variables without a readable value. */
+const missingEnv = (s: StoredServer, env = decryptEnv(s.env)): string[] => s.envKeys.filter((k) => !env || !(k in env))
+
+const publicView = (s: StoredServer, env = decryptEnv(s.env)): McpServer => {
+  const { env: _env, trusted: _trusted, ...server } = s
+  return { ...server, missingEnv: missingEnv(s, env) }
 }
 
 function encryptEnv(env: Record<string, string>): string | null {
@@ -77,7 +85,7 @@ export function serverId(name: string, taken: string[]): string {
 }
 
 export function listServers(): McpServer[] {
-  return stored().map(publicView)
+  return stored().map((s) => publicView(s))
 }
 
 export function getServer(id: string): McpServer | null {
@@ -87,7 +95,9 @@ export function getServer(id: string): McpServer | null {
 
 export function getServerConfig(id: string): ServerConfig | null {
   const s = stored().find((x) => x.id === id)
-  return s ? { ...publicView(s), env: decryptEnv(s.env) } : null
+  if (!s) return null
+  const env = decryptEnv(s.env)
+  return { ...publicView(s, env), env: env ?? {} }
 }
 
 function validate(input: McpServerInput): void {
@@ -125,11 +135,15 @@ export function saveServer(input: McpServerInput): McpServer {
   const args = input.args.map((a) => a.trim()).filter(Boolean)
   const cwd = input.cwd?.trim() || null
   const replaced = !!existing && changesServer(existing, { command, args, cwd }, input.env)
-  const env = existing ? decryptEnv(existing.env) : {}
+  const readable = existing ? decryptEnv(existing.env) : {}
+  const env: Record<string, string> = { ...(readable ?? {}) }
   for (const [key, value] of Object.entries(input.env)) {
     if (value === null) delete env[key]
     else env[key] = value
   }
+  // Values that couldn't be read and weren't entered again (or removed) stay listed, so the server stays locked
+  // rather than losing them or starting without them.
+  const unread = existing ? missingEnv(existing, readable).filter((k) => !(k in input.env)) : []
   const next: StoredServer = {
     id: existing?.id ?? serverId(input.name, [...servers.map((s) => s.id), ...retiredIds()]),
     name: input.name.trim(),
@@ -137,7 +151,7 @@ export function saveServer(input: McpServerInput): McpServer {
     args,
     cwd,
     env: encryptEnv(env),
-    envKeys: Object.keys(env).sort(),
+    envKeys: [...new Set([...Object.keys(env), ...unread])].sort(),
     defaultOn: input.defaultOn,
     tools: replaced ? {} : (existing?.tools ?? {}),
     trusted: replaced ? {} : (existing?.trusted ?? {}),
@@ -146,6 +160,17 @@ export function saveServer(input: McpServerInput): McpServer {
   store(existing ? servers.map((s) => (s.id === next.id ? next : s)) : [...servers, next])
   if (replaced) forgetServerInChats(next.id, { source: false })
   return publicView(next)
+}
+
+/**
+ * Forget every server's environment values, keeping the variable names, and return the ids of servers that had any.
+ * For values that can no longer be read (#60): each of those servers then asks for them again.
+ */
+export function forgetEnvValues(): string[] {
+  const servers = stored()
+  const had = servers.filter((s) => s.env !== null).map((s) => s.id)
+  if (had.length) store(servers.map((s) => (s.env === null ? s : { ...s, env: null })))
+  return had
 }
 
 const retiredIds = (): string[] => readSetting<string[]>(RETIRED_KEY, [])

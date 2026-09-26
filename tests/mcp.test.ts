@@ -24,6 +24,7 @@ const config = await import('../src/main/mcp/config')
 const manager = await import('../src/main/mcp/manager')
 const { exposedNames, resultText, toParameters } = await import('../src/main/mcp/provider')
 const tools = await import('../src/main/chat/tools')
+const { safeStorage } = await import('electron')
 
 const FIXTURE = join(__dirname, 'fixtures', 'mcp-server.mjs')
 const fixture = (name: string, env: Record<string, string | null> = {}) =>
@@ -454,5 +455,56 @@ describe('a tool that changes after it was allowed', () => {
     expect(config.getServer(s.id)!.changed).toEqual(['env'])
     await manager.stop(s.id)
     config.removeServer(s.id)
+  })
+})
+
+describe('servers whose environment values can’t be read', () => {
+  it('are locked and never started, rather than started without their token', async () => {
+    const s = fixture('Locked', { TOKEN: 'secret' })
+    const lost = vi.spyOn(safeStorage, 'decryptString').mockImplementation(() => {
+      throw new Error('the keychain entry is gone')
+    })
+    try {
+      expect(config.getServer(s.id)?.missingEnv).toEqual(['TOKEN'])
+      await manager.connect(s.id)
+      expect(status(s.id)).toMatchObject({ state: 'error' })
+      expect(status(s.id).error).toMatch(/TOKEN/)
+    } finally {
+      lost.mockRestore()
+    }
+  })
+
+  it('stay locked through an edit that doesn’t enter the values, and unlock when they’re entered', () => {
+    const s = fixture('Relock', { TOKEN: 't', OTHER: 'o' })
+    expect(config.forgetEnvValues()).toContain(s.id)
+    const edit = (env: Record<string, string | null>) =>
+      config.saveServer({ id: s.id, name: 'Relock', command: process.execPath, args: [FIXTURE], cwd: null, env, defaultOn: false })
+    edit({})
+    expect(config.getServer(s.id)).toMatchObject({ envKeys: ['OTHER', 'TOKEN'], missingEnv: ['OTHER', 'TOKEN'] })
+    edit({ OTHER: 'o2' })
+    expect(config.getServer(s.id)).toMatchObject({ envKeys: ['OTHER', 'TOKEN'], missingEnv: ['TOKEN'] })
+    edit({ TOKEN: 't2' })
+    expect(config.getServer(s.id)?.missingEnv).toEqual([])
+    expect(config.getServerConfig(s.id)?.env).toEqual({ OTHER: 'o2', TOKEN: 't2' })
+  })
+
+  it('can drop a variable they can’t read', () => {
+    const s = fixture('Drop', { TOKEN: 't' })
+    config.forgetEnvValues()
+    config.saveServer({
+      id: s.id,
+      name: 'Drop',
+      command: process.execPath,
+      args: [FIXTURE],
+      cwd: null,
+      env: { TOKEN: null },
+      defaultOn: false
+    })
+    expect(config.getServer(s.id)).toMatchObject({ envKeys: [], missingEnv: [] })
+  })
+
+  it('forgetting values reports only servers that had some', () => {
+    const plain = fixture('Plain')
+    expect(config.forgetEnvValues()).not.toContain(plain.id)
   })
 })

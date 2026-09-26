@@ -149,6 +149,15 @@ async function listAllTools(client: Client): Promise<Tool[]> {
 async function start(id: string, c: Connection, generation: number): Promise<void> {
   const config = getServerConfig(id)
   if (!config) return
+  if (config.missingEnv.length) {
+    const names = config.missingEnv.join(', ')
+    return update(c, {
+      state: 'error',
+      error: `Kiln couldn't read ${names}. Enter ${config.missingEnv.length === 1 ? 'it' : 'them'} again in Settings → Tools.`,
+      tools: [],
+      serverInfo: null
+    })
+  }
   update(c, { state: 'starting', error: null, tools: [], serverInfo: null })
   const env = await childEnv(config.env)
   if (c.generation !== generation) return // stopped while the environment was worked out

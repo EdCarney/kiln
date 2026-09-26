@@ -372,6 +372,11 @@ export interface McpServer {
   /** Folder to start it in; null uses your home folder. */
   cwd: string | null
   envKeys: string[]
+  /**
+   * Variables whose values can't be read (the keychain entry that encrypted them is gone). The server doesn't start
+   * until they're entered again: it would run without its token.
+   */
+  missingEnv: string[]
   /** Switched on in new chats. */
   defaultOn: boolean
   /** Tools set to something other than Ask. */
