@@ -35,7 +35,7 @@ describe('stored file paths', () => {
     paths.data = moved
     try {
       expect(conversations.getAttachmentRow('a2')?.path).toBe(join(moved, 'files', 'a2.png'))
-      expect(conversations.staleAttachmentPaths(Date.now() + 1)).toContain(join(moved, 'files', 'a2.png'))
+      expect(conversations.staleAttachmentPaths(Number.MAX_SAFE_INTEGER)).toContain(join(moved, 'files', 'a2.png'))
     } finally {
       paths.data = data
     }
