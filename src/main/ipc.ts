@@ -62,7 +62,8 @@ import {
   onStatusChange,
   restart as restartServer,
   serverLog,
-  statuses as serverStatuses
+  statuses as serverStatuses,
+  toolFingerprint
 } from './mcp/manager'
 import { connectionMode, endpointFor } from './ollama/client'
 import { getPriceTable, refreshPrices } from './usage/pricing'
@@ -279,7 +280,8 @@ const impl: Impl = {
     restart: (id) => restartServer(id),
     log: async (id) => serverLog(id),
     setToolPolicy: async (id, tool, policy) => {
-      const server = setToolPolicy(id, tool, policy)
+      // Always allow trusts the tool as it is now; if the server changes it later, it asks again (#64).
+      const server = setToolPolicy(id, tool, policy, toolFingerprint(id, tool))
       notifyServers()
       return server
     },

@@ -89,6 +89,8 @@ export interface ToolProvider {
    * name. MCP tools use their server and own name; web_fetch uses the site.
    */
   allowKey?(call: ResolvedCall): string
+  /** The user allowed this call for the whole chat (MCP tools record which version of the tool they trusted). */
+  allowedForChat?(call: ResolvedCall): void
   /** Where a call goes, for the debugger (a web API, an MCP server). Defaults to kiln://tools/<name>. */
   endpoint?(call: ResolvedCall): string
 }
@@ -210,6 +212,12 @@ export function approvalFor(call: ToolCall, ctx: ToolContext): Approval {
 export function allowKeyFor(call: ToolCall, ctx: ToolContext): string {
   const resolved = resolveCall(call, ctx)
   return (resolved && resolved.provider.allowKey?.(resolved)) ?? resolved?.name ?? call.function.name
+}
+
+/** Tell a call's provider that the user allowed it for the chat. */
+export function noteAllowedForChat(call: ToolCall, ctx: ToolContext): void {
+  const resolved = resolveCall(call, ctx)
+  if (resolved) resolved.provider.allowedForChat?.(resolved)
 }
 
 /** Where a call goes, for its debugger trace. */

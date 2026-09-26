@@ -398,3 +398,45 @@ describe('as tools in a reply', () => {
     await manager.connect(id)
   })
 })
+
+describe('a tool that changes after it was allowed', () => {
+  const ctx = (sources: string[]) => ({ skills: false, web: false, sources, workspace: null })
+  const call = (name: string) => ({ function: { name, arguments: {} } })
+
+  it('asks again: Always allow and Allow for this chat are dropped, and unchanged tools keep theirs', async () => {
+    const s = fixture('Changing')
+    await manager.connect(s.id)
+    const c = ctx([`mcp:${s.id}`])
+    // echo: Always allow. env: allowed for a chat. pick: both, and never changes.
+    config.setToolPolicy(s.id, 'echo', 'allow', manager.toolFingerprint(s.id, 'echo'))
+    config.setToolPolicy(s.id, 'pick', 'allow', manager.toolFingerprint(s.id, 'pick'))
+    const chat = createConversation({ projectId: null, model: 'm', think: null, skills: [], toolSources: [`mcp:${s.id}`] })
+    updateConversation(chat.id, { allowedTools: [mcpAllowKey(s.id, 'env'), mcpAllowKey(s.id, 'pick')] })
+    tools.noteAllowedForChat(call(`${s.id}__env`), c)
+    tools.noteAllowedForChat(call(`${s.id}__pick`), c)
+    expect(tools.approvalFor(call(`${s.id}__echo`), c)).toBe('auto')
+
+    // Restarting the same server keeps everything: its tools are the same.
+    await manager.restart(s.id)
+    expect(config.getServer(s.id)!.tools).toEqual({ echo: 'allow', pick: 'allow' })
+
+    await manager.callTool(s.id, 'rewrite', { name: 'echo' })
+    await manager.callTool(s.id, 'rewrite', { name: 'env' })
+    expect(await until(() => (config.getServer(s.id)!.changed ?? []).length === 2)).toBe(true)
+
+    const server = config.getServer(s.id)!
+    expect(server.tools).toEqual({ pick: 'allow' })
+    expect(server.changed?.sort()).toEqual(['echo', 'env'])
+    expect(getConversation(chat.id)!.allowedTools).toEqual([mcpAllowKey(s.id, 'pick')])
+    expect(tools.approvalFor(call(`${s.id}__echo`), c)).toBe('ask')
+    expect(tools.approvalFor(call(`${s.id}__pick`), c)).toBe('auto')
+    // The fingerprints aren't the renderer's business.
+    expect(JSON.stringify(config.listServers())).not.toContain('trusted')
+
+    // Looking at the tool again (setting its policy) clears the mark and trusts the new version.
+    config.setToolPolicy(s.id, 'echo', 'allow', manager.toolFingerprint(s.id, 'echo'))
+    expect(config.getServer(s.id)!.changed).toEqual(['env'])
+    await manager.stop(s.id)
+    config.removeServer(s.id)
+  })
+})

@@ -121,14 +121,31 @@ export function updateConversation(
  * never extends its trust to a different program.
  */
 export function forgetServerInChats(serverId: string, opts: { source: boolean }): void {
+  forgetInChats(
+    (key) => isServerAllowKey(key, serverId),
+    (source) => opts.source && source === `mcp:${serverId}`
+  )
+}
+
+/** Drop one "Allow for this chat" answer from every chat. Returns how many chats had it. */
+export function forgetAllowKeyInChats(key: string): number {
+  return forgetInChats(
+    (k) => k === key,
+    () => false
+  )
+}
+
+function forgetInChats(dropKey: (key: string) => boolean, dropSource: (source: string) => boolean): number {
   const rows = all<{ id: string; allowed_tools: string; tool_sources: string }>('SELECT id, allowed_tools, tool_sources FROM conversations')
+  let changed = 0
   transaction(() => {
     for (const r of rows) {
       const allowed = parseJson<string[]>(r.allowed_tools, [])
       const sources = parseJson<string[]>(r.tool_sources, [])
-      const keptAllowed = allowed.filter((k) => !isServerAllowKey(k, serverId))
-      const keptSources = opts.source ? sources.filter((s) => s !== `mcp:${serverId}`) : sources
+      const keptAllowed = allowed.filter((k) => !dropKey(k))
+      const keptSources = sources.filter((s) => !dropSource(s))
       if (keptAllowed.length === allowed.length && keptSources.length === sources.length) continue
+      changed++
       run(
         'UPDATE conversations SET allowed_tools = ?, tool_sources = ? WHERE id = ?',
         JSON.stringify(keptAllowed),
@@ -137,6 +154,7 @@ export function forgetServerInChats(serverId: string, opts: { source: boolean })
       )
     }
   })
+  return changed
 }
 
 export function touchConversation(id: string): void {

@@ -30,7 +30,11 @@ function useBootstrap() {
 
     const stopUsage = startUsagePolling()
     const offSkills = api.events.onSkillsChanged(() => void useApp.getState().loadSkills())
-    const offMcp = api.events.onMcp((mcpStatus) => useApp.setState({ mcpStatus }))
+    const offMcp = api.events.onMcp((mcpStatus) => {
+      useApp.setState({ mcpStatus })
+      // A server's tool list can change what's allowed (a changed tool goes back to Ask), so re-read the servers too.
+      void api.mcp.list().then((mcpServers) => useApp.setState({ mcpServers }))
+    })
     const offMenu = api.events.onMenu((action) => {
       const s = useApp.getState()
       if (action === 'new-chat') {

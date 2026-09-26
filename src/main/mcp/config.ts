@@ -5,7 +5,8 @@ import { join } from 'node:path'
 import { safeStorage } from 'electron'
 import { type ImportedServer, parseServersJson } from '@shared/mcpImport'
 import type { McpImportResult, McpImportSource, McpServer, McpServerInput, ToolPolicy } from '@shared/types'
-import { forgetServerInChats } from '../db/conversations'
+import { mcpAllowKey } from '@shared/toolAllow'
+import { forgetAllowKeyInChats, forgetServerInChats } from '../db/conversations'
 import { readSetting, writeSetting } from '../db/kv'
 
 // MCP server definitions live in the settings table under their own key, not in Settings: their environment often
@@ -16,6 +17,11 @@ interface StoredServer extends Omit<McpServer, 'envKeys'> {
   /** The environment as JSON, encrypted with safeStorage and base64-encoded; null when there is none. */
   env: string | null
   envKeys: string[]
+  /**
+   * Each trusted tool's fingerprint (description, input schema…) from when it was trusted: set to Always allow, or
+   * allowed for a chat. A server that changes a tool after that loses the trust (#64).
+   */
+  trusted?: Record<string, string>
 }
 
 /** A server as Kiln starts it: the stored definition with its environment decrypted. */
@@ -36,7 +42,7 @@ const store = (servers: StoredServer[]) => {
   cache = servers
 }
 
-const publicView = ({ env: _env, ...server }: StoredServer): McpServer => server
+const publicView = ({ env: _env, trusted: _trusted, ...server }: StoredServer): McpServer => server
 
 function decryptEnv(enc: string | null): Record<string, string> {
   if (!enc) return {}
@@ -133,7 +139,9 @@ export function saveServer(input: McpServerInput): McpServer {
     env: encryptEnv(env),
     envKeys: Object.keys(env).sort(),
     defaultOn: input.defaultOn,
-    tools: replaced ? {} : (existing?.tools ?? {})
+    tools: replaced ? {} : (existing?.tools ?? {}),
+    trusted: replaced ? {} : (existing?.trusted ?? {}),
+    changed: replaced ? [] : (existing?.changed ?? [])
   }
   store(existing ? servers.map((s) => (s.id === next.id ? next : s)) : [...servers, next])
   if (replaced) forgetServerInChats(next.id, { source: false })
@@ -156,16 +164,63 @@ export function toolPolicy(server: McpServer, tool: string): ToolPolicy {
   return server.tools[tool] ?? 'ask'
 }
 
-export function setToolPolicy(id: string, tool: string, policy: ToolPolicy): McpServer {
+/**
+ * Set how a tool is offered. `fingerprint` is the tool as it is now (toolFingerprint in manager.ts): Always allow
+ * trusts that version of it. Setting a policy also clears the tool's "changed" mark: you've looked at it again.
+ */
+export function setToolPolicy(id: string, tool: string, policy: ToolPolicy, fingerprint?: string | null): McpServer {
   const servers = stored()
   const server = servers.find((s) => s.id === id)
   if (!server) throw new Error('That MCP server no longer exists.')
   const tools = { ...server.tools }
   if (policy === 'ask') delete tools[tool]
   else tools[tool] = policy
-  const next = { ...server, tools }
+  const trusted = { ...server.trusted }
+  if (policy === 'allow' && fingerprint) trusted[tool] = fingerprint
+  const next = { ...server, tools, trusted, changed: (server.changed ?? []).filter((t) => t !== tool) }
   store(servers.map((s) => (s.id === id ? next : s)))
   return publicView(next)
+}
+
+/** Record a tool as trusted in the version it is now (a chat allowed it). */
+export function recordTrust(id: string, tool: string, fingerprint: string): void {
+  const servers = stored()
+  const server = servers.find((s) => s.id === id)
+  if (!server || server.trusted?.[tool] === fingerprint) return
+  const next = { ...server, trusted: { ...server.trusted, [tool]: fingerprint } }
+  store(servers.map((s) => (s.id === id ? next : s)))
+}
+
+/**
+ * Check a server's tools, as it lists them now, against the versions that were trusted. A trusted tool whose
+ * fingerprint changed goes back to Ask: Always allow is cleared, chats forget "Allow for this chat" for it, and it's
+ * marked as changed for Settings. A tool on Always allow with no fingerprint yet (set before fingerprints were kept)
+ * is recorded as it is. Returns the tools that went back to Ask.
+ */
+export function reviewTrust(id: string, current: ReadonlyMap<string, string>): string[] {
+  const servers = stored()
+  const server = servers.find((s) => s.id === id)
+  if (!server) return []
+  const tools = { ...server.tools }
+  const trusted = { ...server.trusted }
+  const reverted: string[] = []
+  for (const [tool, fingerprint] of current) {
+    const was = trusted[tool]
+    if (was === undefined) {
+      if (tools[tool] === 'allow') trusted[tool] = fingerprint
+      continue
+    }
+    if (was === fingerprint) continue
+    delete trusted[tool]
+    const allowed = tools[tool] === 'allow'
+    if (allowed) delete tools[tool]
+    const chats = forgetAllowKeyInChats(mcpAllowKey(id, tool))
+    if (allowed || chats > 0) reverted.push(tool)
+  }
+  if (!reverted.length && JSON.stringify(trusted) === JSON.stringify(server.trusted ?? {})) return []
+  const changed = [...new Set([...(server.changed ?? []), ...reverted])]
+  store(servers.map((s) => (s.id === id ? { ...server, tools, trusted, changed } : s)))
+  return reverted
 }
 
 // ---- Importing --------------------------------------------------------------

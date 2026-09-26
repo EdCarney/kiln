@@ -374,6 +374,11 @@ export interface McpServer {
   defaultOn: boolean
   /** Tools set to something other than Ask. */
   tools: Record<string, ToolPolicy>
+  /**
+   * Tools put back on Ask because the server changed their description or input since you allowed them. Cleared when
+   * you set the tool's policy again.
+   */
+  changed?: string[]
 }
 
 export interface McpServerInput {

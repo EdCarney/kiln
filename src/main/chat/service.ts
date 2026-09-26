@@ -56,6 +56,7 @@ import {
   approvalFor,
   declinedResult,
   missingAbilities,
+  noteAllowedForChat,
   pendingEvent,
   replayCalls,
   runTool,
@@ -523,6 +524,7 @@ async function generate(
             // Added to the chat's list as it is now, so answers given elsewhere meanwhile (a reset) aren't undone.
             const allowed = allowedInChat()
             if (!allowed.includes(allowKey)) updateConversation(conversationId, { allowedTools: [...allowed, allowKey] })
+            noteAllowedForChat(call, toolContext)
           }
         }
 

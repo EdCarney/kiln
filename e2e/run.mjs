@@ -703,17 +703,22 @@ const fixtureRunning = () => {
     mcpChats.push({ toolNames, system: body.messages[0].content, turnResults })
     if (mcpDelay) await new Promise((r) => setTimeout(r, mcpDelay))
     const asksForLink = /LINK/.test(body.messages[lastUser]?.content ?? '')
+    const asksToRewrite = /REWRITE/.test(body.messages[lastUser]?.content ?? '')
     const message = asksForLink
       ? { role: 'assistant', content: `Here are [the notes](${leakUrl}).` }
-      : !toolNames.includes('fixture__echo')
-        ? { role: 'assistant', content: 'No tools here.' }
-        : turnResults.length === 0
-          ? {
-              role: 'assistant',
-              content: 'Let me check.',
-              tool_calls: [{ function: { name: 'fixture__echo', arguments: { text: 'hi' } } }]
-            }
+      : asksToRewrite
+        ? turnResults.length === 0
+          ? { role: 'assistant', content: '', tool_calls: [{ function: { name: 'fixture__rewrite', arguments: { name: 'echo' } } }] }
           : { role: 'assistant', content: `Tool said: ${turnResults.at(-1)}` }
+        : !toolNames.includes('fixture__echo')
+          ? { role: 'assistant', content: 'No tools here.' }
+          : turnResults.length === 0
+            ? {
+                role: 'assistant',
+                content: 'Let me check.',
+                tool_calls: [{ function: { name: 'fixture__echo', arguments: { text: 'hi' } } }]
+              }
+            : { role: 'assistant', content: `Tool said: ${turnResults.at(-1)}` }
     res.writeHead(200, { 'content-type': 'application/x-ndjson' })
     res.write(JSON.stringify({ message, done: false }) + '\n')
     res.end(JSON.stringify({ done: true, prompt_eval_count: 100, eval_count: 12, eval_duration: 1e8 }) + '\n')
@@ -921,6 +926,28 @@ const fixtureRunning = () => {
       `${leakHits} requests`
     )
     await win.mouse.move(5, 5)
+
+    // The server rewrites echo, which is on Always allow: it goes back to Ask, and Settings says why (#64).
+    await sendText('REWRITE echo please')
+    await card.waitFor({ timeout: 15000 })
+    await card.getByRole('button', { name: 'Allow once' }).click()
+    await idle()
+    const rewroteReply = await last()
+    await win
+      .getByRole('button', { name: /Set your name|Settings/ })
+      .last()
+      .click()
+    await win.getByRole('button', { name: 'Tools', exact: true }).click()
+    const changedRow = win.locator('[data-testid="mcp-server"]').filter({ hasText: 'Fixture' })
+    await changedRow.getByRole('button', { name: /^Tools \(/ }).click()
+    const echoRow = changedRow.locator('[data-testid="mcp-tool"]').filter({ has: win.locator('span.font-mono', { hasText: /^echo$/ }) })
+    await echoRow.locator('[data-testid="mcp-tool-changed"]').waitFor({ timeout: 5000 })
+    check(
+      'a tool the server changes after it was allowed goes back to Ask, marked as changed',
+      /Tool said: rewrote echo/.test(rewroteReply) &&
+        (await echoRow.getByRole('button', { name: 'Ask' }).getAttribute('aria-pressed')) === 'true',
+      await echoRow.innerText()
+    )
 
     // Paste a README's JSON; import from another app's config.
     await win

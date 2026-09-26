@@ -1,10 +1,11 @@
+import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js'
 import type { McpServer, McpStatus, McpToolInfo } from '@shared/types'
 import { childEnv } from '../env'
 import { errorMessage, estimateTokens } from '../util'
-import { getServer, getServerConfig, listServers } from './config'
+import { getServer, getServerConfig, listServers, reviewTrust } from './config'
 import { ProcessTransport } from './transport'
 
 // Connections to the MCP servers, started when a chat that uses one opens or sends. A server keeps running until
@@ -73,8 +74,25 @@ const toolInfo = (t: Tool): McpToolInfo => ({
   tokens: estimateTokens(JSON.stringify({ name: t.name, description: t.description, parameters: t.inputSchema }))
 })
 
+/**
+ * What a tool is, as a hash: everything the model and the user are shown about it (title, description, input schema,
+ * annotations). Trust is given to one fingerprint; a server that changes the tool changes it (#64).
+ */
+export function fingerprintOf(t: Tool): string {
+  const shown = { title: t.title ?? null, description: t.description ?? '', inputSchema: t.inputSchema, annotations: t.annotations ?? null }
+  return createHash('sha256').update(JSON.stringify(shown)).digest('hex')
+}
+
+/** A running server's tool as it is now, for trusting it; null when the server isn't running or has no such tool. */
+export function toolFingerprint(id: string, tool: string): string | null {
+  const t = connections.get(id)?.tools.find((x) => x.name === tool)
+  return t ? fingerprintOf(t) : null
+}
+
+/** Take a server's tool list (at start, or when it says the list changed), putting changed trusted tools back on Ask. */
 function setTools(c: Connection, tools: Tool[]): void {
   c.tools = tools
+  reviewTrust(c.status.id, new Map(tools.map((t) => [t.name, fingerprintOf(t)])))
   update(c, { tools: tools.map(toolInfo) })
 }
 
@@ -160,9 +178,9 @@ async function start(id: string, c: Connection, generation: number): Promise<voi
     if (c.generation !== generation) return void (await client.close())
     c.client = client
     c.transport = transport
-    c.tools = tools
+    setTools(c, tools)
     const info = client.getServerVersion()
-    update(c, { state: 'ready', tools: tools.map(toolInfo), serverInfo: info ? { name: info.name, version: info.version } : null })
+    update(c, { state: 'ready', serverInfo: info ? { name: info.name, version: info.version } : null })
   } catch (err) {
     await transport.close().catch(() => undefined)
     if (c.generation === generation) update(c, { state: 'error', error: startError(err, config.command, transport) })
