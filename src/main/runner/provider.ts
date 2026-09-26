@@ -1,15 +1,15 @@
+import { existsSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { delimiter, join } from 'node:path'
+import { basename, delimiter, join } from 'node:path'
 import type { ToolEvent } from '@shared/types'
 import { childPath } from '../env'
 import type { OllamaTool } from '../ollama/client'
-import { paths } from '../paths'
 import { getSettings } from '../settings'
 import { listSkills } from '../skills/library'
 import type { ToolProvider, ToolResult } from '../chat/tools'
 import { capText } from '../chat/results'
-import { ensureVenv, venvDir } from './python'
+import { chatVenvDir, ensureBaseVenv, findPython, venvPython } from './python'
 import { policyFor, PRIVATE_ROOTS, runSandboxed } from './sandbox'
 import { changedFiles, KILN_DIR, snapshot } from './workspace'
 
@@ -59,12 +59,47 @@ const firstLine = (code: string) =>
 
 let runs = 0
 
-/** Folders code may read inside the hidden ones (see policyFor): skills, Kiln's runner files, tool folders on PATH. */
+/**
+ * Folders code may read inside the hidden ones (see policyFor): skills and tool folders on PATH. Not Kiln's runner
+ * folder: a run reads only the Python environment it uses, never another chat's.
+ */
 async function readableFolders(): Promise<string[]> {
   const hidden = [homedir(), ...PRIVATE_ROOTS]
   const skills = [...new Set((await listSkills()).map((s) => s.dir))]
   const onPath = (await childPath()).split(delimiter).filter((d) => hidden.some((h) => d.startsWith(h + '/')))
-  return [...skills, paths.runner, ...onPath]
+  return [...skills, ...onPath]
+}
+
+/**
+ * The Python environment a run uses: the chat's own when it may install packages or already has one; otherwise the
+ * shared one, which no run can write (#69). A chat's own is made inside the sandbox: its earlier runs could have left
+ * links in it that Kiln, writing outside the sandbox, would follow.
+ */
+async function environmentFor(
+  workspace: string,
+  pypi: boolean,
+  sandbox: (venv: string) => ReturnType<typeof policyFor>,
+  env: Record<string, string>,
+  signal?: AbortSignal
+): Promise<{ venv: string } | { error: string }> {
+  const own = chatVenvDir(basename(workspace))
+  if (existsSync(venvPython(own))) return { venv: own }
+  if (!pypi) return { venv: await ensureBaseVenv() }
+  const python = await findPython()
+  if (!python) return { error: 'Python 3 was not found on your PATH.' }
+  await mkdir(own, { recursive: true })
+  const made = await runSandboxed({
+    command: `"${python.path}" -m venv "${own}"`,
+    policy: sandbox(own),
+    cwd: workspace,
+    env,
+    timeoutMs: 120_000,
+    signal,
+    id: `venv:${basename(workspace)}`
+  })
+  return made.code === 0 && existsSync(venvPython(own))
+    ? { venv: own }
+    : { error: `Couldn't make this chat's Python environment: ${made.output.trim().slice(-2000) || `exit code ${made.code}`}` }
 }
 
 async function run(language: Language, code: string, workspace: string, signal?: AbortSignal): Promise<ToolResult> {
@@ -74,28 +109,33 @@ async function run(language: Language, code: string, workspace: string, signal?:
   if (!code.trim())
     return { content: 'Error: run_code needs the code to run.', event: { tool: 'run_code', args, ok: false, summary: 'no code' } }
 
-  // Kiln's environment comes first on PATH for bash too, so `python` and `pip` work there (Homebrew has only python3).
-  const python = await ensureVenv()
   const n = ++runs
   const script = join(KILN_DIR, `run-${n}.${language === 'python' ? 'py' : 'sh'}`)
   await mkdir(join(workspace, KILN_DIR), { recursive: true })
   await writeFile(join(workspace, script), code)
 
+  // Tools that keep caches or config in HOME or TMPDIR find a writable one inside the workspace.
+  const baseEnv = {
+    HOME: join(workspace, KILN_DIR, 'home'),
+    TMPDIR: join(workspace, KILN_DIR, 'tmp'),
+    PIP_CACHE_DIR: join(workspace, KILN_DIR, 'tmp', 'pip'),
+    MPLBACKEND: 'Agg',
+    PYTHONUNBUFFERED: '1'
+  }
+  const readable = await readableFolders()
+  const sandbox = (venv: string) => policyFor({ workspace, home: homedir(), readable, venv, pypi: settings.pypi })
+  const environment = await environmentFor(workspace, settings.pypi, sandbox, baseEnv, signal)
+  if ('error' in environment)
+    return { content: `Error: ${environment.error}`, event: { tool: 'run_code', args, ok: false, summary: 'no Python environment' } }
+  const { venv } = environment
+
   const before = await snapshot(workspace)
   const result = await runSandboxed({
-    command: language === 'python' ? `"${python}" ${script}` : `/bin/bash ${script}`,
-    policy: policyFor({ workspace, home: homedir(), readable: await readableFolders(), venv: venvDir(), pypi: settings.pypi }),
+    command: language === 'python' ? `"${venvPython(venv)}" ${script}` : `/bin/bash ${script}`,
+    policy: sandbox(venv),
     cwd: workspace,
-    // Tools that keep caches or config in HOME or TMPDIR find a writable one inside the workspace.
-    env: {
-      HOME: join(workspace, KILN_DIR, 'home'),
-      TMPDIR: join(workspace, KILN_DIR, 'tmp'),
-      PIP_CACHE_DIR: join(workspace, KILN_DIR, 'tmp', 'pip'),
-      MPLBACKEND: 'Agg',
-      PYTHONUNBUFFERED: '1',
-      VIRTUAL_ENV: venvDir(),
-      PATH: `${join(venvDir(), 'bin')}${delimiter}${await childPath()}`
-    },
+    // Kiln's environment comes first on PATH for bash too, so `python` and `pip` work there (Homebrew has only python3).
+    env: { ...baseEnv, VIRTUAL_ENV: venv, PATH: `${join(venv, 'bin')}${delimiter}${await childPath()}` },
     timeoutMs: settings.timeoutSec * 1000,
     signal,
     id: `run_code:${n}`

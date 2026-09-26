@@ -439,8 +439,9 @@ export interface RunnerStatus {
   available: boolean
   reason: string | null
   python: { path: string; version: string } | null
-  /** Kiln's own Python environment, created on first use. */
+  /** Kiln's shared Python environment (chats that may install packages each get their own), created on first use. */
   venv: string
+  /** Whether any of Kiln's Python environments exists. */
   venvExists: boolean
 }
 

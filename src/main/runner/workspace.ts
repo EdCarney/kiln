@@ -2,6 +2,7 @@ import { copyFile, mkdir, readdir, realpath, rm, stat } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { attachmentRowsForConversation } from '../db/conversations'
 import { paths } from '../paths'
+import { removeChatVenv } from './python'
 
 // Each chat that runs code gets a folder: code runs there, the chat's attachments are copied into uploads/, and
 // what code writes is listed on the run's card. It's deleted with the chat.
@@ -97,5 +98,5 @@ export async function workspaceFile(conversationId: string, rel: string): Promis
 
 export async function removeWorkspace(conversationId: string): Promise<void> {
   if (!/^[\w-]+$/.test(conversationId)) return
-  await rm(workspaceDir(conversationId), { recursive: true, force: true })
+  await Promise.all([rm(workspaceDir(conversationId), { recursive: true, force: true }), removeChatVenv(conversationId)])
 }

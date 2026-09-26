@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 
 vi.mock('electron', () => ({
@@ -16,6 +16,7 @@ const { paths } = await import('../src/main/paths')
 const { policyFor, PRIVATE_ROOTS, runSandboxed } = await import('../src/main/runner/sandbox')
 const workspace = await import('../src/main/runner/workspace')
 const tools = await import('../src/main/chat/tools')
+const python = await import('../src/main/runner/python')
 const { openWith, IMAGE_FILE } = await import('../src/shared/workspace')
 const { quarantine, quarantineValue, QUARANTINE_ATTR } = await import('../src/main/quarantine')
 
@@ -124,6 +125,56 @@ describe('workspaces', () => {
     expect(await workspace.workspaceFile('../workspaces/chat-files', 'out/report.txt')).toBeNull()
     expect(await workspace.workspaceFile(id, 'out')).toBeNull()
   })
+})
+
+// #69: with PyPI allowed, a shared writable environment would let one chat's code run in every other.
+describe("Kiln's Python environments", () => {
+  const plantPackage = (venv: string, name: string, version: string) =>
+    mkdirSync(join(venv, 'lib', 'python3.12', 'site-packages', `${name}-${version}.dist-info`), { recursive: true })
+
+  it("lists the packages installed in the chats' own environments, each once", async () => {
+    plantPackage(python.chatVenvDir('chat-a'), 'requests', '2.32.0')
+    plantPackage(python.chatVenvDir('chat-a'), 'pip', '24.0')
+    plantPackage(python.chatVenvDir('chat-b'), 'pip', '24.0')
+    plantPackage(python.chatVenvDir('chat-b'), 'numpy', '2.1.0')
+    expect(await python.installedPackages()).toEqual([
+      { name: 'numpy', version: '2.1.0' },
+      { name: 'pip', version: '24.0' },
+      { name: 'requests', version: '2.32.0' }
+    ])
+    expect(python.venvsExist()).toBe(true)
+  })
+
+  it("deletes a chat's environment with the chat, and every environment on reset, without following links", async () => {
+    const outside = mkdtempSync(join(tmpdir(), 'kiln-outside-'))
+    writeFileSync(join(outside, 'keep.txt'), 'keep')
+    plantPackage(python.chatVenvDir('chat-c'), 'six', '1.16.0')
+    symlinkSync(outside, join(python.chatVenvDir('chat-c'), 'lib', 'link'))
+    await workspace.removeWorkspace('chat-c')
+    expect(existsSync(python.chatVenvDir('chat-c'))).toBe(false)
+
+    plantPackage(python.chatVenvDir('chat-d'), 'six', '1.16.0')
+    symlinkSync(outside, join(python.chatVenvDir('chat-d'), 'lib', 'link'))
+    mkdirSync(join(paths.runner, 'venv', 'bin'), { recursive: true })
+    await python.resetVenv()
+    expect(existsSync(python.chatVenvsDir())).toBe(false)
+    expect(existsSync(join(paths.runner, 'venv'))).toBe(false)
+    expect(readFileSync(join(outside, 'keep.txt'), 'utf8')).toBe('keep')
+    expect(await python.installedPackages()).toEqual([])
+    expect(python.venvsExist()).toBe(false)
+  })
+
+  it('replaces the old shared environment with one without pip', async (t) => {
+    if (!(await python.findPython())) t.skip()
+    const legacy = join(paths.runner, 'venv', 'lib', 'python3', 'site-packages')
+    mkdirSync(legacy, { recursive: true })
+    writeFileSync(join(legacy, 'sitecustomize.py'), 'print("planted")')
+    const base = await python.ensureBaseVenv()
+    expect(base).toBe(python.baseVenvDir())
+    expect(existsSync(python.venvPython(base))).toBe(true)
+    expect(existsSync(join(base, 'bin', 'pip'))).toBe(false)
+    expect(existsSync(join(paths.runner, 'venv'))).toBe(false)
+  }, 60_000)
 })
 
 // A file a run wrote may carry the chat's data, and whatever opens it runs outside the sandbox (#67).
@@ -254,6 +305,42 @@ describe.runIf(process.platform === 'darwin' && existsSync('/usr/bin/sandbox-exe
       expect(failed.content).toMatch(/^Exit code 3\.\n\noops/)
       expect(failed.event).toMatchObject({ ok: false, summary: 'exit code 3' })
     }, 120_000)
+
+    // #69: what one chat's code writes into its environment never runs in another chat.
+    it('gives each chat that may install packages its own environment, which other chats never run or read', async () => {
+      const a = mkdtempSync(join(tmpdir(), 'kiln-run-'))
+      const b = mkdtempSync(join(tmpdir(), 'kiln-run-'))
+      const plant = [
+        // A .pth file's import lines run at every start (a sitecustomize.py can be shadowed by the base Python's).
+        'import sys, sysconfig',
+        "open(sysconfig.get_paths()['purelib'] + '/zz_planted.pth', 'w').write('import sys; print(\"PLANTED\")\\n')",
+        'print(sys.prefix)'
+      ].join('\n')
+      updateSettings({ runner: { pypi: true } })
+      try {
+        const planted = await tools.runTool(call('run_code', { language: 'python', code: plant }), ctx(a))
+        expect(planted.content).toMatch(/^Exit code 0\./)
+        const venvA = python.chatVenvDir(basename(a))
+        expect(planted.content).toContain(venvA)
+        expect(existsSync(join(venvA, 'bin', 'pip'))).toBe(true)
+        expect((await tools.runTool(call('run_code', { language: 'python', code: 'print(1)' }), ctx(a))).content).toMatch(/PLANTED/)
+
+        const other = await tools.runTool(call('run_code', { language: 'python', code: 'import sys\nprint(sys.prefix)' }), ctx(b))
+        expect(other.content).toMatch(/^Exit code 0\./)
+        expect(other.content).not.toMatch(/PLANTED/)
+        expect(other.content).toContain(python.chatVenvDir(basename(b)))
+        const peek = await tools.runTool(call('run_code', { language: 'bash', code: `ls "${venvA}"` }), ctx(b))
+        expect(peek.content).toMatch(/Operation not permitted/)
+      } finally {
+        updateSettings({ runner: { pypi: false } })
+      }
+      // Without PyPI, a chat with no environment of its own uses the shared one, and can't write it.
+      const c = mkdtempSync(join(tmpdir(), 'kiln-run-'))
+      const shared = await tools.runTool(call('run_code', { language: 'python', code: plant.replace('print(sys.prefix)', '') }), ctx(c))
+      expect(shared.content).toMatch(/Operation not permitted/)
+      expect(existsSync(python.chatVenvDir(basename(c)))).toBe(false)
+      expect((await tools.runTool(call('run_code', { language: 'python', code: 'print(2)' }), ctx(c))).content).not.toMatch(/PLANTED/)
+    }, 180_000)
 
     it("answers gpt-oss's built-in python tool, whose code can arrive as plain text", async () => {
       const dir = mkdtempSync(join(tmpdir(), 'kiln-run-'))

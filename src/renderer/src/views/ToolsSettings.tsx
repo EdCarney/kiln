@@ -434,7 +434,7 @@ function RunnerSection() {
       </Row>
       <Row
         label="Let code download Python packages from PyPI"
-        hint="Only pypi.org and files.pythonhosted.org, installed into Kiln's own Python environment. Needed by skills that use packages like python-docx."
+        hint="Only pypi.org and files.pythonhosted.org. Each chat installs into its own Python environment, so code in one chat can't change what runs in another. Needed by skills that use packages like python-docx."
       >
         <Switch checked={r.pypi} onChange={(pypi) => update({ pypi })} />
       </Row>
@@ -447,10 +447,10 @@ function RunnerSection() {
         />
       </Row>
       <Row
-        label="Kiln's Python environment"
+        label="Kiln's Python environments"
         hint={
           status?.venvExists
-            ? `${packages?.length ?? 0} packages installed. Resetting deletes them; the next run starts a fresh environment.`
+            ? `${packages?.length ?? 0} packages installed across your chats. Resetting deletes them; each chat's next run starts a fresh environment.`
             : 'Made the first time code runs.'
         }
       >
