@@ -17,14 +17,18 @@ export function quarantineValue(now = Date.now()): string {
   return `0081;${Math.floor(now / 1000).toString(16)};Kiln;`
 }
 
+/** On a Mac, open() refuses a link anywhere in the path (O_NOFOLLOW_ANY), not only as the file itself. */
+const O_NOFOLLOW_ANY = 0x20000000
+
 /**
  * Setting the mark needs write permission, which code can take away (a script left read-only would stay unmarked):
- * the owner gets it back first. The file is opened without following a link, so only the file itself changes.
+ * the owner gets it back first. The file is opened without following a link (`noFollow`), so only the file itself
+ * changes.
  */
-async function ensureWritable(file: string): Promise<void> {
+async function ensureWritable(file: string, noFollow: number): Promise<void> {
   const s = await lstat(file)
   if (!s.isFile() || s.mode & 0o200) return
-  const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW)
+  const handle = await open(file, constants.O_RDONLY | noFollow)
   try {
     await handle.chmod((s.mode & 0o7777) | 0o200)
   } finally {
@@ -32,11 +36,23 @@ async function ensureWritable(file: string): Promise<void> {
   }
 }
 
-/** Mark files as downloaded (a link itself, never what it points to). Throws if one can't be marked; does nothing off macOS. */
-export async function quarantine(...files: string[]): Promise<void> {
+async function mark(files: string[], noFollow: number): Promise<void> {
   if (process.platform !== 'darwin') return
-  for (const file of files) await ensureWritable(file)
+  for (const file of files) await ensureWritable(file, noFollow)
   const value = quarantineValue()
   for (let i = 0; i < files.length; i += BATCH)
     await run('/usr/bin/xattr', ['-w', '-s', QUARANTINE_ATTR, value, ...files.slice(i, i + BATCH)])
+}
+
+/** Mark files as downloaded (a link itself, never what it points to). Throws if one can't be marked; does nothing off macOS. */
+export async function quarantine(...files: string[]): Promise<void> {
+  await mark(files, constants.O_NOFOLLOW)
+}
+
+/**
+ * Mark files in a chat's workspace, by real paths: as quarantine(), but a file whose path has a link anywhere in it
+ * (code can put one there) isn't made writable, and fails the lot.
+ */
+export async function quarantineInWorkspace(...files: string[]): Promise<void> {
+  await mark(files, O_NOFOLLOW_ANY)
 }

@@ -96,7 +96,8 @@ export function handleProtocols(): void {
       if (data) {
         // Shown only as <img>, but an SVG loaded any other way would run its scripts: this origin gets none, and loads
         // nothing (#67).
-        return new Response(new Uint8Array(data), {
+        // A view of the file's bytes, not a copy of them.
+        return new Response(new Uint8Array(data.buffer, data.byteOffset, data.byteLength), {
           headers: { 'content-type': type, 'content-security-policy': WORKSPACE_CSP, 'x-content-type-options': 'nosniff' }
         })
       }

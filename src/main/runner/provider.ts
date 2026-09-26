@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
-import { lstat, mkdir, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, realpath, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, delimiter, join } from 'node:path'
+import { basename, delimiter, isAbsolute, join, resolve, sep } from 'node:path'
 import type { ToolEvent } from '@shared/types'
 import { childPath } from '../env'
 import type { OllamaTool } from '../ollama/client'
@@ -65,10 +65,21 @@ let runs = 0
  * folder: a run reads only the Python environment it uses, never another chat's.
  */
 async function readableFolders(): Promise<string[]> {
-  const hidden = [homedir(), ...PRIVATE_ROOTS]
   const skills = [...new Set((await listSkills()).map((s) => s.dir))]
-  const onPath = (await childPath()).split(delimiter).filter((d) => hidden.some((h) => d.startsWith(h + '/')))
-  return [...skills, ...onPath]
+  return [...skills, ...foldersOnPathInside(await childPath(), [homedir(), ...PRIVATE_ROOTS])]
+}
+
+/**
+ * The folders on `path` inside one of the `hidden` ones, normalized. Never a hidden folder itself or one above it:
+ * `$HOME/` or `/Users/me/.` on PATH would otherwise open the whole home folder (it's inside /Users). Exported for tests.
+ */
+export function foldersOnPathInside(path: string, hidden: string[]): string[] {
+  const roots = hidden.map((d) => resolve(d))
+  return path
+    .split(delimiter)
+    .filter(isAbsolute)
+    .map((d) => resolve(d))
+    .filter((d) => roots.some((h) => d.startsWith(h + sep)) && !roots.some((h) => h === d || h.startsWith(d + sep)))
 }
 
 /**
@@ -83,10 +94,8 @@ async function environmentFor(
   env: Record<string, string>,
   signal?: AbortSignal
 ): Promise<{ venv: string } | { error: string }> {
+  // readyForRun already replaced anything but a real folder here (the chat's code can write it, with PyPI allowed).
   const own = chatVenvDir(basename(workspace))
-  // The chat's code can write its environment (with PyPI allowed): a link it left in its place goes, never followed.
-  const found = await lstat(own).catch(() => null)
-  if (found && !found.isDirectory()) await rm(own, { force: true })
   if (existsSync(venvPython(own))) return { venv: own }
   if (!pypi) return { venv: await ensureBaseVenv() }
   const python = await findPython()

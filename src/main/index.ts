@@ -15,8 +15,8 @@ import { initPaths, paths } from './paths'
 import { stopAll as stopServers } from './mcp/manager'
 import { hasChildren, stopAllGroups, trackProcesses } from './processes'
 import { handleProtocols, registerSchemes } from './protocols'
-import { codeMayBeRunning } from './runner/reaper'
-import { clearPreviews, quiesceAll } from './runner/workspace'
+import { codeMayBeRunning } from './runner/lock'
+import { clearPreviews, clearPreviewsSync, sweepWorkspaces } from './runner/workspace'
 import { refreshPrices } from './usage/pricing'
 
 app.setName('Kiln')
@@ -141,9 +141,10 @@ app.whenReady().then(async () => {
     if (process.env.KILN_DEBUG)
       appendFileSync(join(paths.data, 'debug.log'), `${new Date().toISOString()} PATH for spawned tools: ${path}\n`)
   })
-  // Code a run left running before a crash (it can outlive its process group) is stopped (#73).
+  // Code a run left running before a crash (it can outlive its process group) is stopped (#73), and the folders of
+  // chats deleted while their code couldn't be stopped go.
   void clearPreviews()
-  void quiesceAll()
+  void sweepWorkspaces({ removeOrphans: true })
     .then((n) => n && console.warn(`Kiln: stopped ${n} ${n === 1 ? 'process' : 'processes'} code left running in an earlier session`))
     .catch((err) => console.warn("Kiln: couldn't check for code left running:", err))
   markInterruptedReplies()
@@ -188,10 +189,12 @@ app.on('before-quit', (event) => {
     .then(() => stopServers())
     .then(() => stopAllGroups())
     // Code a run left running outside its process group (#73); normally each run's end already stopped it.
-    .then(() => quiesceAll())
+    .then(() => sweepWorkspaces())
     .catch((err) => console.warn('Kiln: while quitting:', err))
   void Promise.race([stopped, timeout]).finally(() => app.quit())
 })
+
+app.on('will-quit', () => clearPreviewsSync())
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()

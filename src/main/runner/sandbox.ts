@@ -3,7 +3,7 @@ import type { SandboxRuntimeConfig } from '@anthropic-ai/sandbox-runtime'
 import { childEnv } from '../env'
 import { type GroupProcess, spawnGroup } from '../processes'
 import { errorMessage } from '../util'
-import { codeEnded, codeStarting } from './reaper'
+import { codeEnded, codeStarting } from './lock'
 
 // Code the model writes runs under macOS's Seatbelt sandbox through @anthropic-ai/sandbox-runtime (the one Claude
 // Code uses). The package is ESM-only and Kiln's main process is CommonJS, so it's loaded with import() on first use.
@@ -148,6 +148,8 @@ export async function runSandboxed(opts: {
   let ended: Promise<void> | null = null
   const end = () => (ended ??= codeEnded(opts.cwd))
   try {
+    // Stop may have come while the start waited for Kiln's work in the folder.
+    opts.signal?.throwIfAborted()
     const proc = spawnGroup(argv[0], argv.slice(1), { cwd: opts.cwd, env: procEnv, stdio: ['ignore', 'pipe', 'pipe'] })
     const { code, output, timedOut, truncated } = await supervise(proc, opts, end)
     return { code, output: sb.annotateStderrWithSandboxFailures(opts.id, output), timedOut, truncated }
@@ -163,9 +165,9 @@ const DRAIN_MS = 2_000
 /**
  * Collect a run's output until it exits, stopping it at the time limit or on Stop (then rejecting). Once it exits,
  * `afterExit` stops whatever it left running: a process that left its group could otherwise hold the output open, and
- * the run would never end.
+ * the run would never end. Exported for tests.
  */
-async function supervise(
+export async function supervise(
   proc: GroupProcess,
   opts: { timeoutMs: number; signal?: AbortSignal },
   afterExit: () => Promise<void>
@@ -188,12 +190,20 @@ async function supervise(
     void proc.stop(1000)
   }, opts.timeoutMs)
   const onAbort = () => void proc.stop(500)
-  opts.signal?.addEventListener('abort', onAbort, { once: true })
+  // A listener added to a signal that has already aborted never fires.
+  if (opts.signal?.aborted) onAbort()
+  else opts.signal?.addEventListener('abort', onAbort, { once: true })
+  const settle = () => {
+    clearTimeout(timer)
+    opts.signal?.removeEventListener('abort', onAbort)
+  }
   try {
     const code = await new Promise<number | null>((resolve, reject) => {
       proc.child.once('error', reject)
       proc.child.once('exit', (c) => resolve(c))
     })
+    // It exited: from here on the time limit is no longer running (stopping leftovers and draining can take seconds).
+    settle()
     await afterExit()
     await Promise.race([closed, new Promise((resolve) => setTimeout(resolve, DRAIN_MS))])
     proc.child.stdout!.destroy()
@@ -201,7 +211,6 @@ async function supervise(
     opts.signal?.throwIfAborted()
     return { code, output: Buffer.concat(chunks).toString('utf8'), timedOut, truncated }
   } finally {
-    clearTimeout(timer)
-    opts.signal?.removeEventListener('abort', onAbort)
+    settle()
   }
 }
