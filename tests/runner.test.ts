@@ -47,7 +47,7 @@ describe('the sandbox policy', () => {
         denyRead: ['/Users/me', '/Users', '/Volumes', '/private/var/folders', '/private/tmp'],
         allowRead: ['/w', '/Users/me/.claude/skills', '/Users/me/k/venv'],
         allowWrite: ['/w'],
-        denyWrite: []
+        denyWrite: ['/private/tmp/claude']
       }
     })
   })
@@ -218,8 +218,8 @@ describe.runIf(process.platform === 'darwin' && existsSync('/usr/bin/sandbox-exe
   const elsewhere = mkdtempSync(join(tmpdir(), 'kiln-elsewhere-'))
   writeFileSync(join(fakeHome, 'private.txt'), 'private')
   const policy = policyFor({ workspace: ws, home: fakeHome, readable: [], venv: join(root, 'venv'), pypi: false })
-  const sandboxed = (command: string, extra: { timeoutMs?: number; signal?: AbortSignal } = {}) =>
-    runSandboxed({ command, policy, cwd: ws, env: {}, timeoutMs: extra.timeoutMs ?? 30_000, signal: extra.signal, id: command })
+  const sandboxed = (command: string, extra: { timeoutMs?: number; signal?: AbortSignal; env?: Record<string, string> } = {}) =>
+    runSandboxed({ command, policy, cwd: ws, env: extra.env ?? {}, timeoutMs: extra.timeoutMs ?? 30_000, signal: extra.signal, id: command })
 
   it('writes in the workspace and nowhere else, and reads nothing it was denied', async () => {
     const ok = await sandboxed('echo made > made.txt && cat made.txt')
@@ -253,6 +253,20 @@ describe.runIf(process.platform === 'darwin' && existsSync('/usr/bin/sandbox-exe
       rmSync(shared, { force: true })
       rmSync(tmp, { force: true })
     }
+  })
+
+  // sandbox-runtime sets TMPDIR=/tmp/claude and lets every sandbox write there: a folder all chats would share, and
+  // (reads being denied in /private/tmp) one whose files couldn't be read back.
+  it('gives code its own temp folder, and none shared with other chats', async () => {
+    const tmp = join(ws, "it's tmp")
+    mkdirSync(tmp, { recursive: true })
+    const own = await sandboxed('echo "TMPDIR=$TMPDIR" && echo kept > "$TMPDIR/t" && cat "$TMPDIR/t"', { env: { TMPDIR: tmp } })
+    expect(own.code).toBe(0)
+    expect(own.output).toBe(`TMPDIR=${tmp}\nkept\n`)
+    const shared = await sandboxed('mkdir -p /tmp/claude/kiln-test && echo x > /tmp/claude/kiln-test/f', { env: { TMPDIR: tmp } })
+    expect(shared.code).not.toBe(0)
+    expect(shared.output).toMatch(/Operation not permitted/)
+    expect(existsSync('/tmp/claude/kiln-test/f')).toBe(false)
   })
 
   it('has no network, and says so', async () => {
