@@ -1,5 +1,5 @@
 import type { OllamaTool } from '../ollama/client'
-import { webFetch, webSearch } from '../ollama/web'
+import { webEndpoint, webFetch, webSearch } from '../ollama/web'
 import { resolveWebCall, type WebToolCall } from './aliases'
 import { capText, TOOL_RESULT_CHARS } from './results'
 import type { ToolProvider, ToolResult } from './tools'
@@ -110,11 +110,11 @@ export const webTools: ToolProvider = {
     }
     return runWebTool(call, via, ctx.signal)
   },
+  endpoint: ({ name }) => webEndpoint(`/api/${name}`),
   // Kept in brief so follow-ups like "open the third result" still work.
   replay: (e) => {
     if ((e.tool !== 'web_search' && e.tool !== 'web_fetch') || !e.record) return null
     const args = e.tool === 'web_search' ? { query: e.args.query } : { url: e.args.url }
     return { name: e.tool, args, record: e.record, note: PAST_NOTE }
-  },
-  approval: 'auto'
+  }
 }

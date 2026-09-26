@@ -59,8 +59,13 @@ export interface ToolProvider {
   run(call: ResolvedCall, ctx: RunContext): Promise<ToolResult>
   /** What later turns keep of a finished call; null or absent keeps nothing. */
   replay?(event: ToolEvent): PastToolCall | null
-  /** Whether a call runs straight away. Only 'auto' until #31 adds asking first. */
-  approval: 'auto'
+  /**
+   * Whether a call runs straight away ('auto', the default) or waits for the user to allow it ('ask'). Tools that act
+   * on this Mac or the user's accounts ask; the user can still allow one for a whole chat.
+   */
+  approval?(call: ResolvedCall, ctx: ToolContext): 'auto' | 'ask'
+  /** Where a call goes, for the debugger (a web API, an MCP server). Defaults to kiln://tools/<name>. */
+  endpoint?(call: ResolvedCall): string
 }
 
 const BUILT_IN: ToolProvider[] = [skillTools, webTools]
@@ -146,8 +151,15 @@ function unknownToolMessage(name: string, ctx: ToolContext, grants: ReadonlySet<
 const PREVIEW_CHARS = 1500
 const preview = (content: string) => (content.length > PREVIEW_CHARS ? `${content.slice(0, PREVIEW_CHARS)}…` : content)
 
-/** A call that was still running when the reply stopped: show it as stopped, not spinning forever. */
+/**
+ * A call the reply stopped on: one still running shows as stopped, not spinning forever; one still waiting for an
+ * answer never ran.
+ */
 export function settleToolEvent(e: ToolEvent): ToolEvent {
+  if (e.awaiting) {
+    const { awaiting: _awaiting, ...rest } = e
+    return { ...rest, pending: false, ok: false, summary: `${e.summary} (not run)` }
+  }
   return e.pending ? { ...e, pending: false, ok: false, summary: `${e.summary} (stopped)` } : e
 }
 
@@ -156,6 +168,27 @@ export function pendingEvent(call: ToolCall, ctx: ToolContext): ToolEvent {
   const resolved = resolveCall(call, ctx)
   if (resolved) return resolved.provider.pending(resolved)
   return { tool: call.function.name, args: argsOf(call), ok: true, pending: true, summary: call.function.name, unknown: true }
+}
+
+/** Whether a call must wait for the user's answer before it runs. Calls to tools nothing offers never ask. */
+export function approvalFor(call: ToolCall, ctx: ToolContext): 'auto' | 'ask' {
+  const resolved = resolveCall(call, ctx)
+  return resolved?.provider.approval?.(resolved, ctx) ?? 'auto'
+}
+
+/** Where a call goes, for its debugger trace. */
+export function toolEndpoint(call: ToolCall, ctx: ToolContext): string {
+  const resolved = resolveCall(call, ctx)
+  return (resolved && resolved.provider.endpoint?.(resolved)) ?? `kiln://tools/${resolved?.name ?? call.function.name}`
+}
+
+/** What the model hears when the user denies a call, and what the reply shows. The call never ran. */
+export function declinedResult(call: ToolCall, pending: ToolEvent): ToolResult {
+  const { awaiting: _awaiting, ...event } = pending
+  return {
+    content: `The user declined to run ${call.function.name}, so it didn't run. Don't call it again unless they ask. Carry on without it, and tell them plainly what you couldn't do.`,
+    event: { ...event, pending: false, ok: false, declined: true }
+  }
 }
 
 export async function runTool(call: ToolCall, ctx: ToolContext): Promise<ToolResult> {

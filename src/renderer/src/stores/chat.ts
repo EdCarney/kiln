@@ -147,6 +147,11 @@ function flush(): void {
   })
 }
 
+const onScreen = (conversationId: string) => {
+  const route = useApp.getState().route
+  return route.name === 'chat' && route.id === conversationId
+}
+
 function handle(e: ChatEvent): void {
   switch (e.type) {
     case 'delta': {
@@ -166,6 +171,13 @@ function handle(e: ChatEvent): void {
         toolEvents[e.index] = e.event
         return { streams: { ...s.streams, [e.conversationId]: { ...prev, toolEvents } } }
       })
+      // The chat on screen shows the question inline; any other one gets a toast (and a mark in the sidebar).
+      if (e.event.awaiting && !onScreen(e.conversationId)) {
+        const title = useApp.getState().conversations.find((c) => c.id === e.conversationId)?.title
+        useApp
+          .getState()
+          .toast(title ? `"${title}" is waiting for your approval to use a tool.` : 'A chat is waiting for your approval to use a tool.')
+      }
       break
     case 'done': {
       pending.delete(e.conversationId)

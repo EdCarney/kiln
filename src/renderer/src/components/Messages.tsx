@@ -5,6 +5,7 @@ import {
   Copy,
   FileText,
   Globe,
+  Hand,
   LoaderCircle,
   Pencil,
   RotateCcw,
@@ -16,7 +17,7 @@ import {
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { parseMessage, parseMessageRanges, typeForCodeLanguage } from '@shared/artifactParser'
 import { type IndexedToolEvent, interleave } from '@shared/timeline'
-import type { Artifact, Message, ToolEvent } from '@shared/types'
+import type { Artifact, Message, ToolDecision, ToolEvent } from '@shared/types'
 import { formatCost } from '@shared/usage'
 import { api } from '@/lib/api'
 import { cn, displayModelName, formatDuration, formatTokens } from '@/lib/format'
@@ -222,11 +223,13 @@ function Detail({ label, text }: { label: string; text: string }) {
   )
 }
 
+const argsText = (e: ToolEvent) => (Object.keys(e.args).length ? JSON.stringify(e.args, null, 2) : null)
+
 /** Any tool without its own badge (MCP servers and the like): its name, and on click what it was given and returned. */
 function ToolCard({ e }: { e: ToolEvent }) {
   const [open, setOpen] = useState(false)
   const Icon = e.pending ? LoaderCircle : Wrench
-  const args = Object.keys(e.args).length ? JSON.stringify(e.args, null, 2) : null
+  const args = argsText(e)
   const expandable = !e.pending && !!(args || e.preview)
   return (
     <div className={cn('max-w-full', open && 'basis-full')}>
@@ -236,13 +239,15 @@ function ToolCard({ e }: { e: ToolEvent }) {
         aria-expanded={expandable ? open : undefined}
         className={cn(
           pill,
-          e.ok ? 'border-line text-muted' : 'border-danger/40 text-danger',
+          // A call you denied didn't fail; it just didn't run.
+          e.ok || e.declined ? 'border-line text-muted' : 'border-danger/40 text-danger',
           expandable && 'hover:border-line-strong hover:text-fg'
         )}
       >
         <Icon className={cn('size-3.5 shrink-0', e.pending && 'animate-spin')} />
         <span className="shrink-0 font-mono text-fg">{e.tool}</span>
         {e.summary && e.summary !== e.tool && <span className="truncate">{e.summary}</span>}
+        {e.declined && <span className="shrink-0 text-subtle">· declined</span>}
         {expandable && <ChevronRight className={cn('size-3 shrink-0 transition-transform', open && 'rotate-90')} />}
       </button>
       {open && (
@@ -255,8 +260,50 @@ function ToolCard({ e }: { e: ToolEvent }) {
   )
 }
 
+/** A call waiting for your answer: what the model wants to run, and Deny / Allow for this chat / Allow once. */
+function ApprovalCard({ e, conversationId, messageId, index }: { e: ToolEvent; conversationId: string; messageId: string; index: number }) {
+  const [answering, setAnswering] = useState(false)
+  const args = argsText(e)
+  const answer = async (decision: ToolDecision) => {
+    setAnswering(true)
+    try {
+      await api.chat.decide(conversationId, messageId, index, decision)
+    } catch (err) {
+      reportError(err)
+      setAnswering(false)
+    }
+  }
+  return (
+    <div data-testid="approval-card" className="basis-full rounded-kiln border border-warn/50 bg-panel p-3 font-ui text-[13px]">
+      <div className="flex items-center gap-2">
+        <Hand className="size-4 shrink-0 text-warn" />
+        <span className="min-w-0 flex-1">
+          Allow the model to use <span className="font-mono font-medium text-fg">{e.tool}</span>?
+        </span>
+      </div>
+      {e.summary && e.summary !== e.tool && <div className="mt-1 truncate pl-6 text-xs text-muted">{e.summary}</div>}
+      {args && (
+        <div className="mt-2">
+          <Detail label="Arguments" text={args} />
+        </div>
+      )}
+      <div className="mt-3 flex flex-wrap justify-end gap-2">
+        <Button size="sm" variant="ghost" disabled={answering} onClick={() => void answer('deny')}>
+          Deny
+        </Button>
+        <Button size="sm" disabled={answering} onClick={() => void answer('chat')}>
+          Allow for this chat
+        </Button>
+        <Button size="sm" variant="primary" disabled={answering} onClick={() => void answer('once')}>
+          Allow once
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 /** Tool calls made at one point in a reply, in the order they were made. */
-function ToolGroup({ events }: { events: IndexedToolEvent[] }) {
+function ToolGroup({ events, conversationId, messageId }: { events: IndexedToolEvent[]; conversationId: string; messageId: string }) {
   const shown = events.filter(({ event }) => !isUnavailable(event))
   // Tools the model invented collapse into one note instead of a row of errors.
   const unavailable = [...new Set(events.filter(({ event }) => isUnavailable(event) && !event.pending).map(({ event }) => event.tool))]
@@ -264,7 +311,9 @@ function ToolGroup({ events }: { events: IndexedToolEvent[] }) {
   return (
     <div data-testid="tool-group" className="my-3 flex flex-wrap gap-1.5 first:mt-0">
       {shown.map(({ event: e, index }) =>
-        WEB_TOOL_NAMES.has(e.tool) ? (
+        e.awaiting ? (
+          <ApprovalCard key={index} e={e} conversationId={conversationId} messageId={messageId} index={index} />
+        ) : WEB_TOOL_NAMES.has(e.tool) ? (
           <WebEvent key={index} e={e} />
         ) : SKILL_TOOL_NAMES.has(e.tool) ? (
           <SkillEvent key={index} e={e} />
@@ -363,6 +412,8 @@ export const AssistantMessage = memo(function AssistantMessage({
   }
 
   const thinkingActive = streaming && !content && !toolEvents.length
+  // Waiting on you, not the model: no caret while a tool call waits for approval.
+  const working = streaming && !toolEvents.some((e) => e?.awaiting)
   const thinkingMs = stream
     ? stream.thinkingStartedAt && stream.thinkingEndedAt
       ? stream.thinkingEndedAt - stream.thinkingStartedAt
@@ -371,7 +422,8 @@ export const AssistantMessage = memo(function AssistantMessage({
 
   const occurrences = new Map<string, number>()
   const rendered = timeline.map((item, i) => {
-    if (item.kind === 'tools') return <ToolGroup key={`t${item.events[0].index}`} events={item.events} />
+    if (item.kind === 'tools')
+      return <ToolGroup key={`t${item.events[0].index}`} events={item.events} conversationId={conversationId} messageId={message.id} />
     const seg = item.segment
     if (seg.kind === 'text') return <Markdown key={i} text={seg.text} onOpenAsArtifact={streaming ? undefined : openAsArtifact} />
     const n = occurrences.get(seg.identifier) ?? 0
@@ -383,8 +435,8 @@ export const AssistantMessage = memo(function AssistantMessage({
     <div className="group">
       <ThinkingBlock thinking={thinking} active={thinkingActive && !!(thinking || streaming)} durationMs={thinkingMs} />
       {rendered}
-      {streaming && !content && !thinking && <div className="stream-caret h-6" aria-label="Waiting for reply" />}
-      {streaming && content && <span className="stream-caret" />}
+      {working && !content && !thinking && <div className="stream-caret h-6" aria-label="Waiting for reply" />}
+      {working && content && <span className="stream-caret" />}
       {message.error && !streaming && (
         <div className="mt-2 flex items-start gap-2 rounded-kiln border border-danger/40 bg-[color-mix(in_srgb,var(--k-danger)_8%,transparent)] px-3 py-2.5 text-sm">
           <TriangleAlert className="mt-0.5 size-4 shrink-0 text-danger" />

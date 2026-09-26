@@ -57,6 +57,5 @@ export const skillTools: ToolProvider = {
       event: { tool: name, args, ok: true, summary: skill.name },
       loadedSkillId: skill.id
     }
-  },
-  approval: 'auto'
+  }
 }

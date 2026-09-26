@@ -14,6 +14,7 @@ interface ConversationRow {
   skills: string
   auto_skills: string
   instructions: string
+  allowed_tools: string
   pinned: number
   created_at: number
   updated_at: number
@@ -28,6 +29,7 @@ const toConversation = (r: ConversationRow): Conversation => ({
   skills: parseJson<string[]>(r.skills, []),
   autoSkills: parseJson<string[]>(r.auto_skills, []),
   instructions: r.instructions,
+  allowedTools: parseJson<string[]>(r.allowed_tools, []),
   pinned: !!r.pinned,
   createdAt: r.created_at,
   updatedAt: r.updated_at
@@ -69,7 +71,10 @@ export function createConversation(input: {
   return getConversation(id)!
 }
 
-export function updateConversation(id: string, patch: ConversationPatch & { touch?: boolean; autoSkills?: string[] }): Conversation {
+export function updateConversation(
+  id: string,
+  patch: ConversationPatch & { touch?: boolean; autoSkills?: string[]; allowedTools?: string[] }
+): Conversation {
   const c = getConversation(id)
   if (!c) throw new Error('Conversation not found')
   const next = {
@@ -80,11 +85,12 @@ export function updateConversation(id: string, patch: ConversationPatch & { touc
     think: patch.think !== undefined ? patch.think : c.think,
     skills: patch.skills ?? c.skills,
     autoSkills: patch.autoSkills ?? c.autoSkills,
-    instructions: patch.instructions ?? c.instructions
+    instructions: patch.instructions ?? c.instructions,
+    allowedTools: patch.allowedTools ?? c.allowedTools
   }
   run(
     `UPDATE conversations SET title = ?, pinned = ?, project_id = ?, model = ?, think = ?, skills = ?, auto_skills = ?,
-       instructions = ?, updated_at = ?
+       instructions = ?, allowed_tools = ?, updated_at = ?
      WHERE id = ?`,
     next.title,
     next.pinned ? 1 : 0,
@@ -94,6 +100,7 @@ export function updateConversation(id: string, patch: ConversationPatch & { touc
     JSON.stringify(next.skills),
     JSON.stringify(next.autoSkills),
     next.instructions,
+    JSON.stringify(next.allowedTools),
     patch.touch ? now() : c.updatedAt,
     id
   )

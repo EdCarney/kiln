@@ -60,6 +60,7 @@ export function Sidebar() {
       conversation={c}
       active={c.id === activeChatId}
       streaming={!!streams[c.id]}
+      waiting={!!streams[c.id]?.toolEvents.some((e) => e?.awaiting)}
       onOpen={() => go({ name: 'chat', id: c.id })}
     />
   )

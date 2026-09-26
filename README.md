@@ -78,6 +78,10 @@ tests/           Vitest unit tests      e2e/   live Playwright run against real 
   - Tools a model invents get one explanation, then they're withdrawn so the turn still ends with an answer.
   - A reply gets up to 6 tool rounds. If the model is still using tools after that, it has to answer with what it found, and the reply offers Continue.
   - Every tool result is capped at 24,000 characters. When a turn's results outgrow the context window, older ones from that turn are cut to a one-line note and the newest stay whole; the reply's stats say so. The check uses Ollama's own token count for the previous request when that's higher than Kiln's estimate.
+- **Approving tool calls.** A tool whose provider asks first (the MCP servers and code runner coming in #31; skills and web search never ask) waits in the reply with an approval card: **Allow once**, **Allow for this chat** or **Deny**.
+  - A denied call doesn't run, and the model is told not to try it again unless you ask. Stopping the reply, deleting the chat or quitting counts as a no, and a call that was waiting when Kiln closed shows as not run.
+  - A chat you aren't looking at gets a hand icon in the sidebar and a toast, and the Dock icon shows how many calls are waiting.
+  - Processes Kiln starts run in their own process group (`src/main/processes.ts`), so stopping one also stops anything it started, and quitting stops them all.
 - **Links.** Hovering a link in a reply shows a card with its destination: site, full URL, and whether it opens in your browser. It warns when the link text names a different domain than the real destination.
   - An opt-in setting (Settings → Web, artifacts & skills) adds the page's title, description and image, fetched from your Mac.
   - Local-network and loopback addresses are never fetched, including after redirects.

@@ -6,7 +6,17 @@ import { normalizeSpaces } from '@shared/text'
 import { contextOptions, effectiveContext } from '@shared/context'
 import { EVENT_CHANNELS } from '@shared/ipc'
 import { resolveThinkProfile, toOllamaThink } from '@shared/thinking'
-import type { ChatEvent, Conversation, Message, MessageStats, SendRequest, SendResult, ThinkSetting, ToolEvent } from '@shared/types'
+import type {
+  ChatEvent,
+  Conversation,
+  Message,
+  MessageStats,
+  SendRequest,
+  SendResult,
+  ThinkSetting,
+  ToolDecision,
+  ToolEvent
+} from '@shared/types'
 import { addArtifactVersion, listArtifacts, pruneEmptyArtifacts } from '../db/artifacts'
 import {
   attachmentRowsForMessage,
@@ -26,7 +36,7 @@ import { getProject, projectKnowledge, touchProject } from '../db/projects'
 import { imageForModel, removeFiles } from '../files/ingest'
 import { type ChatBody, type ChatChunk, chatOnce, chatStream, endpointFor, streamTimeoutsFor, type ToolCall } from '../ollama/client'
 import { getModelInfo } from '../ollama/models'
-import { webAvailable, webEndpoint } from '../ollama/web'
+import { webAvailable } from '../ollama/web'
 import { startTrace, type Trace } from '../debug/traces'
 import { paths } from '../paths'
 import { getSettings } from '../settings'
@@ -34,15 +44,19 @@ import { getSkill, listSkills } from '../skills/library'
 import { conversationUsage, insertUsageEvent } from '../db/usage'
 import { requestCost } from '../usage/pricing'
 import { errorMessage, estimateTokens } from '../util'
+import { waitForDecision } from './approvals'
 import { assemble, type HistoryTurn, promptBudget } from './assemble'
 import { TITLE_PROMPT } from './prompts'
 import {
+  approvalFor,
+  declinedResult,
   missingAbilities,
   pendingEvent,
   replayCalls,
   runTool,
   settleToolEvent,
   type ToolContext,
+  toolEndpoint,
   toolGrants,
   type ToolResult,
   toolsFor
@@ -259,8 +273,8 @@ async function generate(
 
   // Save progress now and then, so a quit or crash keeps the partial reply (see markInterruptedReplies).
   let savedAt = Date.now()
-  const checkpoint = () => {
-    if (Date.now() - savedAt < CHECKPOINT_MS) return
+  const checkpoint = (now = false) => {
+    if (!now && Date.now() - savedAt < CHECKPOINT_MS) return
     savedAt = Date.now()
     checkpointMessage(messageId, { content, thinking: thinking || null, toolEvents })
   }
@@ -328,6 +342,9 @@ async function generate(
     }
 
     const triedUnknown: string[] = []
+    // Tools the user allowed for this whole chat, and ones they denied in this reply (not asked about again).
+    let allowedTools = conversation.allowedTools
+    const declined = new Set<string>()
     // This turn's tool results, oldest first: when the request outgrows the context window, the oldest are shortened.
     const turnResults: Array<{ index: number; round: number; note: string }> = []
     // Ollama's token count for the last request, and what we estimated it at, to correct later estimates.
@@ -428,31 +445,50 @@ async function generate(
         const pending = { ...pendingEvent(call, toolContext), at: content.length }
         toolEvents.push(pending)
         emit({ type: 'tool', conversationId, messageId, index, event: pending })
+
+        // A tool that acts on this Mac or the user's accounts waits for their answer (unless allowed for this chat).
+        // Stop, deleting the chat and quitting abort the wait, and the call never runs.
+        let decision: ToolDecision | 'auto' = 'auto'
+        if (approvalFor(call, toolContext) === 'ask' && !allowedTools.includes(pending.tool)) {
+          if (declined.has(pending.tool)) decision = 'deny'
+          else {
+            toolEvents[index] = { ...pending, awaiting: true }
+            emit({ type: 'tool', conversationId, messageId, index, event: toolEvents[index] })
+            checkpoint(true)
+            decision = await waitForDecision(conversationId, messageId, index, controller.signal)
+          }
+          if (decision === 'deny') declined.add(pending.tool)
+          if (decision === 'chat') {
+            allowedTools = [...allowedTools, pending.tool]
+            updateConversation(conversationId, { allowedTools })
+          }
+        }
+
         const toolTrace = startTrace({
           kind: 'tool',
           conversationId,
           messageId,
           model: null,
           round,
-          endpoint:
-            pending.tool === 'web_search' || pending.tool === 'web_fetch'
-              ? webEndpoint(`/api/${pending.tool}`)
-              : `kiln://tools/${pending.tool}`,
+          endpoint: toolEndpoint(call, toolContext),
           request: { tool: call.function.name, arguments: call.function.arguments },
           summary: `${pending.tool}: ${pending.summary}`
         })
         let result: ToolResult
-        try {
-          result = await runTool(call, toolContext)
-        } catch (err) {
-          // Only a stop gets here (tool failures come back as results); close the trace before unwinding.
-          toolTrace.finish({ status: 'aborted', response: { error: 'Stopped by you' }, summary: `${pending.tool}: stopped` })
-          throw err
+        if (decision === 'deny') result = declinedResult(call, toolEvents[index])
+        else {
+          try {
+            result = await runTool(call, toolContext)
+          } catch (err) {
+            // Only a stop gets here (tool failures come back as results); close the trace before unwinding.
+            toolTrace.finish({ status: 'aborted', response: { error: 'Stopped by you' }, summary: `${pending.tool}: stopped` })
+            throw err
+          }
         }
         toolTrace.finish({
           status: result.event.ok ? 'ok' : 'error',
           response: { result: result.content, error: result.event.ok ? undefined : result.event.summary },
-          summary: `${result.event.tool}: ${result.event.summary}`
+          summary: `${result.event.tool}: ${result.event.declined ? 'declined by you' : result.event.summary}`
         })
         if (result.unknown) triedUnknown.push(call.function.name)
         else onlyUnknown = false
