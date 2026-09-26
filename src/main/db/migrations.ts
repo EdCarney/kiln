@@ -168,5 +168,10 @@ export const MIGRATIONS: string[] = [
   /* sql */ `
   -- Tool sources switched on for a chat (MCP servers as "mcp:<id>").
   ALTER TABLE conversations ADD COLUMN tool_sources TEXT NOT NULL DEFAULT '[]';
+  `,
+  /* sql */ `
+  -- "Allow for this chat" answers were stored by offered tool name; they're now keyed by server and tool (or site),
+  -- so the old ones can't be read reliably. Clearing them means each tool asks once more.
+  UPDATE conversations SET allowed_tools = '[]';
   `
 ]

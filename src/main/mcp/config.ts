@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { safeStorage } from 'electron'
 import { type ImportedServer, parseServersJson } from '@shared/mcpImport'
 import type { McpImportResult, McpImportSource, McpServer, McpServerInput, ToolPolicy } from '@shared/types'
+import { forgetServerInChats } from '../db/conversations'
 import { readSetting, writeSetting } from '../db/kv'
 
 // MCP server definitions live in the settings table under their own key, not in Settings: their environment often
@@ -23,6 +24,9 @@ export interface ServerConfig extends McpServer {
 }
 
 const KEY = 'mcpServers'
+// Ids of servers that were removed. They're never given out again: chats name servers by id (their tool sources and
+// "Allow for this chat" answers), so a new server that reused one could inherit trust given to a different program.
+const RETIRED_KEY = 'mcpRetiredIds'
 
 // Read on every tool lookup during a reply, so kept in memory; every write goes through store().
 let cache: StoredServer[] | null = null
@@ -87,39 +91,64 @@ function validate(input: McpServerInput): void {
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) throw new Error(`"${key}" isn't a valid environment variable name.`)
 }
 
-/** Add a server, or update one (its id stays the same). Returns the saved server. */
+/**
+ * Whether an edit changes what the server is: its command, arguments or folder, or any environment value (a new token
+ * can switch the account behind the same program). The same edits restart a running server (mcp.save in ipc.ts).
+ */
+export const changesServer = (
+  before: Pick<McpServer, 'command' | 'args' | 'cwd'>,
+  after: Pick<McpServer, 'command' | 'args' | 'cwd'>,
+  envEdits: Record<string, unknown>
+): boolean =>
+  before.command !== after.command ||
+  JSON.stringify(before.args) !== JSON.stringify(after.args) ||
+  before.cwd !== after.cwd ||
+  Object.keys(envEdits).length > 0
+
+/**
+ * Add a server, or update one (its id stays the same). Returns the saved server. An edit that changes what the server
+ * is resets its per-tool settings to Ask and forgets chats' "Allow for this chat" answers for it: those were given to
+ * the old program or account.
+ */
 export function saveServer(input: McpServerInput): McpServer {
   validate(input)
   const servers = stored()
   const existing = input.id ? servers.find((s) => s.id === input.id) : undefined
   if (input.id && !existing) throw new Error('That MCP server no longer exists.')
+  const command = input.command.trim()
+  const args = input.args.map((a) => a.trim()).filter(Boolean)
+  const cwd = input.cwd?.trim() || null
+  const replaced = !!existing && changesServer(existing, { command, args, cwd }, input.env)
   const env = existing ? decryptEnv(existing.env) : {}
   for (const [key, value] of Object.entries(input.env)) {
     if (value === null) delete env[key]
     else env[key] = value
   }
   const next: StoredServer = {
-    id:
-      existing?.id ??
-      serverId(
-        input.name,
-        servers.map((s) => s.id)
-      ),
+    id: existing?.id ?? serverId(input.name, [...servers.map((s) => s.id), ...retiredIds()]),
     name: input.name.trim(),
-    command: input.command.trim(),
-    args: input.args.map((a) => a.trim()).filter(Boolean),
-    cwd: input.cwd?.trim() || null,
+    command,
+    args,
+    cwd,
     env: encryptEnv(env),
     envKeys: Object.keys(env).sort(),
     defaultOn: input.defaultOn,
-    tools: existing?.tools ?? {}
+    tools: replaced ? {} : (existing?.tools ?? {})
   }
   store(existing ? servers.map((s) => (s.id === next.id ? next : s)) : [...servers, next])
+  if (replaced) forgetServerInChats(next.id, { source: false })
   return publicView(next)
 }
 
+const retiredIds = (): string[] => readSetting<string[]>(RETIRED_KEY, [])
+
+/** Remove a server. Its id is retired, and chats forget it (their switch for it and what they allowed). */
 export function removeServer(id: string): void {
-  store(stored().filter((s) => s.id !== id))
+  const servers = stored()
+  if (!servers.some((s) => s.id === id)) return
+  store(servers.filter((s) => s.id !== id))
+  writeSetting(RETIRED_KEY, [...new Set([...retiredIds(), id])])
+  forgetServerInChats(id, { source: true })
 }
 
 /** How one of a server's tools is offered (Ask when never set). */

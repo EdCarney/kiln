@@ -829,7 +829,8 @@ const fixtureRunning = () => {
     await card.waitFor({ timeout: 15000 })
     check(
       'the chat menu lists allowed tools, and resetting them brings the question back',
-      /fixture__echo/.test(allowedMenu),
+      // Named by the tool's own name and its server, not the name it's offered under.
+      /echo\s*·\s*Fixture/.test(allowedMenu),
       allowedMenu.replace(/\n/g, ' ')
     )
     await card.getByRole('button', { name: 'Deny' }).click()

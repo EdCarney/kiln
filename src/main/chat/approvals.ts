@@ -5,10 +5,14 @@ import type { ToolDecision } from '@shared/types'
 
 interface Waiting {
   conversationId: string
+  /** The answers this call takes: a call that asks every time can't be allowed for the chat. */
+  choices: readonly ToolDecision[]
   answer: (decision: ToolDecision) => void
 }
 
 const DECISIONS: readonly ToolDecision[] = ['once', 'chat', 'deny']
+/** The answers to a call that asks every time. */
+export const EVERY_TIME: readonly ToolDecision[] = ['once', 'deny']
 const waiting = new Map<string, Waiting>()
 const listeners = new Set<(count: number) => void>()
 
@@ -16,7 +20,13 @@ const key = (messageId: string, index: number) => `${messageId}:${index}`
 const changed = () => listeners.forEach((cb) => cb(waiting.size))
 
 /** Wait for the user's answer to a call. Rejects with the signal's reason if the reply is stopped first. */
-export function waitForDecision(conversationId: string, messageId: string, index: number, signal: AbortSignal): Promise<ToolDecision> {
+export function waitForDecision(
+  conversationId: string,
+  messageId: string,
+  index: number,
+  signal: AbortSignal,
+  choices: readonly ToolDecision[] = DECISIONS
+): Promise<ToolDecision> {
   return new Promise((resolve, reject) => {
     if (signal.aborted) return reject(signal.reason)
     const k = key(messageId, index)
@@ -32,6 +42,7 @@ export function waitForDecision(conversationId: string, messageId: string, index
     signal.addEventListener('abort', onAbort, { once: true })
     waiting.set(k, {
       conversationId,
+      choices,
       answer: (decision) => {
         settle()
         resolve(decision)
@@ -47,6 +58,7 @@ export function decide(conversationId: string, messageId: string, index: number,
   if (!DECISIONS.includes(decision)) throw new Error(`Unknown answer to a tool call: ${String(decision)}`)
   const w = waiting.get(key(messageId, index))
   if (!w || w.conversationId !== conversationId) throw new Error("That tool call isn't waiting for an answer any more.")
+  if (!w.choices.includes(decision)) throw new Error('That tool call can only be allowed once or denied.')
   w.answer(decision)
 }
 

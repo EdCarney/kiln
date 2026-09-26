@@ -1,4 +1,5 @@
 import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js'
+import { mcpAllowKey } from '@shared/toolAllow'
 import type { McpServer } from '@shared/types'
 import type { OllamaTool } from '../ollama/client'
 import type { ToolProvider, ToolResult } from '../chat/tools'
@@ -135,6 +136,11 @@ export const mcpTools: ToolProvider = {
   approval: ({ name }) => {
     const offered = serverOf(name)
     return offered && toolPolicy(offered.server, offered.tool.name) === 'allow' ? 'auto' : 'ask'
+  },
+  // By server and the tool's own name: the offered name can point at another tool once the server's list changes.
+  allowKey: ({ name }) => {
+    const offered = serverOf(name)
+    return offered ? mcpAllowKey(offered.server.id, offered.tool.name) : name
   },
   endpoint: ({ name }) => {
     const offered = serverOf(name)

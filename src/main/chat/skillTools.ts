@@ -38,6 +38,10 @@ export const skillTools: ToolProvider = {
   id: 'skills',
   tools: (ctx) => (ctx.skills ? SKILL_TOOLS : []),
   pending: ({ name, args }) => ({ tool: name, args, ok: true, pending: true, summary: String(args.name ?? '') }),
+  // They only read the skills the user installed.
+  approval: () => 'auto',
+  // A skill's instructions cut to a round's share would be followed half-read, and loading it again gives the same cut.
+  wholeResults: true,
   run: async ({ name, args }, ctx) => {
     const skillName = String(args.name ?? '')
     const skill = await findSkillByName(skillName)

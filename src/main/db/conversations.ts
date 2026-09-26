@@ -1,5 +1,6 @@
 import type { ConversationPatch } from '@shared/ipc'
 import type { Attachment, Conversation, Message, MessageStats, Role, SearchHit, ThinkSetting, ToolEvent } from '@shared/types'
+import { isServerAllowKey } from '@shared/toolAllow'
 import { now, parseJson, uid } from '../util'
 import { all, get, run, transaction } from './index'
 
@@ -112,6 +113,30 @@ export function updateConversation(
   )
   if (next.title !== c.title) indexTitle(id, next.title)
   return getConversation(id)!
+}
+
+/**
+ * Forget an MCP server in every chat: its "Allow for this chat" answers and, when `source` is set (the server was
+ * removed), the switch that turns it on. Used when a server is removed or starts running something else, so a chat
+ * never extends its trust to a different program.
+ */
+export function forgetServerInChats(serverId: string, opts: { source: boolean }): void {
+  const rows = all<{ id: string; allowed_tools: string; tool_sources: string }>('SELECT id, allowed_tools, tool_sources FROM conversations')
+  transaction(() => {
+    for (const r of rows) {
+      const allowed = parseJson<string[]>(r.allowed_tools, [])
+      const sources = parseJson<string[]>(r.tool_sources, [])
+      const keptAllowed = allowed.filter((k) => !isServerAllowKey(k, serverId))
+      const keptSources = opts.source ? sources.filter((s) => s !== `mcp:${serverId}`) : sources
+      if (keptAllowed.length === allowed.length && keptSources.length === sources.length) continue
+      run(
+        'UPDATE conversations SET allowed_tools = ?, tool_sources = ? WHERE id = ?',
+        JSON.stringify(keptAllowed),
+        JSON.stringify(keptSources),
+        r.id
+      )
+    }
+  })
 }
 
 export function touchConversation(id: string): void {

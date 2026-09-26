@@ -298,13 +298,20 @@ function ApprovalCard({ e, conversationId, messageId, index }: { e: ToolEvent; c
           <Detail label="Arguments" text={args} />
         </div>
       )}
+      {e.everyTime && (
+        <div className="mt-2 text-xs text-muted">
+          In a chat with tools on, Kiln asks before every page it fetches: a web address can carry data out.
+        </div>
+      )}
       <div className="mt-3 flex flex-wrap justify-end gap-2">
         <Button size="sm" variant="ghost" disabled={answering} onClick={() => void answer('deny')}>
           Deny
         </Button>
-        <Button size="sm" disabled={answering} onClick={() => void answer('chat')}>
-          Allow for this chat
-        </Button>
+        {!e.everyTime && (
+          <Button size="sm" disabled={answering} onClick={() => void answer('chat')}>
+            Allow for this chat
+          </Button>
+        )}
         <Button size="sm" variant="primary" disabled={answering} onClick={() => void answer('once')}>
           Allow once
         </Button>
