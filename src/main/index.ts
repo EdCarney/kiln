@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { app, BrowserWindow, Menu, type MenuItemConstructorOptions, nativeTheme, shell } from 'electron'
 import { EVENT_CHANNELS } from '@shared/ipc'
 import { currentBackground, currentThemeSource } from './background'
+import { onWaitingChange } from './chat/approvals'
 import { isReplying, markInterruptedReplies, stopAll } from './chat/service'
 import { openDatabase } from './db/index'
 import { childPath } from './env'
@@ -11,6 +12,7 @@ import { staleAttachmentPaths } from './db/conversations'
 import { removeFiles } from './files/ingest'
 import { registerIpc } from './ipc'
 import { initPaths, paths } from './paths'
+import { hasChildren, stopAllGroups } from './processes'
 import { handleProtocols, registerSchemes } from './protocols'
 import { refreshPrices } from './usage/pricing'
 
@@ -140,6 +142,7 @@ app.whenReady().then(async () => {
   nativeTheme.themeSource = currentThemeSource()
   buildMenu()
   createWindow()
+  watchApprovals()
   // Keep per-token prices current (at most daily); the bundled snapshot covers offline starts.
   void refreshPrices()
   app.on('activate', () => {
@@ -147,14 +150,28 @@ app.whenReady().then(async () => {
   })
 })
 
-// Quitting mid-reply: stop the stream and save what arrived before the process exits.
+/**
+ * Tool calls waiting for approval show on the Dock icon, since they may be in a chat you aren't looking at. A new one
+ * bounces the icon once while Kiln is in the background.
+ */
+function watchApprovals(): void {
+  let shown = 0
+  onWaitingChange((count) => {
+    app.dock?.setBadge(count ? String(count) : '')
+    if (count > shown && !BrowserWindow.getFocusedWindow()) app.dock?.bounce('informational')
+    shown = count
+  })
+}
+
+// Quitting mid-reply: stop the stream (which denies any call waiting for approval) and save what arrived, then stop
+// the processes Kiln started, before the process exits. Anything still running after that is killed on exit.
 let quitting = false
 app.on('before-quit', (event) => {
-  if (quitting || !isReplying()) return
+  if (quitting || (!isReplying() && !hasChildren())) return
   event.preventDefault()
   quitting = true
   const timeout = new Promise((resolve) => setTimeout(resolve, 3000))
-  void Promise.race([stopAll(), timeout]).finally(() => app.quit())
+  void Promise.race([stopAll().then(() => stopAllGroups()), timeout]).finally(() => app.quit())
 })
 
 app.on('window-all-closed', () => {

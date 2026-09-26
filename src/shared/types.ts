@@ -38,6 +38,8 @@ export interface Conversation {
   autoSkills: string[]
   /** Instructions for this chat only (a system prompt or persona); '' when unset. */
   instructions: string
+  /** Tools you chose "Allow for this chat" for: they run here without asking. */
+  allowedTools: string[]
   pinned: boolean
   createdAt: number
   updatedAt: number
@@ -75,7 +77,14 @@ export interface ToolEvent {
   preview?: string
   /** No tool by this name was offered (the model invented it). Unset on older replies. */
   unknown?: boolean
+  /** Waiting for you to allow or deny the call; it hasn't run. */
+  awaiting?: boolean
+  /** You denied the call, so it didn't run. */
+  declined?: boolean
 }
+
+/** Your answer to a tool call that asked first. */
+export type ToolDecision = 'once' | 'chat' | 'deny'
 
 export interface MessageStats {
   promptTokens?: number

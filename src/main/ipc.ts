@@ -4,6 +4,7 @@ import { artifactExtension, slugify } from '@shared/artifactParser'
 import { EVENT_CHANNELS, type KilnApi } from '@shared/ipc'
 import { BUILTIN_THEMES } from '@shared/themes'
 import type { ThemeDef } from '@shared/types'
+import { decide } from './chat/approvals'
 import { edit, regenerate, send, stop, stopAll } from './chat/service'
 import { addArtifactVersion, getArtifact, listAllArtifacts, listArtifacts } from './db/artifacts'
 import {
@@ -156,7 +157,8 @@ const impl: Impl = {
     send: async (req) => send(req),
     regenerate: (id, opts) => regenerate(id, opts),
     edit: (messageId, content, opts) => edit(messageId, content, opts),
-    stop: async (id) => stop(id)
+    stop: async (id) => stop(id),
+    decide: async (id, messageId, index, decision) => decide(id, messageId, index, decision)
   },
 
   attachments: {

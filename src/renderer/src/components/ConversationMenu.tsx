@@ -1,4 +1,4 @@
-import { Ellipsis, FolderInput, FolderMinus, Pencil, Pin, PinOff, ScrollText, Trash2 } from 'lucide-react'
+import { Ellipsis, FolderInput, FolderMinus, Hand, Pencil, Pin, PinOff, ScrollText, Trash2 } from 'lucide-react'
 import { type ReactNode, useState } from 'react'
 import type { Conversation } from '@shared/types'
 import { api } from '@/lib/api'
@@ -7,7 +7,20 @@ import { reportError, useApp } from '@/stores/app'
 import { useArtifactPanel } from '@/stores/artifactPanel'
 import { useChat } from '@/stores/chat'
 import { useDrafts } from '@/stores/drafts'
-import { Button, Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuSub, MenuTrigger, Modal, TextArea, TextField } from './ui'
+import {
+  Button,
+  Menu,
+  MenuContent,
+  MenuItem,
+  MenuLabel,
+  MenuSeparator,
+  MenuSub,
+  MenuTrigger,
+  Modal,
+  TextArea,
+  TextField,
+  Tooltip
+} from './ui'
 
 async function patch(conversation: Conversation, p: Parameters<typeof api.conversations.update>[1]) {
   try {
@@ -200,12 +213,15 @@ export function ConversationRow({
   conversation,
   active,
   onOpen,
-  streaming
+  streaming,
+  waiting
 }: {
   conversation: Conversation
   active: boolean
   onOpen: () => void
   streaming: boolean
+  /** A tool call in this chat is waiting for your approval. */
+  waiting: boolean
 }) {
   return (
     <div
@@ -219,7 +235,13 @@ export function ConversationRow({
       )}
     >
       <span className="min-w-0 flex-1 truncate">{conversation.title}</span>
-      {streaming && <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-accent" aria-label="Responding" />}
+      {waiting ? (
+        <Tooltip content="Waiting for your approval">
+          <Hand className="size-3.5 shrink-0 text-warn" aria-label="Waiting for your approval" />
+        </Tooltip>
+      ) : (
+        streaming && <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-accent" aria-label="Responding" />
+      )}
       <span className={cn('shrink-0', active ? 'flex' : 'hidden group-hover:flex has-[[data-state=open]]:flex')}>
         <ConversationMenu conversation={conversation} />
       </span>

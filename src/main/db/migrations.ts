@@ -160,5 +160,9 @@ export const MIGRATIONS: string[] = [
   /* sql */ `
   -- Instructions for one chat (a system prompt or persona), on top of preferences and project instructions.
   ALTER TABLE conversations ADD COLUMN instructions TEXT NOT NULL DEFAULT '';
+  `,
+  /* sql */ `
+  -- Tools the user allowed to run without asking in this chat ("Allow for this chat").
+  ALTER TABLE conversations ADD COLUMN allowed_tools TEXT NOT NULL DEFAULT '[]';
   `
 ]

@@ -12,8 +12,20 @@ vi.mock('../src/main/skills/library', () => {
   }
 })
 
-const { missingAbilities, pendingEvent, registerToolProvider, replayCalls, resolveCall, runTool, toolGrants, toolsFor } =
-  await import('../src/main/chat/tools')
+const {
+  approvalFor,
+  declinedResult,
+  missingAbilities,
+  pendingEvent,
+  registerToolProvider,
+  replayCalls,
+  resolveCall,
+  runTool,
+  settleToolEvent,
+  toolEndpoint,
+  toolGrants,
+  toolsFor
+} = await import('../src/main/chat/tools')
 const { basePrompt } = await import('../src/main/chat/prompts')
 type ToolProvider = import('../src/main/chat/tools').ToolProvider
 type ToolContext = import('../src/main/chat/tools').ToolContext
@@ -29,7 +41,6 @@ function fake(id: string, tools: string[], extra: Partial<ToolProvider> = {}): T
     tools: () => tools.map((name) => ({ type: 'function', function: { name, description: name, parameters: { type: 'object' } } })),
     pending: ({ name, args }) => ({ tool: name, args, ok: true, pending: true, summary: `${id} pending` }),
     run: async ({ name, args }) => ({ content: `${id}:${name}`, event: { tool: name, args, ok: true, summary: id } }),
-    approval: 'auto',
     ...extra
   }
 }
@@ -185,5 +196,45 @@ describe('replayCalls', () => {
     expect(replayCalls([ev({ tool: 'notes__search', args: { q: 'x' } })])).toEqual([
       { name: 'notes__search', args: { q: 'x' }, record: 'kept' }
     ])
+  })
+})
+
+describe('asking first', () => {
+  it("runs built-in tools straight away, and asks only when a tool's provider says so", () => {
+    register(fake('mcp', ['notes__delete', 'notes__read'], { approval: ({ name }) => (name === 'notes__delete' ? 'ask' : 'auto') }))
+    const c = ctx({ web: true })
+    expect(approvalFor(call('web_search', { query: 'x' }), c)).toBe('auto')
+    expect(approvalFor(call('notes__read'), c)).toBe('auto')
+    expect(approvalFor(call('notes__delete'), c)).toBe('ask')
+    // Nothing offers it, so there's nothing to ask about: the model just hears it doesn't exist.
+    expect(approvalFor(call('python'), c)).toBe('auto')
+  })
+
+  it('tells the model a declined call never ran, and shows it as declined', () => {
+    const pending = { ...pendingEvent(call('web_search', { query: 'kiln' }), ctx({ web: true })), awaiting: true }
+    const result = declinedResult(call('web_search', { query: 'kiln' }), pending)
+    expect(result.content).toMatch(/declined to run web_search, so it didn't run\. Don't call it again unless they ask/)
+    expect(result.event).toEqual({
+      tool: 'web_search',
+      args: { query: 'kiln' },
+      ok: false,
+      pending: false,
+      declined: true,
+      summary: 'kiln'
+    })
+  })
+
+  it('settles a call still waiting for an answer as not run', () => {
+    const waiting: ToolEvent = { tool: 'notes__delete', args: {}, ok: true, pending: true, awaiting: true, summary: 'notes' }
+    expect(settleToolEvent(waiting)).toEqual({ tool: 'notes__delete', args: {}, ok: false, pending: false, summary: 'notes (not run)' })
+  })
+
+  it("labels each call's trace with where it goes", () => {
+    register(fake('mcp', ['notes__read'], { endpoint: ({ name }) => `mcp://notes/${name.split('__')[1]}` }))
+    const c = ctx({ web: true, skills: true })
+    expect(toolEndpoint(call('web_fetch', { url: 'https://a.io' }), c)).toMatch(/\/api\/web_fetch$/)
+    expect(toolEndpoint(call('browser.open', { url: 'https://a.io' }), c)).toMatch(/\/api\/web_fetch$/)
+    expect(toolEndpoint(call('notes__read'), c)).toBe('mcp://notes/read')
+    expect(toolEndpoint(call('load_skill', { name: 'pdf' }), c)).toBe('kiln://tools/load_skill')
   })
 })

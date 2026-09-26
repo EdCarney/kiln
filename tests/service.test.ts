@@ -29,8 +29,10 @@ const { openDatabase } = await import('../src/main/db/index')
 const { updateSettings, setApiKey } = await import('../src/main/settings')
 const service = await import('../src/main/chat/service')
 const { listTraces } = await import('../src/main/debug/traces')
-const { deleteConversation, getMessage, insertMessage, createConversation, search, updateConversation, updateMessage } =
+const { deleteConversation, getConversation, getMessage, insertMessage, createConversation, search, updateConversation, updateMessage } =
   await import('../src/main/db/conversations')
+const { registerToolProvider } = await import('../src/main/chat/tools')
+const approvals = await import('../src/main/chat/approvals')
 
 type ChatHandler = (body: Record<string, unknown>, res: ServerResponse, call: number) => unknown
 let chat: ChatHandler
@@ -426,13 +428,153 @@ describe('reply loop', () => {
   })
 })
 
+describe('asking before a tool runs', () => {
+  // A tool that acts on this Mac: it asks first, and records each run.
+  const runs: Array<Record<string, unknown>> = []
+  let unregister: () => void
+  beforeAll(() => {
+    unregister = registerToolProvider({
+      id: 'notes',
+      tools: () => [
+        { type: 'function', function: { name: 'notes__delete', description: 'Delete a note', parameters: { type: 'object' } } }
+      ],
+      pending: ({ name, args }) => ({ tool: name, args, ok: true, pending: true, summary: `note ${String(args.id)}` }),
+      run: async ({ name, args }) => {
+        runs.push(args)
+        return { content: `Deleted note ${String(args.id)}.`, event: { tool: name, args, ok: true, summary: `note ${String(args.id)}` } }
+      },
+      approval: () => 'ask'
+    })
+  })
+  afterAll(() => unregister())
+  beforeEach(() => {
+    runs.length = 0
+  })
+
+  const deleteThenAnswer: ChatHandler = (b, res, n) =>
+    n === 1 ? void res.writeHead(200).end(toolCall('notes__delete', { id: 7 })) : reply('Done.')(b, res, n)
+  const toolEvents = (conversationId: string) =>
+    events.filter((e): e is Extract<ChatEvent, { type: 'tool' }> => e.type === 'tool' && e.conversationId === conversationId)
+  const waiting = (conversationId: string) => waitFor(() => toolEvents(conversationId).find((e) => e.event.awaiting))
+  const toolMessages = (call: Record<string, unknown>) =>
+    (call.messages as Array<{ role: string; content: string }>).filter((m) => m.role === 'tool').map((m) => m.content)
+
+  it('waits for an answer, saving the waiting call at once, and runs it on Allow once', async () => {
+    chat = deleteThenAnswer
+    const r = start('delete note 7')
+    const ask = await waiting(r.conversation.id)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(runs).toHaveLength(0)
+    expect(chatCalls).toHaveLength(1)
+    // Saved straight away (not on the next throttled checkpoint), so a crash keeps the question.
+    expect(getMessage(r.assistantMessageId)!.toolEvents[0]).toMatchObject({ tool: 'notes__delete', awaiting: true })
+    expect(approvals.waitingCount()).toBe(1)
+
+    approvals.decide(r.conversation.id, ask.messageId, ask.index, 'once')
+    const done = await doneEvent(r.conversation.id)
+    expect(runs).toEqual([{ id: 7 }])
+    expect(toolMessages(chatCalls[1])).toEqual(['Deleted note 7.'])
+    expect(done.message.toolEvents[0]).toMatchObject({ tool: 'notes__delete', ok: true })
+    expect(done.message.toolEvents[0].awaiting).toBeUndefined()
+    expect(approvals.waitingCount()).toBe(0)
+    // Once only: the chat didn't start allowing it.
+    expect(getConversation(r.conversation.id)!.allowedTools).toEqual([])
+  })
+
+  it("tells the model a denied call didn't run, and doesn't ask again in the same reply", async () => {
+    // The model tries again after the denial; the second call is declined without asking.
+    chat = (b, res, n) =>
+      n <= 2 ? void res.writeHead(200).end(toolCall('notes__delete', { id: n })) : reply('I could not delete it.')(b, res, n)
+    const r = start('delete note 1')
+    const ask = await waiting(r.conversation.id)
+    approvals.decide(r.conversation.id, ask.messageId, ask.index, 'deny')
+    const done = await doneEvent(r.conversation.id)
+    expect(runs).toHaveLength(0)
+    expect(toolMessages(chatCalls[1])[0]).toMatch(/The user declined to run notes__delete, so it didn't run/)
+    expect(toolEvents(r.conversation.id).filter((e) => e.event.awaiting)).toHaveLength(1)
+    expect(done.message.toolEvents.map((e) => [e.ok, e.declined])).toEqual([
+      [false, true],
+      [false, true]
+    ])
+    const trace = listTraces(r.conversation.id).find((t) => t.kind === 'tool')
+    expect(trace?.summary).toBe('notes__delete: declined by you')
+  })
+
+  it('remembers Allow for this chat, so later calls in the chat run without asking', async () => {
+    chat = deleteThenAnswer
+    const r = start('delete note 7')
+    const ask = await waiting(r.conversation.id)
+    approvals.decide(r.conversation.id, ask.messageId, ask.index, 'chat')
+    await doneEvent(r.conversation.id)
+    expect(getConversation(r.conversation.id)!.allowedTools).toEqual(['notes__delete'])
+
+    events.length = 0
+    chatCalls = []
+    service.send({
+      conversationId: r.conversation.id,
+      projectId: null,
+      content: 'and again',
+      attachmentIds: [],
+      model: 'llama3.2',
+      think: null,
+      skills: []
+    })
+    await doneEvent(r.conversation.id)
+    expect(runs).toHaveLength(2)
+    expect(toolEvents(r.conversation.id).some((e) => e.event.awaiting)).toBe(false)
+  })
+
+  it('never runs a call that was waiting when the reply was stopped', async () => {
+    chat = deleteThenAnswer
+    const r = start('delete note 7')
+    const ask = await waiting(r.conversation.id)
+    await service.stop(r.conversation.id)
+    const saved = getMessage(r.assistantMessageId)!
+    expect(runs).toHaveLength(0)
+    expect(saved.error).toBeNull()
+    expect(saved.toolEvents[0]).toMatchObject({ ok: false, pending: false, summary: 'note 7 (not run)' })
+    expect(saved.toolEvents[0].awaiting).toBeUndefined()
+    expect(approvals.waitingCount()).toBe(0)
+    // Too late to answer now.
+    expect(() => approvals.decide(r.conversation.id, ask.messageId, ask.index, 'once')).toThrow(/isn't waiting/)
+    expect(listTraces(r.conversation.id).every((t) => t.status !== 'running')).toBe(true)
+  })
+
+  it('lets a chat be deleted while a call waits for an answer', async () => {
+    chat = deleteThenAnswer
+    const r = start('delete note 7')
+    await waiting(r.conversation.id)
+    await service.stopAll((id) => id === r.conversation.id) // as deleting a chat or project does
+    deleteConversation(r.conversation.id)
+    expect(service.isReplying()).toBe(false)
+    expect(runs).toHaveLength(0)
+  })
+
+  it('only takes one of the three answers, for the chat the call is in', async () => {
+    chat = deleteThenAnswer
+    const r = start('delete note 7')
+    const ask = await waiting(r.conversation.id)
+    expect(() => approvals.decide(r.conversation.id, ask.messageId, ask.index, 'yes' as never)).toThrow(/Unknown answer/)
+    expect(() => approvals.decide('another-chat', ask.messageId, ask.index, 'once')).toThrow(/isn't waiting/)
+    expect(runs).toHaveLength(0)
+    approvals.decide(r.conversation.id, ask.messageId, ask.index, 'deny')
+    await doneEvent(r.conversation.id)
+  })
+})
+
 describe('markInterruptedReplies', () => {
   it('flags replies that never got their final save, and only those', () => {
     const c = createConversation({ projectId: null, model: 'llama3.2', think: null, skills: [] })
     const user = insertMessage({ conversationId: c.id, parentId: null, role: 'user', content: 'hi' })
     const cut = insertMessage({ conversationId: c.id, parentId: user.id, role: 'assistant', content: '' })
     // A checkpoint wrote text and a running tool, then the app died.
-    updateMessage(cut.id, { content: 'so far', toolEvents: [{ tool: 'web_search', args: {}, ok: true, pending: true, summary: 'kiln' }] })
+    updateMessage(cut.id, {
+      content: 'so far',
+      toolEvents: [
+        { tool: 'web_search', args: {}, ok: true, pending: true, summary: 'kiln' },
+        { tool: 'notes__delete', args: {}, ok: true, pending: true, awaiting: true, summary: 'note 7' }
+      ]
+    })
     const finished = insertMessage({ conversationId: c.id, parentId: user.id, role: 'assistant', content: 'done' })
     updateMessage(finished.id, { stats: { promptTokens: 1, completionTokens: 1 } })
 
@@ -441,6 +583,8 @@ describe('markInterruptedReplies', () => {
     expect(after.content).toBe('so far')
     expect(after.error).toMatch(/closed before this reply finished/)
     expect(after.toolEvents[0]).toMatchObject({ pending: false, ok: false })
+    // A call still waiting for an answer never ran.
+    expect(after.toolEvents[1]).toEqual({ tool: 'notes__delete', args: {}, ok: false, pending: false, summary: 'note 7 (not run)' })
     // Checkpoints skip search indexing; marking the reply indexes the text it kept.
     expect(search('so far').map((h) => h.conversationId)).toContain(c.id)
     expect(getMessage(finished.id)!.error).toBeNull()
