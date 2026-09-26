@@ -7,6 +7,7 @@ import {
   readdirSync,
   readFileSync,
   realpathSync,
+  renameSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -814,5 +815,31 @@ describe.runIf(process.platform === 'darwin' && existsSync('/usr/bin/sandbox-exe
       await slow
       expect(await workspace.workspaceFiles(id)).toEqual(['started'])
     }, 120_000)
+  })
+
+  // #60: moving the data folder must cut off code an earlier session left running there. Its policy names the old
+  // path, and Seatbelt checks the path an access resolves to at the time, even through the working directory.
+  it('stops code writing a workspace once the folder above it is renamed', async () => {
+    const before = realpathSync(mkdtempSync(join(tmpdir(), 'kiln-move-a-')))
+    const after = `${before}-moved`
+    const workspace = join(before, 'workspaces', 'c1')
+    mkdirSync(workspace, { recursive: true })
+    const policy = policyFor({ workspace, home: fakeHome, readable: [], venv: join(root, 'venv'), pypi: false })
+    const run = runSandboxed({
+      command: 'echo ok > first.txt; sleep 2; echo x > second.txt; echo "exit=$?"',
+      policy,
+      cwd: workspace,
+      env: {},
+      timeoutMs: 30_000,
+      id: 'moved-folder'
+    })
+    // Rename once the first write has happened, while the code sleeps.
+    const t0 = Date.now()
+    while (!existsSync(join(workspace, 'first.txt')) && Date.now() - t0 < 10_000) await new Promise((r) => setTimeout(r, 50))
+    renameSync(before, after)
+    const result = await run
+    expect(existsSync(join(after, 'workspaces', 'c1', 'first.txt'))).toBe(true)
+    expect(existsSync(join(after, 'workspaces', 'c1', 'second.txt'))).toBe(false)
+    expect(result.output).toMatch(/Operation not permitted/)
   })
 })
