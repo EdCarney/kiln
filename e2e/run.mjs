@@ -712,7 +712,23 @@ const fixtureRunning = () => {
     res.end(JSON.stringify({ done: true, prompt_eval_count: 100, eval_count: 12, eval_duration: 1e8 }) + '\n')
   })
   await new Promise((r) => mcpOllama.listen(0, '127.0.0.1', r))
-  const app = await electron.launch({ args: [ROOT], env: { ...process.env, KILN_USER_DATA: mkdtempSync(join(tmpdir(), 'kiln-e2e-mcp-')) } })
+  // Another app's config to import from (Claude Code's is pointed at nothing, so the real one isn't read).
+  const mcpFiles = mkdtempSync(join(tmpdir(), 'kiln-e2e-mcp-import-'))
+  writeFileSync(
+    join(mcpFiles, 'claude_desktop_config.json'),
+    JSON.stringify({
+      mcpServers: { Imported: { command: 'node', args: [FIXTURE] }, Hosted: { type: 'http', url: 'https://example.com/mcp' } }
+    })
+  )
+  const app = await electron.launch({
+    args: [ROOT],
+    env: {
+      ...process.env,
+      KILN_USER_DATA: mkdtempSync(join(tmpdir(), 'kiln-e2e-mcp-')),
+      KILN_CLAUDE_DESKTOP_CONFIG: join(mcpFiles, 'claude_desktop_config.json'),
+      KILN_CLAUDE_CODE_CONFIG: join(mcpFiles, 'none.json')
+    }
+  })
   const win = await app.firstWindow()
   let quit = false
   try {
@@ -804,6 +820,21 @@ const fixtureRunning = () => {
     await idle()
     check('Allow for this chat lets later calls run without asking', (await card.count()) === 0 && /Tool said: echo: hi/.test(await last()))
 
+    // The chat's menu lists what it allows, and can go back to asking.
+    await win.getByRole('button', { name: 'Mock title', exact: true }).click()
+    await win.getByRole('menuitem', { name: 'Tools allowed in this chat' }).click()
+    const allowedMenu = await win.locator('[role="menu"]').last().innerText()
+    await win.getByRole('menuitem', { name: 'Ask again before each tool' }).click()
+    await sendText('after the reset')
+    await card.waitFor({ timeout: 15000 })
+    check(
+      'the chat menu lists allowed tools, and resetting them brings the question back',
+      /fixture__echo/.test(allowedMenu),
+      allowedMenu.replace(/\n/g, ' ')
+    )
+    await card.getByRole('button', { name: 'Deny' }).click()
+    await idle()
+
     // Waiting in a chat you aren't looking at: a mark in the sidebar and a toast. Stop leaves the call not run.
     await newChat(win)
     mcpDelay = 1500
@@ -824,6 +855,65 @@ const fixtureRunning = () => {
       'stopping while a call waits leaves it not run',
       /not run/.test(await win.locator('[data-testid="tool-group"]').last().innerText())
     )
+
+    // Per-tool settings: Always allow runs without the card, Off keeps a tool out of the request.
+    await win
+      .getByRole('button', { name: /Set your name|Settings/ })
+      .last()
+      .click()
+    await win.getByRole('button', { name: 'Tools', exact: true }).click()
+    const fixtureRow = win.locator('[data-testid="mcp-server"]').filter({ hasText: 'Fixture' })
+    await fixtureRow.getByRole('button', { name: /^Tools \(/ }).click()
+    const toolRow = (name) =>
+      fixtureRow.locator('[data-testid="mcp-tool"]').filter({ has: win.locator('span.font-mono', { hasText: new RegExp(`^${name}$`) }) })
+    await toolRow('echo').getByRole('button', { name: 'Always allow' }).click()
+    await toolRow('lookup_codename').getByRole('button', { name: 'Off' }).click()
+    await win.waitForFunction(() => /\(1 off\)/.test(document.querySelector('[data-testid="mcp-server"]')?.textContent ?? ''), null, {
+      timeout: 5000
+    })
+    await win.screenshot({ path: join(SHOTS, 'mcp-tool-settings.png') })
+    await newChat(win)
+    mcpChats.length = 0
+    await sendText('echo without asking')
+    await idle()
+    check(
+      'a tool set to Always allow runs without asking, and one set to Off is not offered',
+      (await card.count()) === 0 &&
+        /Tool said: echo: hi/.test(await last()) &&
+        mcpChats[0]?.toolNames.includes('fixture__echo') &&
+        !mcpChats[0]?.toolNames.includes('fixture__lookup_codename'),
+      mcpChats[0]?.toolNames.join(', ')
+    )
+
+    // Paste a README's JSON; import from another app's config.
+    await win
+      .getByRole('button', { name: /Set your name|Settings/ })
+      .last()
+      .click()
+    await win.getByRole('button', { name: 'Tools', exact: true }).click()
+    await win.getByRole('button', { name: 'Paste JSON' }).click()
+    await win
+      .getByLabel('Server JSON', { exact: true })
+      .fill(JSON.stringify({ mcpServers: { Second: { command: 'node', args: [FIXTURE] } } }))
+    await win.getByRole('dialog').getByRole('button', { name: 'Add servers' }).click()
+    const pasted = await win.locator('[data-testid="import-result"]').innerText()
+    await win.getByRole('dialog').getByRole('button', { name: 'Done' }).click()
+    check('pasting a README snippet adds its server', /Added Second\./.test(pasted), pasted.replace(/\n/g, ' '))
+    await win.getByRole('button', { name: 'Import from Claude Desktop' }).click()
+    const offer = await win.getByRole('dialog').innerText()
+    await win.getByRole('dialog').getByRole('button', { name: 'Import' }).click()
+    const imported = await win.locator('[data-testid="import-result"]').innerText()
+    await win.getByRole('dialog').getByRole('button', { name: 'Done' }).click()
+    const servers = await win.evaluate(() => window.kiln.mcp.list())
+    check(
+      "importing copies another app's local servers, off for new chats, leaving remote ones out",
+      /1 local server: Imported/.test(offer) &&
+        /1 remote server is left out/.test(offer) &&
+        /Added Imported\./.test(imported) &&
+        servers.find((x) => x.name === 'Imported')?.defaultOn === false,
+      imported.replace(/\n/g, ' ')
+    )
+    await win.screenshot({ path: join(SHOTS, 'mcp-imported.png') })
 
     // Quitting stops the server.
     check('the MCP server is running before quitting', fixtureRunning())

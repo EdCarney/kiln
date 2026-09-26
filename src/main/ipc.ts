@@ -2,6 +2,7 @@ import { writeFile } from 'node:fs/promises'
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from 'electron'
 import { artifactExtension, slugify } from '@shared/artifactParser'
 import { EVENT_CHANNELS, type KilnApi } from '@shared/ipc'
+import { parseServersJson } from '@shared/mcpImport'
 import { BUILTIN_THEMES } from '@shared/themes'
 import type { ThemeDef } from '@shared/types'
 import { decide } from './chat/approvals'
@@ -41,7 +42,7 @@ import { replayRequest } from './debug/replay'
 import { clearTraces, getTrace, listTraces, tracesForExport } from './debug/traces'
 import { openDebugWindow } from './debug/window'
 import { linkPreview } from './links/preview'
-import { listServers, removeServer, saveServer } from './mcp/config'
+import { addImported, getServer, importFrom, importSources, listServers, removeServer, saveServer, setToolPolicy } from './mcp/config'
 import {
   connect as connectServer,
   forget as forgetServer,
@@ -246,9 +247,17 @@ const impl: Impl = {
   mcp: {
     list: async () => listServers(),
     save: async (input) => {
+      const before = input.id ? getServer(input.id) : null
       const server = saveServer(input)
-      // A running server picks up the new command or environment only when it starts again.
-      if (input.id && isActive(server.id)) void restartServer(server.id)
+      // A running server picks up a new command or environment only when it starts again; a new name or the
+      // "Use in new chats" switch doesn't need that.
+      const relaunch =
+        !!before &&
+        (before.command !== server.command ||
+          JSON.stringify(before.args) !== JSON.stringify(server.args) ||
+          before.cwd !== server.cwd ||
+          Object.keys(input.env).length > 0)
+      if (relaunch && isActive(server.id)) void restartServer(server.id)
       else notifyServers()
       return server
     },
@@ -261,7 +270,24 @@ const impl: Impl = {
       for (const id of ids) void connectServer(id)
     },
     restart: (id) => restartServer(id),
-    log: async (id) => serverLog(id)
+    log: async (id) => serverLog(id),
+    setToolPolicy: async (id, tool, policy) => {
+      const server = setToolPolicy(id, tool, policy)
+      notifyServers()
+      return server
+    },
+    importJson: async (text) => {
+      const { servers, skipped } = parseServersJson(text)
+      const result = addImported(servers, true, skipped)
+      notifyServers()
+      return result
+    },
+    importSources: () => importSources(),
+    importFrom: async (id) => {
+      const result = await importFrom(id)
+      notifyServers()
+      return result
+    }
   },
 
   debug: {

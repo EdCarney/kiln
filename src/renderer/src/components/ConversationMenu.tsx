@@ -117,6 +117,18 @@ export function ConversationMenu({
               Remove from project
             </MenuItem>
           )}
+          {conversation.allowedTools.length > 0 && (
+            <MenuSub label="Tools allowed in this chat" icon={<Hand className="size-4" />}>
+              <MenuLabel>These run without asking here:</MenuLabel>
+              {conversation.allowedTools.map((tool) => (
+                <MenuLabel key={tool}>
+                  <span className="font-mono">{tool}</span>
+                </MenuLabel>
+              ))}
+              <MenuSeparator />
+              <MenuItem onSelect={() => patch(conversation, { allowedTools: [] })}>Ask again before each tool</MenuItem>
+            </MenuSub>
+          )}
           <MenuSeparator />
           <MenuItem danger icon={<Trash2 className="size-4 text-danger" />} onSelect={() => setDeleting(true)}>
             Delete

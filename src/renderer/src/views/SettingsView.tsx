@@ -1,5 +1,5 @@
 import { Cloud, Download, HardDrive, Monitor, Moon, Palette, Pencil, RefreshCw, Sun, Trash2, Upload } from 'lucide-react'
-import { type ReactNode, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { usesDark } from '@shared/themes'
 import { resolveThinkProfile } from '@shared/thinking'
 import type { ModelInfo, ModelOverrides, PriceTable, Settings, ThemeDef, UsageSummary } from '@shared/types'
@@ -12,7 +12,7 @@ import { cn, displayModelName, formatContext, formatTokens } from '@/lib/format'
 import { reportError, type SettingsTab, useApp } from '@/stores/app'
 import { useUsage } from '@/stores/usage'
 import { useSystemDark } from '@/theme/useTheme'
-import { Row, Section } from './settingsParts'
+import { Row, Section, Segmented } from './settingsParts'
 import { ToolsTab } from './ToolsSettings'
 
 const TABS: Array<{ id: SettingsTab; label: string }> = [
@@ -24,34 +24,6 @@ const TABS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'tools', label: 'Tools' },
   { id: 'data', label: 'Data' }
 ]
-
-function Segmented<T extends string>({
-  value,
-  options,
-  onChange
-}: {
-  value: T
-  options: Array<{ value: T; label: string; icon?: ReactNode }>
-  onChange: (v: T) => void
-}) {
-  return (
-    <div className="inline-flex rounded-lg bg-hover p-0.5 text-[13px]">
-      {options.map((o) => (
-        <button
-          key={o.value}
-          onClick={() => onChange(o.value)}
-          className={cn(
-            'flex items-center gap-1.5 rounded-md px-3 py-1',
-            value === o.value ? 'bg-panel text-fg shadow-sm' : 'text-muted hover:text-fg'
-          )}
-        >
-          {o.icon}
-          {o.label}
-        </button>
-      ))}
-    </div>
-  )
-}
 
 /** Text input that saves on blur, so typing doesn't write settings on every keystroke. */
 function BlurField({

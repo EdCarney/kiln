@@ -386,6 +386,23 @@ export interface McpServerInput {
   defaultOn: boolean
 }
 
+/** Another app's MCP config that Kiln can copy servers from. */
+export interface McpImportSource {
+  id: 'claude-desktop' | 'claude-code'
+  label: string
+  path: string
+  /** Names of the local servers it lists. */
+  servers: string[]
+  /** Entries Kiln can't use (remote servers). */
+  unsupported: number
+}
+
+export interface McpImportResult {
+  added: McpServer[]
+  /** Entries left out, each as "name: why". */
+  skipped: string[]
+}
+
 export type McpState = 'stopped' | 'starting' | 'ready' | 'error'
 
 export interface McpToolInfo {
