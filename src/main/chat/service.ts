@@ -108,7 +108,7 @@ function emit(event: ChatEvent): void {
 }
 
 function assertIdle(conversationId: string): void {
-  if (active.has(conversationId)) throw new Error('Kiln is still responding in this chat.')
+  if (active.has(conversationId)) throw new Error('Ollmost is still responding in this chat.')
 }
 
 export function send(req: SendRequest, reply: ReplyOptions = {}): SendResult {
@@ -190,7 +190,7 @@ export function stop(conversationId: string, opts: { quiet?: boolean } = {}): Pr
 export const isReplying = (): boolean => active.size > 0
 
 /**
- * Replies that were still streaming when Kiln last quit or crashed. Their checkpointed text is kept;
+ * Replies that were still streaming when Ollmost last quit or crashed. Their checkpointed text is kept;
  * they're marked so the chat shows what happened and offers Retry. Run once at startup.
  */
 export function markInterruptedReplies(): number {
@@ -201,7 +201,7 @@ export function markInterruptedReplies(): number {
     updateMessage(id, {
       content: m.content,
       toolEvents: m.toolEvents.map(settleToolEvent),
-      error: 'Kiln closed before this reply finished.'
+      error: 'Ollmost closed before this reply finished.'
     })
   }
   return ids.length
@@ -233,7 +233,7 @@ function startAssistant(
   const controller = new AbortController()
   const flags = { quiet: false }
   const settled = generate(conversation.id, assistant.id, model, think, controller, flags, reply)
-    .catch((err) => console.error('Kiln: a reply failed to finish', err))
+    .catch((err) => console.error('Ollmost: a reply failed to finish', err))
     .finally(() => {
       // Only remove our own entry: a reply that overlapped this one must stay stoppable.
       if (active.get(conversation.id)?.controller === controller) active.delete(conversation.id)
@@ -345,7 +345,7 @@ async function generate(
       const runner = await runnerStatus()
       if (!runner.available) unavailable.push(`The code runner isn't available: ${runner.reason}`)
       else {
-        // Fails when code an earlier run left can't be stopped: then Kiln won't work in the chat's folder (#71).
+        // Fails when code an earlier run left can't be stopped: then Ollmost won't work in the chat's folder (#71).
         const ws = await prepareWorkspace(conversationId).catch((err: unknown) => new Error(errorMessage(err)))
         if (ws instanceof Error) unavailable.push(`The code runner isn't available: ${ws.message}`)
         else {
@@ -588,13 +588,13 @@ async function generate(
           updateConversation(conversationId, { autoSkills: loadedIds })
         }
         body.messages.push({ role: 'tool', content: result.content, tool_name: call.function.name })
-        const note = `[Kiln shortened this earlier ${call.function.name} result to make room in the context window. It was: ${result.event.summary}. Call the tool again if you need it in full.]`
+        const note = `[Ollmost shortened this earlier ${call.function.name} result to make room in the context window. It was: ${result.event.summary}. Call the tool again if you need it in full.]`
         if (result.content.length > note.length) turnResults.push({ index: body.messages.length - 1, round, note })
         checkpoint()
         // Checked only after the result is recorded, so a call that finished isn't saved as stopped.
         controller.signal.throwIfAborted()
       }
-      // A model reaching for tools Kiln lacks keeps guessing names; after one explanation, take the
+      // A model reaching for tools Ollmost lacks keeps guessing names; after one explanation, take the
       // tools away so the next request has to be answered in words.
       if (onlyUnknown) body.tools = undefined
       if (content && !content.endsWith('\n')) {
@@ -604,7 +604,7 @@ async function generate(
     }
     if (!content.trim() && triedUnknown.length)
       error = [
-        `The model tried to use tools Kiln doesn't have (${[...new Set(triedUnknown)].join(', ')}) and gave no answer.`,
+        `The model tried to use tools Ollmost doesn't have (${[...new Set(triedUnknown)].join(', ')}) and gave no answer.`,
         missingAbilities(grants)
       ]
         .filter(Boolean)
@@ -655,9 +655,9 @@ async function generate(
     void generateTitle(conversationId, modelName)
 }
 
-/** With KILN_DEBUG=1, append each request (images elided) to <userData>/debug.log. */
+/** With OLLMOST_DEBUG=1, append each request (images elided) to <userData>/debug.log. */
 function debugLog(body: ChatBody): void {
-  if (!process.env.KILN_DEBUG) return
+  if (!process.env.OLLMOST_DEBUG) return
   const redacted = {
     ...body,
     messages: body.messages.map((m) => (m.images ? { ...m, images: m.images.map(() => '<image>') } : m))

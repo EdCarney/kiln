@@ -26,7 +26,7 @@ export const Button = forwardRef<
       ref={ref}
       disabled={disabled || loading}
       className={cn(
-        'inline-flex items-center justify-center gap-1.5 rounded-kiln font-medium transition-[background,filter,color] whitespace-nowrap',
+        'inline-flex items-center justify-center gap-1.5 rounded-ollmost font-medium transition-[background,filter,color] whitespace-nowrap',
         size === 'sm' ? 'h-7 px-2.5 text-[13px]' : 'h-9 px-3.5 text-sm',
         VARIANTS[variant],
         className
@@ -97,7 +97,7 @@ export const TooltipProvider = RTooltip.Provider
 
 // ---- Menus ----------------------------------------------------------------
 
-const surface = 'z-50 min-w-[200px] rounded-kiln border border-line bg-panel p-1 text-sm text-fg shadow-[0_8px_30px_rgba(0,0,0,0.12)]'
+const surface = 'z-50 min-w-[200px] rounded-ollmost border border-line bg-panel p-1 text-sm text-fg shadow-[0_8px_30px_rgba(0,0,0,0.12)]'
 const item =
   'flex items-center gap-2 rounded-md px-2 py-1.5 outline-none select-none data-[highlighted]:bg-hover data-[disabled]:opacity-40'
 
@@ -258,7 +258,7 @@ export function Modal({
         <Dialog.Overlay className="fixed inset-0 z-40 bg-black/30 backdrop-blur-[1px]" />
         <Dialog.Content
           className={cn(
-            'fixed left-1/2 top-1/2 z-50 flex max-h-[85vh] w-[calc(100vw-48px)] -translate-x-1/2 -translate-y-1/2 flex-col rounded-kiln-lg border border-line bg-panel text-fg shadow-2xl',
+            'fixed left-1/2 top-1/2 z-50 flex max-h-[85vh] w-[calc(100vw-48px)] -translate-x-1/2 -translate-y-1/2 flex-col rounded-ollmost-lg border border-line bg-panel text-fg shadow-2xl',
             wide ? 'max-w-3xl' : 'max-w-lg'
           )}
         >
@@ -284,7 +284,7 @@ export function Modal({
 // ---- Form controls --------------------------------------------------------
 
 const field =
-  'w-full rounded-kiln border border-line bg-canvas px-3 text-sm text-fg placeholder:text-subtle outline-none focus:border-line-strong focus:ring-2 focus:ring-accent-soft'
+  'w-full rounded-ollmost border border-line bg-canvas px-3 text-sm text-fg placeholder:text-subtle outline-none focus:border-line-strong focus:ring-2 focus:ring-accent-soft'
 
 export const TextField = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function TextField(
   { className, ...rest },
@@ -359,7 +359,7 @@ export function Badge({
         'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium leading-none',
         tone === 'accent' && 'bg-accent-soft text-accent',
         tone === 'neutral' && 'bg-hover text-muted',
-        tone === 'warn' && 'bg-[color-mix(in_srgb,var(--k-danger)_14%,transparent)] text-danger',
+        tone === 'warn' && 'bg-[color-mix(in_srgb,var(--o-danger)_14%,transparent)] text-danger',
         className
       )}
     >

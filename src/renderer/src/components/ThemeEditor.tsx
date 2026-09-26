@@ -168,7 +168,7 @@ export function ThemeEditor({ base, open, onClose }: { base: ThemeDef; open: boo
               max={20}
               value={draft.radius}
               onChange={(e) => setDraft({ ...draft, radius: Number(e.target.value) })}
-              className="mt-2 w-full accent-[var(--k-accent)]"
+              className="mt-2 w-full accent-[var(--o-accent)]"
             />
           </Field>
         </div>
@@ -179,7 +179,7 @@ export function ThemeEditor({ base, open, onClose }: { base: ThemeDef; open: boo
               <select
                 value={draft.fonts[slot]}
                 onChange={(e) => setDraft({ ...draft, fonts: { ...draft.fonts, [slot]: e.target.value } })}
-                className="h-9 w-full rounded-kiln border border-line bg-canvas px-2 text-sm outline-none"
+                className="h-9 w-full rounded-ollmost border border-line bg-canvas px-2 text-sm outline-none"
               >
                 {FONT_CHOICES[slot].map((f) => (
                   <option key={f.label} value={f.value}>

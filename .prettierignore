@@ -3,3 +3,4 @@ dist/
 e2e/shots/
 package-lock.json
 *.md
+resources/Ollmost.icon/

@@ -151,7 +151,7 @@ export function SkillsView({ selectedId }: { selectedId?: string }) {
                     <Badge>{SOURCE_LABEL[detail.source]}</Badge>
                     {detail.readOnly && <Badge>Read-only</Badge>}
                     {detail.hasScripts && (
-                      <Tooltip content="Kiln can't run a skill's scripts. The model gets the instructions and is told to produce the result directly.">
+                      <Tooltip content="Ollmost can't run a skill's scripts. The model gets the instructions and is told to produce the result directly.">
                         <span>
                           <Badge tone="warn">Has scripts · instructions only</Badge>
                         </span>
@@ -183,7 +183,7 @@ export function SkillsView({ selectedId }: { selectedId?: string }) {
                   )}
                 </div>
               </div>
-              <div className="rounded-kiln-lg border border-line bg-panel p-6">
+              <div className="rounded-ollmost-lg border border-line bg-panel p-6">
                 <Markdown text={detail.body} conversationId={null} />
               </div>
               {detail.files.length > 0 && (
@@ -298,7 +298,7 @@ function SkillEditor({
           </div>
         </div>
         {preview ? (
-          <div className="min-h-[320px] flex-1 overflow-y-auto rounded-kiln border border-line bg-panel p-5">
+          <div className="min-h-[320px] flex-1 overflow-y-auto rounded-ollmost border border-line bg-panel p-5">
             <Markdown text={draft.body} conversationId={null} />
           </div>
         ) : (

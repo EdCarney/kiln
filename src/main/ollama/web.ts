@@ -2,7 +2,7 @@ import { getApiKey } from '../settings'
 import { OLLAMA_CLOUD, OllamaError } from './client'
 
 // Tests point this at a mock server.
-const WEB_BASE = process.env.KILN_WEB_URL ?? OLLAMA_CLOUD
+const WEB_BASE = process.env.OLLMOST_WEB_URL ?? OLLAMA_CLOUD
 
 export interface SearchResult {
   title: string

@@ -1,4 +1,4 @@
-# Kiln
+# Ollmost
 
 A desktop chat app in the style of the Claude desktop app, running on your Ollama models (cloud and local).
 
@@ -9,23 +9,29 @@ Features: projects (instructions + knowledge files), pinned chats and projects, 
 On any Mac (Apple Silicon or Intel), without a checkout:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/EdCarney/kiln/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/EdCarney/ollmost/main/scripts/install.sh | bash
 ```
 
-This downloads the right build from the latest [release](https://github.com/EdCarney/kiln/releases/latest), installs it as `/Applications/Kiln.app` (quitting and replacing any older copy), and opens it. Run it again to upgrade. You'll also need the [Ollama app](https://ollama.com) running; for cloud models, run `ollama signin` once.
+This downloads the right build from the latest [release](https://github.com/EdCarney/ollmost/releases/latest), installs it as `/Applications/Ollmost.app` (quitting and replacing any older copy), and opens it. Run it again to upgrade. You'll also need the [Ollama app](https://ollama.com) running; for cloud models, run `ollama signin` once.
 
-To install somewhere else, such as your own `~/Applications` (which doesn't need an administrator account), set `KILN_INSTALL_DIR`. The folder is created if it doesn't exist:
+To install somewhere else, such as your own `~/Applications` (which doesn't need an administrator account), set `OLLMOST_INSTALL_DIR`. The folder is created if it doesn't exist:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/EdCarney/kiln/main/scripts/install.sh | KILN_INSTALL_DIR=~/Applications bash
+curl -fsSL https://raw.githubusercontent.com/EdCarney/ollmost/main/scripts/install.sh | OLLMOST_INSTALL_DIR=~/Applications bash
 ```
 
-Use the same setting when you upgrade. The script only replaces the copy in the folder it installs to, so if you switch folders, delete the old `Kiln.app` yourself.
+Use the same setting when you upgrade. The script only replaces the copy in the folder it installs to, so if you switch folders, delete the old `Ollmost.app` yourself.
 
-- **Why `curl`.** Kiln isn't signed with an Apple Developer ID. Browsers mark downloads as quarantined, and macOS won't open a quarantined unsigned app: it says Kiln "can't be verified" or "is damaged". `curl` doesn't add that mark. If you downloaded the `.dmg` or `.zip` from the releases page in a browser, either allow it in System Settings → Privacy & Security → Open Anyway, or run `xattr -dr com.apple.quarantine /Applications/Kiln.app`.
-- **Each Mac has its own data.** Chats, projects and skills live in `~/Library/Application Support/Kiln/` and don't sync. Upgrading leaves them alone.
-- **The ollama.com API key is per Mac.** It's encrypted with that Mac's Keychain, so enter it on each machine. After an upgrade, macOS may ask to let Kiln use "Kiln Safe Storage"; choose Always Allow.
+- **Why `curl`.** Ollmost isn't signed with an Apple Developer ID. Browsers mark downloads as quarantined, and macOS won't open a quarantined unsigned app: it says Ollmost "can't be verified" or "is damaged". `curl` doesn't add that mark. If you downloaded the `.dmg` or `.zip` from the releases page in a browser, either allow it in System Settings → Privacy & Security → Open Anyway, or run `xattr -dr com.apple.quarantine /Applications/Ollmost.app`.
+- **Each Mac has its own data.** Chats, projects and skills live in `~/Library/Application Support/Ollmost/` and don't sync. Upgrading leaves them alone.
+- **The ollama.com API key is per Mac.** It's encrypted with that Mac's Keychain, so enter it on each machine. After an upgrade, macOS may ask to let Ollmost use "Ollmost Safe Storage"; choose Always Allow.
 - **Local Ollama is per Mac too.** Anything that goes through the Ollama app needs it installed and signed in on that machine.
+
+### Coming from Kiln
+
+Ollmost used to be called Kiln. Install Ollmost as above. On its first launch it moves your chats, projects, files and settings over from `~/Library/Application Support/Kiln`, and the installer then removes `Kiln.app`. Quit Kiln first, or Ollmost waits for it.
+
+Two things don't carry over, because your Mac's keychain tied them to Kiln: your ollama.com API key, and your MCP servers' environment values. Ollmost asks for them again. You can delete the old "Kiln Safe Storage" item in Keychain Access. Notifications ask for permission again, and a Dock icon pinned for Kiln needs pinning again for Ollmost.
 
 ## Run it from source
 
@@ -35,19 +41,21 @@ Requirements: macOS, Node 22+, and the [Ollama app](https://ollama.com) running.
 npm install
 npm run dev        # development, with hot reload
 npm run build      # production bundle in out/
-npm run dist       # Kiln-arm64/x64 .dmg and .zip in dist/  (or: npx electron-builder --mac --dir  for just the .app)
-npm run install:mac  # build, then install/replace /Applications/Kiln.app and open it (KILN_INSTALL_DIR to change the folder)
+npm run dist       # Ollmost-arm64/x64 .dmg and .zip in dist/  (or: npx electron-builder --mac --dir  for just the .app)
+npm run install:mac  # build, then install/replace /Applications/Ollmost.app and open it (OLLMOST_INSTALL_DIR to change the folder)
 ```
 
-Your data lives in `~/Library/Application Support/Kiln/`: a SQLite database (`kiln.db`), uploaded files, and your own skills (`skills/`).
+The app icon is an Icon Composer document, `resources/Ollmost.icon`. After changing it, run `node scripts/make-icon.mjs` (needs Xcode 26 or later) and commit the `Assets.car` and `icon.icns` it writes to `resources/`; building doesn't need Xcode.
+
+Your data lives in `~/Library/Application Support/Ollmost/`: a SQLite database (`ollmost.db`), uploaded files, and your own skills (`skills/`).
 
 ## How it works
 
 ```
 src/main/        Electron main process: SQLite (node:sqlite), Ollama client, prompt assembly,
-                 streaming + tool loop, file extraction, skills library, artifact:// and kiln:// protocols
-src/preload/     typed contextBridge exposing window.kiln (contract in src/shared/ipc.ts); main answers
-                 only Kiln's own windows (src/main/ipcSender.ts)
+                 streaming + tool loop, file extraction, skills library, artifact:// and ollmost:// protocols
+src/preload/     typed contextBridge exposing window.ollmost (contract in src/shared/ipc.ts); main answers
+                 only Ollmost's own windows (src/main/ipcSender.ts)
 src/shared/      types, artifact parser, thinking profiles, built-in themes (used by both sides)
 src/renderer/    React UI: views/, components/, stores/ (zustand), theme/
 tests/           Vitest unit tests      e2e/   live Playwright run against real models
@@ -64,7 +72,7 @@ tests/           Vitest unit tests      e2e/   live Playwright run against real 
   - HTML and SVG render in a sandboxed iframe (`artifact://`) with no same-origin access and `connect-src 'none'`. Scripts from cdnjs, jsDelivr and unpkg are allowed; you can turn that off in Settings.
   - An updated artifact is saved as a new version, since the model rewrites it in full each time.
   - Any code block of 15+ lines can be promoted with "Open as artifact".
-- **Skills.** Kiln reads `SKILL.md` folders from three places:
+- **Skills.** Ollmost reads `SKILL.md` folders from three places:
   - Its own `skills/` folder, which you can edit.
   - `~/.ollama/skills`, read-only.
   - `~/.claude/skills`, read-only. These start off, because many rely on Claude-only tools.
@@ -77,8 +85,8 @@ tests/           Vitest unit tests      e2e/   live Playwright run against real 
   - gpt-oss-style names (`browser.open`, `web.run`, …) are routed to the real tools, but only when no offered tool has that name. Tools come from providers registered in `src/main/chat/tools.ts` (skills and web today), and an exact name always wins over an alias.
   - Tools a model invents get one explanation, then they're withdrawn so the turn still ends with an answer.
   - A reply gets up to 6 tool rounds. If the model is still using tools after that, it has to answer with what it found, and the reply offers Continue.
-  - Every tool result is capped at 24,000 characters, and the calls in one round share what's left of the context window, so several large results at once can't overflow it. When a turn's results outgrow the context window, older ones from that turn are cut to a one-line note and the newest stay whole; the reply's stats say so. The check uses Ollama's own token count for the previous request when that's higher than Kiln's estimate.
-- **MCP servers.** Add local (stdio) MCP servers in Settings → Tools: a name, the command and arguments from the server's README, and any environment variables it needs. Kiln starts a server when a chat that uses it opens, and gives it your login shell's PATH, so `npx`, `uvx` and `docker` are found even when Kiln was opened from the Dock. Apart from PATH, a server inherits only the basics (`HOME`, `USER`, `LOGNAME`, `SHELL`, `TERM`, `TMPDIR`, `LANG`, `LC_ALL`, `LC_CTYPE`) plus its own variables, never the rest of Kiln's environment. A server that needs more sets it in its own environment: commonly `SSH_AUTH_SOCK` (git over SSH), `HTTPS_PROXY`/`NO_PROXY` and `NODE_EXTRA_CA_CERTS` (corporate networks). This keeps stray secrets out of servers; it isn't a sandbox, since a server can still read your files.
+  - Every tool result is capped at 24,000 characters, and the calls in one round share what's left of the context window, so several large results at once can't overflow it. When a turn's results outgrow the context window, older ones from that turn are cut to a one-line note and the newest stay whole; the reply's stats say so. The check uses Ollama's own token count for the previous request when that's higher than Ollmost's estimate.
+- **MCP servers.** Add local (stdio) MCP servers in Settings → Tools: a name, the command and arguments from the server's README, and any environment variables it needs. Ollmost starts a server when a chat that uses it opens, and gives it your login shell's PATH, so `npx`, `uvx` and `docker` are found even when Ollmost was opened from the Dock. Apart from PATH, a server inherits only the basics (`HOME`, `USER`, `LOGNAME`, `SHELL`, `TERM`, `TMPDIR`, `LANG`, `LC_ALL`, `LC_CTYPE`) plus its own variables, never the rest of Ollmost's environment. A server that needs more sets it in its own environment: commonly `SSH_AUTH_SOCK` (git over SSH), `HTTPS_PROXY`/`NO_PROXY` and `NODE_EXTRA_CA_CERTS` (corporate networks). This keeps stray secrets out of servers; it isn't a sandbox, since a server can still read your files.
   - Servers are switched on per chat, from the + menu under **Tools**, because every tool definition is sent with every request. New chats start with the servers marked "Use in new chats". Tool definitions count toward the context budget.
   - Tools are offered as `<server>__<tool>`. Each call asks first (below), and a chat with servers on gets up to 12 tool rounds.
   - Environment values are encrypted with the macOS keychain and never sent to the renderer. Servers run with your permissions and aren't sandboxed: add only ones you trust.
@@ -87,24 +95,24 @@ tests/           Vitest unit tests      e2e/   live Playwright run against real 
   - Trust stays with the program it was given to. Editing a server's command, arguments, working folder or any environment value (a new token can mean a different account) sets its tools back to Ask and clears chats' **Allow for this chat** answers for it. A removed server's id is never reused, and chats forget it. A server can also change a tool itself (its description or input) while running or between runs: a tool you allowed goes back to Ask when it does, and Settings marks it as changed. A server that puts changing details in a tool's description (a date, a count, a folder listing) will ask again each time they change.
   - **Paste JSON** takes the `{"mcpServers": {…}}` snippet server READMEs give (also VS Code's `servers` format). **Import from Claude Desktop / Claude Code** appears when those apps' configs list servers: a one-time copy of the local ones (remote servers are left out), switched off for new chats.
   - A chat's menu lists the tools you allowed there (by tool and server, or site), with a way to go back to asking. Going back takes effect at once, even in a reply that's still running.
-  - Kiln talks to servers through its own stdio transport (`src/main/mcp/transport.ts`), so stopping a server also stops what it started (`npx` runs the real server as a child).
+  - Ollmost talks to servers through its own stdio transport (`src/main/mcp/transport.ts`), so stopping a server also stops what it started (`npx` runs the real server as a child).
 - **Code runner.** Models that support tools can run Python 3 or bash with `run_code`, switched on per chat from the + menu under **Tools** (Settings → Tools → Code runner sets whether it asks first, whether new chats start with it, PyPI access and the time limit). It also answers gpt-oss's built-in `python` tool.
-  - Code runs under macOS's sandbox via [`@anthropic-ai/sandbox-runtime`](https://github.com/anthropic-experimental/sandbox-runtime), in a folder of its own for each chat (`workspaces/<chat id>` in Kiln's data folder, deleted with the chat). It can read system files, but not your home folder, other accounts or `/Users/Shared`, other disks (`/Volumes`), or the temp folders (`/private/var/folders`, `/tmp`), except its own folder, your skills, the Python environment it uses and tool folders on your PATH; it writes only to its folder (and, with PyPI allowed, its chat's Python environment), and can't delete or replace that folder, its `.kiln` folder or the environment; and it has no network access unless you allow PyPI (then only `pypi.org` and `files.pythonhosted.org`). Nothing runs if the sandbox can't start.
+  - Code runs under macOS's sandbox via [`@anthropic-ai/sandbox-runtime`](https://github.com/anthropic-experimental/sandbox-runtime), in a folder of its own for each chat (`workspaces/<chat id>` in Ollmost's data folder, deleted with the chat). It can read system files, but not your home folder, other accounts or `/Users/Shared`, other disks (`/Volumes`), or the temp folders (`/private/var/folders`, `/tmp`), except its own folder, your skills, the Python environment it uses and tool folders on your PATH; it writes only to its folder (and, with PyPI allowed, its chat's Python environment), and can't delete or replace that folder, its `.ollmost` folder or the environment; and it has no network access unless you allow PyPI (then only `pypi.org` and `files.pythonhosted.org`). Nothing runs if the sandbox can't start.
   - Files attached to the chat are copied into `uploads/`. Files a run creates are listed on its card, images are previewed, and each can be shown in Finder or saved. Documents and images can also be previewed with Quick Look, never opened in the app for their type: a file a run wrote may carry the chat's data, and an app that runs a document's scripts or loads its remote images or templates could send it out. SVGs are only shown inline as images (no scripts, nothing loaded), and scripts or apps a run wrote are never opened. Showing a file in Finder marks every file in the chat's folder as downloaded (`com.apple.quarantine`), since Finder shows them all, and saved copies are marked too, so macOS asks before running one.
-  - Kiln works in a chat's folders outside the sandbox (copying uploads in, listing what a run wrote, marking files, deleting them), so it never follows a link code left there. Each piece of that work holds the folder's lock from start to finish: none of the chat's code is running (anything a run left is stopped first) and none starts until the work is done, so Show in Finder is refused while a run is going. Kiln also replaces a link with a folder where it expects one; it opens a file to preview, save or show only if no part of its path is a link; and a preview is of a copy, never the file in the chat's folder. The script a run executes is kept outside the folder (`runner/scripts/<chat id>`), where code can read it but not change it.
-  - Python runs in Kiln's own environments (venvs made from the `python3` on your PATH), so packages never touch your Python. With PyPI allowed, each chat installs into an environment of its own (`runner/venvs/<chat id>`, made inside the sandbox and deleted with the chat), so code in one chat can't plant code (a `sitecustomize.py`, a `.pth` file, a patched package) that runs in another. Other chats share `runner/base-venv`, which has no pip and no run can write. The package list in Settings is read from disk; nothing in a chat's environment runs outside the sandbox.
+  - Ollmost works in a chat's folders outside the sandbox (copying uploads in, listing what a run wrote, marking files, deleting them), so it never follows a link code left there. Each piece of that work holds the folder's lock from start to finish: none of the chat's code is running (anything a run left is stopped first) and none starts until the work is done, so Show in Finder is refused while a run is going. Ollmost also replaces a link with a folder where it expects one; it opens a file to preview, save or show only if no part of its path is a link; and a preview is of a copy, never the file in the chat's folder. The script a run executes is kept outside the folder (`runner/scripts/<chat id>`), where code can read it but not change it.
+  - Python runs in Ollmost's own environments (venvs made from the `python3` on your PATH), so packages never touch your Python. With PyPI allowed, each chat installs into an environment of its own (`runner/venvs/<chat id>`, made inside the sandbox and deleted with the chat), so code in one chat can't plant code (a `sitecustomize.py`, a `.pth` file, a patched package) that runs in another. Other chats share `runner/base-venv`, which has no pip and no run can write. The package list in Settings is read from disk; nothing in a chat's environment runs outside the sandbox.
   - Skills with scripts work: `load_skill` tells the model where the skill's folder is and to run its scripts with `run_code`.
-  - Each run is a separate process in its own process group, stopped at the time limit (2 minutes by default), on Stop, or when Kiln quits. Code can leave its process group (a daemon that calls `setsid()`), so when a run ends Kiln also stops every process macOS says is in that chat's sandbox (`sandbox_check`: sandboxed, allowed to write the chat's folder but neither the folder above it nor to delete the folder itself, as only Kiln's pinned policy is), however it was started. It does the same for every chat at startup, in case Kiln crashed, and when quitting. A deleted chat whose code couldn't be stopped has its folders removed at the next start.
+  - Each run is a separate process in its own process group, stopped at the time limit (2 minutes by default), on Stop, or when Ollmost quits. Code can leave its process group (a daemon that calls `setsid()`), so when a run ends Ollmost also stops every process macOS says is in that chat's sandbox (`sandbox_check`: sandboxed, allowed to write the chat's folder but neither the folder above it nor to delete the folder itself, as only Ollmost's pinned policy is), however it was started. It does the same for every chat at startup, in case Ollmost crashed, and when quitting. A deleted chat whose code couldn't be stopped has its folders removed at the next start.
 - **Approving tool calls.** A tool whose provider asks first waits in the reply with an approval card: **Allow once**, **Allow for this chat** or **Deny**. MCP tools and the code runner ask, and so does any tool whose provider doesn't say otherwise. Skills and web search never ask.
   - `web_fetch` asks before every fetch in a chat with tool sources on (MCP servers or the code runner), or with files in it (attachments, or its project's knowledge), with only **Allow once** and **Deny**. A URL can carry data out (`https://evil.example/?d=…`) and a page or tool result could tell the model to send it; allowing a whole site wouldn't be safe on hosts where anyone can read requests (webhook.site, Apps Script, request bins). A denial covers that site for the rest of the reply.
-  - A denied call doesn't run, and the model is told not to try it again unless you ask. Stopping the reply, deleting the chat or quitting counts as a no, and a call that was waiting when Kiln closed shows as not run.
+  - A denied call doesn't run, and the model is told not to try it again unless you ask. Stopping the reply, deleting the chat or quitting counts as a no, and a call that was waiting when Ollmost closed shows as not run.
   - A chat you aren't looking at gets a hand icon in the sidebar and a toast, and the Dock icon shows how many calls are waiting.
-  - Processes Kiln starts run in their own process group (`src/main/processes.ts`), so stopping one also stops anything it started, and quitting stops them all. Live groups are listed in `processes.json` in Kiln's data folder, so if Kiln is force-quit or crashes, the next start stops whatever it left running.
+  - Processes Ollmost starts run in their own process group (`src/main/processes.ts`), so stopping one also stops anything it started, and quitting stops them all. Live groups are listed in `processes.json` in Ollmost's data folder, so if Ollmost is force-quit or crashes, the next start stops whatever it left running.
 - **Links.** Hovering a link in a reply shows a card with its destination: site, full URL, and whether it opens in your browser. It warns when the link text names a different domain than the real destination.
   - An opt-in setting (Settings → Web, artifacts & skills) adds the page's title, description and image, fetched from your Mac. Not in chats with tools or files, though: a link the model writes there could carry their contents out (`https://evil.example/?d=…`), so those cards show the destination only.
   - Local-network and loopback addresses are never fetched, including after redirects.
-- **Debugger.** The bug icon in a chat's header, or ⌘⇧D, opens a separate **Kiln Debugger** window. It shows every request the chat made (each chat round, tool call and title) live, grouped by turn. For each request:
-  - **Overview:** timings (first byte, first token, total, plus Ollama's own load/prompt/generation times when reported), prompt tokens counted by Ollama vs Kiln's estimate, cost, `done_reason`, and stream chunk count.
+- **Debugger.** The bug icon in a chat's header, or ⌘⇧D, opens a separate **Ollmost Debugger** window. It shows every request the chat made (each chat round, tool call and title) live, grouped by turn. For each request:
+  - **Overview:** timings (first byte, first token, total, plus Ollama's own load/prompt/generation times when reported), prompt tokens counted by Ollama vs Ollmost's estimate, cost, `done_reason`, and stream chunk count.
   - **Prompt anatomy:** where the tokens go (system sections, history, this turn, tool definitions, images), a context-window meter, and every message readable.
   - **Request, Response, Tools:** the exact JSON sent (image bytes replaced by size placeholders; API keys are never recorded), the output with thinking and tool calls, Ollama's final stats, and the tool schemas offered.
   - **Replay:** edit the recorded request and resend it without streaming, like a playground. It's recorded as a replay and counted as usage.
@@ -115,9 +123,9 @@ tests/           Vitest unit tests      e2e/   live Playwright run against real 
   - **Your Ollama quota:** % used, and time left until the next reset. Its mini bar also marks how much of the period has passed.
 
   Details:
-  - Costs use Ollama's published per-token prices. Kiln re-reads them daily from ollama.com/pricing and falls back to a bundled snapshot. Each request is also logged locally (`usage_events`) for Settings → Usage & cost.
+  - Costs use Ollama's published per-token prices. Ollmost re-reads them daily from ollama.com/pricing and falls back to a bundled snapshot. Each request is also logged locally (`usage_events`) for Settings → Usage & cost.
   - Quota comes from `ollama.com/api/usage`, which is undocumented and **needs an ollama.com API key** (Settings → Usage & cost). The Ollama app's sign-in doesn't cover it.
-  - That endpoint doesn't say when limits reset. Kiln dates a reset itself when it sees usage drop, or you can enter the time shown on ollama.com/settings.
+  - That endpoint doesn't say when limits reset. Ollmost dates a reset itself when it sees usage drop, or you can enter the time shown on ollama.com/settings.
 - **Theming.** Every colour, font and radius is a CSS variable (`src/renderer/src/index.css`), and code highlighting, Mermaid diagrams and the debugger window all take their colours from the active theme. Themes are JSON with a light and a dark palette (or a single palette, marked `only`); you can edit, import and export them from Settings → Appearance. Built in: Clay, Nord, Solarized, Gruvbox, High contrast, Catppuccin (Latte/Mocha), GitHub, Dracula (with Alucard), Rosé Pine (with Dawn) and Hack (dark only, in the Hack typeface).
 - **Theme legibility.** `tests/themes.test.ts` checks every built-in palette against WCAG contrast floors: 7:1 for body text on the canvas, 4.5:1 for other text, 3:1 for hints, links, status colours, button labels and syntax colours. Where a theme's published colour falls short (usually an accent on a pale light-mode background), only its lightness is adjusted, and the theme's comment in `src/shared/themes.ts` says which colours moved.
 
@@ -141,7 +149,7 @@ The e2e run checks:
 - project knowledge
 - theme persistence
 
-Screenshots go to `e2e/shots/`. Set `KILN_DEBUG=1` to log every request Kiln sends to Ollama to `debug.log` in the data folder, along with the PATH Kiln gives processes it starts. Apps opened from the Dock get a bare PATH, so Kiln reads the one your login shell sets up.
+Screenshots go to `e2e/shots/`. Set `OLLMOST_DEBUG=1` to log every request Ollmost sends to Ollama to `debug.log` in the data folder, along with the PATH Ollmost gives processes it starts. Apps opened from the Dock get a bare PATH, so Ollmost reads the one your login shell sets up.
 
 ## Releasing
 
@@ -151,13 +159,13 @@ Screenshots go to `e2e/shots/`. Set `KILN_DEBUG=1` to log every request Kiln sen
    git tag v0.2.0 && git push origin v0.2.0
    ```
 
-`.github/workflows/release.yml` then runs on a macOS runner. It checks the tag matches `package.json`, runs the typecheck and unit tests, builds, and creates the GitHub Release with `Kiln-arm64.zip`, `Kiln-x64.zip` and the matching `.dmg`s. The file names don't change between versions, so `releases/latest/download/Kiln-arm64.zip` (which the install script uses) always points at the newest build.
+`.github/workflows/release.yml` then runs on a macOS runner. It checks the tag matches `package.json`, runs the typecheck and unit tests, builds, and creates the GitHub Release with `Ollmost-arm64.zip`, `Ollmost-x64.zip` and the matching `.dmg`s. The file names don't change between versions, so `releases/latest/download/Ollmost-arm64.zip` (which the install script uses) always points at the newest build.
 
 Builds are signed ad hoc (`identity: '-'` in `electron-builder.yml`), which is enough for Apple Silicon to run them but not for Gatekeeper to trust a browser download. Signing with a Developer ID and notarizing would remove the browser warning and allow auto-updates with `electron-updater`, but needs the paid Apple Developer Program.
 
 ## Known limits (deliberately deferred)
 
-- **Web pages go through ollama.com.** Kiln can't browse local-network pages or sites behind a login.
+- **Web pages go through ollama.com.** Ollmost can't browse local-network pages or sites behind a login.
 - **Web content can try prompt injection.** It's marked as untrusted and every fetch is visible, but a determined page could still steer a model's answer. Treat web-sourced answers with the usual care.
 - **Fetches don't ask in chats with no tools and no files.** There `web_fetch` runs unasked, though earlier messages can be private too. The model is told never to put conversation details into URLs, but that's an instruction, not a control.
 - **Skill scripts need the code runner, and often PyPI.** With the runner off, skills like docx/pptx/xlsx/pdf get their instructions only and the model produces results directly. Their scripts usually need packages (python-docx, openpyxl…), so allow PyPI in Settings → Tools.

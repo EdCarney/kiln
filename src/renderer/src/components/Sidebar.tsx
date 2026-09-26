@@ -5,7 +5,7 @@ import { type Route, useApp } from '@/stores/app'
 import { useArtifactPanel } from '@/stores/artifactPanel'
 import { useChat } from '@/stores/chat'
 import { ConversationRow } from './ConversationMenu'
-import { KilnMark } from './KilnMark'
+import { OllmostMark } from './OllmostMark'
 import { IconButton } from './ui'
 
 function NavItem({
@@ -74,8 +74,8 @@ export function Sidebar() {
       </div>
 
       <div className="flex items-center gap-2 px-4 pb-3">
-        <KilnMark className="size-5 text-accent" />
-        <span className="font-reading text-lg font-semibold tracking-tight">Kiln</span>
+        <OllmostMark className="size-5 text-accent" />
+        <span className="font-reading text-lg font-semibold tracking-tight">Ollmost</span>
       </div>
 
       <nav className="space-y-0.5 px-2">

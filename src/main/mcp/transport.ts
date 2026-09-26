@@ -53,7 +53,7 @@ export class ProcessTransport implements Transport {
         try {
           this.buffer.append(chunk)
         } catch (err) {
-          // Over 10 MB without a newline: not a server Kiln can talk to.
+          // Over 10 MB without a newline: not a server Ollmost can talk to.
           this.onerror?.(err as Error)
           void this.close()
           return

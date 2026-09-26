@@ -7,7 +7,7 @@ import { errorMessage } from '../util'
 
 const CACHE_MS = 30_000
 // Tests point this at a mock server; the real endpoint is undocumented, so a mock is the only stable target.
-const USAGE_URL = process.env.KILN_USAGE_URL ?? `${OLLAMA_CLOUD}/api/usage`
+const USAGE_URL = process.env.OLLMOST_USAGE_URL ?? `${OLLAMA_CLOUD}/api/usage`
 let cache: AccountUsage | null = null
 let inflight: Promise<AccountUsage> | null = null
 let plan: string | null = null
@@ -31,7 +31,7 @@ type Observed = Record<string, { usage: number; at: number }>
 
 /**
  * ollama.com/api/usage is undocumented and needs an API key (the daemon's sign-in doesn't cover it).
- * It reports how much of each window is used but not when windows reset, so Kiln dates resets
+ * It reports how much of each window is used but not when windows reset, so Ollmost dates resets
  * itself whenever it sees usage drop, unless you've set the time in Settings.
  */
 async function load(): Promise<AccountUsage> {

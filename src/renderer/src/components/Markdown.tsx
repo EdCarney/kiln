@@ -59,7 +59,7 @@ export const Markdown = memo(function Markdown({ text, conversationId, className
   }
 
   return (
-    <div className={cn('prose-kiln selectable', className)}>
+    <div className={cn('prose-ollmost selectable', className)}>
       <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={components}>
         {normalizeSpaces(normalizeCitations(normalizeMath(text)))}
       </ReactMarkdown>

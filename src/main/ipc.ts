@@ -2,7 +2,7 @@ import { rm, writeFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from 'electron'
 import { artifactExtension, slugify } from '@shared/artifactParser'
-import { EVENT_CHANNELS, type KilnApi } from '@shared/ipc'
+import { EVENT_CHANNELS, type OllmostApi } from '@shared/ipc'
 import { parseServersJson } from '@shared/mcpImport'
 import { openWith } from '@shared/workspace'
 import { BUILTIN_THEMES } from '@shared/themes'
@@ -69,6 +69,7 @@ import {
   saveServer,
   setToolPolicy
 } from './mcp/config'
+import { dismissMigrationNotice, migrationNotice } from './migrate'
 import {
   connect as connectServer,
   forget as forgetServer,
@@ -94,7 +95,7 @@ import {
   watchSkills
 } from './skills/library'
 
-type Impl = { [G in Exclude<keyof KilnApi, 'events' | 'files'>]: KilnApi[G] }
+type Impl = { [G in Exclude<keyof OllmostApi, 'events' | 'files'>]: OllmostApi[G] }
 
 function broadcastSkillsChanged(): void {
   for (const w of BrowserWindow.getAllWindows()) w.webContents.send(EVENT_CHANNELS.skills)
@@ -110,7 +111,14 @@ const impl: Impl = {
     openExternal: async (url) => {
       if (/^(https?|mailto):/i.test(url)) await shell.openExternal(url)
     },
-    openDataFolder: async () => void (await shell.openPath(paths.data))
+    openDataFolder: async () => void (await shell.openPath(paths.data)),
+    migrationNotice: async () => {
+      const notice = migrationNotice()
+      if (!notice) return null
+      const servers = notice.servers.map((id) => getServer(id)?.name).filter((name): name is string => !!name)
+      return { apiKey: notice.apiKey, servers }
+    },
+    dismissMigrationNotice: async () => dismissMigrationNotice()
   },
 
   settings: {
@@ -286,7 +294,7 @@ const impl: Impl = {
       // Whatever opens the file runs outside the sandbox, and the file may carry the chat's data: on a Mac it's shown
       // with Quick Look, not handed to the app for its type, which might run its scripts or load remote content (#67).
       const how = openWith(path, process.platform)
-      if (!how) throw new Error('Kiln only previews documents and images. Use Show in Finder for other files.')
+      if (!how) throw new Error('Ollmost only previews documents and images. Use Show in Finder for other files.')
       // A copy, since the previewer reads by path whenever it likes, and code could put a link on that path (#71).
       const copy = await stageWorkspaceFile(conversationId, path)
       if (!copy) throw new Error('That file is no longer in the chat’s folder.')
@@ -373,7 +381,7 @@ const impl: Impl = {
     get: async (id) => getTrace(id),
     clear: async (conversationId) => clearTraces(conversationId),
     exportTraces: async (conversationId) => {
-      const res = await dialog.showSaveDialog({ defaultPath: `kiln-traces-${new Date().toISOString().slice(0, 10)}.json` })
+      const res = await dialog.showSaveDialog({ defaultPath: `ollmost-traces-${new Date().toISOString().slice(0, 10)}.json` })
       if (res.canceled || !res.filePath) return false
       await writeFile(res.filePath, JSON.stringify(tracesForExport(conversationId), null, 2))
       return true
@@ -395,7 +403,7 @@ const impl: Impl = {
     },
     delete: async (id) => deleteCustomTheme(id),
     exportTheme: async (theme) => {
-      const res = await dialog.showSaveDialog({ defaultPath: `${slugify(theme.name)}.kiln-theme.json` })
+      const res = await dialog.showSaveDialog({ defaultPath: `${slugify(theme.name)}.ollmost-theme.json` })
       if (res.canceled || !res.filePath) return false
       const { builtin: _builtin, ...rest } = theme
       await writeFile(res.filePath, JSON.stringify(rest, null, 2))
@@ -406,7 +414,7 @@ const impl: Impl = {
       if (res.canceled || !res.filePaths[0]) return null
       const { readFile } = await import('node:fs/promises')
       const parsed = JSON.parse(await readFile(res.filePaths[0], 'utf8')) as Partial<ThemeDef>
-      if (!parsed.light || !parsed.dark || !parsed.name) throw new Error('That file is not a Kiln theme.')
+      if (!parsed.light || !parsed.dark || !parsed.name) throw new Error('That file is not a Ollmost theme.')
       const base = BUILTIN_THEMES[0]
       const theme: ThemeDef = {
         id: `custom-${Date.now().toString(36)}`,
@@ -430,11 +438,11 @@ export function registerIpc(): void {
     for (const [name, fn] of Object.entries(methods as Record<string, (...args: unknown[]) => unknown>)) {
       const channel = `${group}:${name}`
       ipcMain.handle(channel, (event, ...args) => {
-        // Only Kiln's own windows may call in (see isAppFrame).
+        // Only Ollmost's own windows may call in (see isAppFrame).
         if (!isAppFrame(event.senderFrame, pages)) {
           const from = event.senderFrame?.url || 'a frame that has gone'
-          console.warn(`Kiln: refused ${channel} from ${from}`)
-          throw new Error(`Kiln refused ${channel}: the call didn't come from one of its own windows.`)
+          console.warn(`Ollmost: refused ${channel} from ${from}`)
+          throw new Error(`Ollmost refused ${channel}: the call didn't come from one of its own windows.`)
         }
         return fn(...args)
       })

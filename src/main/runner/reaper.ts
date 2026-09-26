@@ -5,17 +5,17 @@ import { childEnv } from '../env'
 import { findPython } from './python'
 
 // A run's process group is stopped when it ends, but code can leave it: fork, setsid(), let go of its output. Such a
-// process outlives the run, Stop and Kiln, and nothing ties it to the run once launchd adopts it (#73). Its sandbox
-// does, though: a process can't leave its sandbox, and only a chat's own code may write that chat's folders. So Kiln
+// process outlives the run, Stop and Ollmost, and nothing ties it to the run once launchd adopts it (#73). Its sandbox
+// does, though: a process can't leave its sandbox, and only a chat's own code may write that chat's folders. So Ollmost
 // asks macOS (sandbox_check) which of the user's processes are in a chat's sandbox, and stops them. When it does is
 // lock.ts's business.
 
 const run = promisify(execFile)
 
 /**
- * Stops every process of the user's that Kiln's sandbox runs for one of the folders given as arguments, and prints
+ * Stops every process of the user's that Ollmost's sandbox runs for one of the folders given as arguments, and prints
  * {"stopped": n, "left": [pids still running]}. That's a process that is sandboxed and may write the folder, but may
- * neither write the folder holding it nor delete the folder itself. Kiln's policy allows only the workspace (and a
+ * neither write the folder holding it nor delete the folder itself. Ollmost's policy allows only the workspace (and a
  * chat's environment), and pins it (see policyFor), while other sandboxes differ: macOS agents and browser helpers may
  * write the per-user temp folder, a sandboxed app the user opened the folder in may delete it. Each is stopped
  * (SIGSTOP) first, so none can fork or exit while the rest are found, and so its pid can't be reused: a stopped
@@ -50,7 +50,7 @@ def pids():
 def allowed(pid, op, path):
     return check(pid, op, FILTER_PATH | NO_REPORT, path) == 0
 
-def kilns(pid):
+def ollmosts(pid):
     if check(pid, None, 0) != 1:
         return False
     # The folders mostly share a parent, and most sandboxes that may write one may write the parent: ask that first.
@@ -73,12 +73,12 @@ held = set()
 try:
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline:
-        found = [p for p in pids() if p not in held and kilns(p)]
+        found = [p for p in pids() if p not in held and ollmosts(p)]
         if not found:
             break
         for p in found:
             if send(p, signal.SIGSTOP):
-                if kilns(p):
+                if ollmosts(p):
                     held.add(p)
                 else:
                     send(p, signal.SIGCONT)
@@ -90,7 +90,7 @@ for p in held:
     send(p, signal.SIGKILL)
 left = []
 for _ in range(40):
-    left = [p for p in pids() if kilns(p)]
+    left = [p for p in pids() if ollmosts(p)]
     if not left:
         break
     time.sleep(0.025)
@@ -98,7 +98,7 @@ print(json.dumps({'stopped': len(held), 'left': left}))
 `
 
 /**
- * Stop every process whose sandbox is Kiln's for one of these folders (a chat's workspace or Python environment):
+ * Stop every process whose sandbox is Ollmost's for one of these folders (a chat's workspace or Python environment):
  * code from the chats they belong to. Returns how many were stopped, and which of the folders were checked: a process
  * can only be matched against a folder that exists, so a missing one (or one that isn't a real folder) isn't. Throws if
  * a process is still running afterwards. On Linux the sandbox (bubblewrap, in its own process namespace) takes every
@@ -112,7 +112,7 @@ export async function reap(folders: string[]): Promise<{ stopped: number; checke
   const existing = found.filter((x): x is { f: string; real: string } => !!x?.real)
   if (!existing.length) return { stopped: 0, checked: [] }
   const python = await findPython()
-  if (!python) throw new Error("Python 3 wasn't found, so Kiln couldn't check for code still running.")
+  if (!python) throw new Error("Python 3 wasn't found, so Ollmost couldn't check for code still running.")
   // -I: none of the user's PYTHON* settings or site-packages; -S -B: no site module, no .pyc files written.
   const { stdout } = await run(python.path, ['-I', '-S', '-B', '-c', REAPER, ...existing.map((x) => x.real)], {
     env: await childEnv(),

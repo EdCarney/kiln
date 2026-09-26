@@ -1,7 +1,9 @@
 import { appendFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { app, BrowserWindow, Menu, type MenuItemConstructorOptions, nativeTheme, shell } from 'electron'
+import { app, BrowserWindow, dialog, Menu, type MenuItemConstructorOptions, nativeTheme, shell } from 'electron'
 import { EVENT_CHANNELS } from '@shared/ipc'
+import { BUILTIN_THEMES, usesDark } from '@shared/themes'
 import { currentBackground, currentThemeSource } from './background'
 import { onWaitingChange } from './chat/approvals'
 import { isReplying, markInterruptedReplies, stopAll } from './chat/service'
@@ -11,17 +13,38 @@ import { settleStaleTraces } from './debug/traces'
 import { staleAttachmentPaths } from './db/conversations'
 import { removeFiles } from './files/ingest'
 import { registerIpc } from './ipc'
+import {
+  finishMigration,
+  kilnPid,
+  migrationPending,
+  moveFailedText,
+  moveKilnData,
+  oldDataFolder,
+  renameDatabase,
+  renameFailedText,
+  STILL_OPEN,
+  waitForKiln
+} from './migrate'
 import { initPaths, paths } from './paths'
 import { stopAll as stopServers } from './mcp/manager'
 import { hasChildren, stopAllGroups, trackProcesses } from './processes'
 import { handleProtocols, registerSchemes } from './protocols'
 import { codeMayBeRunning } from './runner/lock'
+import { OLLMOST_DIR } from './runner/sandbox'
 import { clearPreviews, clearPreviewsSync, sweepWorkspaces } from './runner/workspace'
 import { refreshPrices } from './usage/pricing'
+import { errorMessage } from './util'
 
-app.setName('Kiln')
-// Tests and experiments can point Kiln at a throwaway data folder.
-if (process.env.KILN_USER_DATA) app.setPath('userData', process.env.KILN_USER_DATA)
+app.setName('Ollmost')
+// Tests and experiments can point Ollmost at a throwaway data folder.
+if (process.env.OLLMOST_USER_DATA) app.setPath('userData', process.env.OLLMOST_USER_DATA)
+// Before anything puts files in the data folder (Electron has created it, empty): move the old app's there, if it
+// left one (#60).
+const dataDir = app.getPath('userData')
+const move = moveKilnData(dataDir)
+// Waiting for the old app to quit, or after a failed move, this session must not put anything in the data folder, or
+// the move would be skipped for good. It uses a folder of its own, the same for every launch meanwhile, so they hand off.
+if (move.state === 'kiln-running' || move.state === 'failed') app.setPath('userData', join(tmpdir(), `${app.name}-waiting`))
 registerSchemes()
 
 // A second launch hands off to the running instance. app.quit() is asynchronous, so whenReady below
@@ -130,23 +153,42 @@ app.on('second-instance', () => {
 
 app.whenReady().then(async () => {
   if (!hasLock) return
-  initPaths()
+  if (move.state === 'kiln-running') return void (await waitThenRelaunch())
+  if (move.state === 'failed') {
+    const { title, content } = moveFailedText(move.error)
+    dialog.showErrorBox(title, content)
+    return app.exit(1)
+  }
+  initPaths(dataDir)
+  // A move from the old app finishes here: its database renamed before it opens, the rest once it has.
+  const migrating = migrationPending(paths.data, paths.db)
+  if (migrating) {
+    // Opening the database before it has its new name would start an empty one next to Kiln's.
+    try {
+      renameDatabase(paths.data, paths.db)
+    } catch (err) {
+      const { title, content } = renameFailedText(errorMessage(err), paths.data)
+      dialog.showErrorBox(title, content)
+      return app.exit(1)
+    }
+  }
   // Before anything starts a process: record live process groups, and stop any a crashed run left behind.
   void trackProcesses(join(paths.data, 'processes.json')).then((n) => {
-    if (n) console.warn(`Kiln: stopped ${n} process ${n === 1 ? 'group' : 'groups'} left running by an earlier session`)
+    if (n) console.warn(`Ollmost: stopped ${n} process ${n === 1 ? 'group' : 'groups'} left running by an earlier session`)
   })
   openDatabase(paths.db)
-  // Ask the login shell for its PATH now, so a tool Kiln starts later doesn't wait for it.
+  if (migrating) await finishMigration(paths.data, OLLMOST_DIR)
+  // Ask the login shell for its PATH now, so a tool Ollmost starts later doesn't wait for it.
   void childPath().then((path) => {
-    if (process.env.KILN_DEBUG)
+    if (process.env.OLLMOST_DEBUG)
       appendFileSync(join(paths.data, 'debug.log'), `${new Date().toISOString()} PATH for spawned tools: ${path}\n`)
   })
   // Code a run left running before a crash (it can outlive its process group) is stopped (#73), and the folders of
   // chats deleted while their code couldn't be stopped go.
   void clearPreviews()
   void sweepWorkspaces({ removeOrphans: true })
-    .then((n) => n && console.warn(`Kiln: stopped ${n} ${n === 1 ? 'process' : 'processes'} code left running in an earlier session`))
-    .catch((err) => console.warn("Kiln: couldn't check for code left running:", err))
+    .then((n) => n && console.warn(`Ollmost: stopped ${n} ${n === 1 ? 'process' : 'processes'} code left running in an earlier session`))
+    .catch((err) => console.warn("Ollmost: couldn't check for code left running:", err))
   markInterruptedReplies()
   settleStaleTraces()
   await removeFiles(staleAttachmentPaths(Date.now() - 24 * 60 * 60 * 1000))
@@ -165,7 +207,7 @@ app.whenReady().then(async () => {
 
 /**
  * Tool calls waiting for approval show on the Dock icon, since they may be in a chat you aren't looking at. A new one
- * bounces the icon once while Kiln is in the background.
+ * bounces the icon once while Ollmost is in the background.
  */
 function watchApprovals(): void {
   let shown = 0
@@ -176,8 +218,38 @@ function watchApprovals(): void {
   })
 }
 
+/** The old app is still open: say so, and relaunch (which moves its data) once it has quit. */
+async function waitThenRelaunch(): Promise<void> {
+  const from = oldDataFolder(dataDir)
+  // On macOS a message box closes by its signal only as a sheet on a window: on its own, it waits for a click.
+  const theme = BUILTIN_THEMES[0]
+  const window = new BrowserWindow({
+    width: 480,
+    height: 220,
+    title: app.name,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    backgroundColor: (usesDark(theme, 'system', nativeTheme.shouldUseDarkColors) ? theme.dark : theme.light).canvas
+  })
+  const quit = await waitForKiln(
+    () => kilnPid(from) !== null,
+    (signal) =>
+      dialog.showMessageBox(window, {
+        type: 'info',
+        message: STILL_OPEN.message,
+        detail: STILL_OPEN.detail,
+        buttons: [STILL_OPEN.button],
+        signal
+      })
+  )
+  if (quit) app.relaunch()
+  app.exit(0)
+}
+
 // Quitting mid-reply: stop the stream (which denies any call waiting for approval) and save what arrived, then stop
-// the processes Kiln started, before the process exits. Anything still running after that is killed on exit.
+// the processes Ollmost started, before the process exits. Anything still running after that is killed on exit.
 let quitting = false
 app.on('before-quit', (event) => {
   if (quitting || (!isReplying() && !hasChildren() && !codeMayBeRunning())) return
@@ -190,7 +262,7 @@ app.on('before-quit', (event) => {
     .then(() => stopAllGroups())
     // Code a run left running outside its process group (#73); normally each run's end already stopped it.
     .then(() => sweepWorkspaces())
-    .catch((err) => console.warn('Kiln: while quitting:', err))
+    .catch((err) => console.warn('Ollmost: while quitting:', err))
   void Promise.race([stopped, timeout]).finally(() => app.quit())
 })
 

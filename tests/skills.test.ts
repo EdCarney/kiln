@@ -13,7 +13,7 @@ vi.mock('../src/main/settings', () => ({
 const { readSkillFile } = await import('../src/main/skills/library')
 
 // A skill folder with a normal file, a symlink that escapes it, and one that stays inside.
-const base = mkdtempSync(join(tmpdir(), 'kiln-skill-'))
+const base = mkdtempSync(join(tmpdir(), 'ollmost-skill-'))
 const dir = join(base, 'skills', 'helper')
 mkdirSync(join(dir, 'references'), { recursive: true })
 writeFileSync(join(dir, 'references', 'guide.md'), 'How to help')

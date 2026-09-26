@@ -3,7 +3,7 @@ import { constants } from 'node:fs'
 import { lstat, open } from 'node:fs/promises'
 import { promisify } from 'node:util'
 
-// Files a code run wrote leave Kiln marked the way browsers mark downloads (com.apple.quarantine), so macOS asks
+// Files a code run wrote leave Ollmost marked the way browsers mark downloads (com.apple.quarantine), so macOS asks
 // before running one as an app or script, and apps that check the mark treat it as untrusted (#67).
 
 const run = promisify(execFile)
@@ -14,7 +14,7 @@ export const QUARANTINE_ATTR = 'com.apple.quarantine'
 
 /** The mark's value: flags (0081, a download, as Chrome writes it), the time in hex seconds, and the app. */
 export function quarantineValue(now = Date.now()): string {
-  return `0081;${Math.floor(now / 1000).toString(16)};Kiln;`
+  return `0081;${Math.floor(now / 1000).toString(16)};Ollmost;`
 }
 
 /** On a Mac, open() refuses a link anywhere in the path (O_NOFOLLOW_ANY), not only as the file itself. */

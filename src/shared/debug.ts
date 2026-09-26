@@ -55,7 +55,7 @@ interface BodyLike {
 }
 
 /**
- * Where a request's tokens go, estimated at ~4 characters per token (the same heuristic Kiln uses
+ * Where a request's tokens go, estimated at ~4 characters per token (the same heuristic Ollmost uses
  * for trimming history). Compare the total with Ollama's prompt_eval_count for the real number.
  */
 export function promptAnatomy(body: BodyLike): { segments: AnatomySegment[]; total: number } {

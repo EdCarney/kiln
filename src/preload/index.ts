@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import { EVENT_CHANNELS, INVOKE_CHANNELS, type KilnApi } from '@shared/ipc'
+import { EVENT_CHANNELS, INVOKE_CHANNELS, type OllmostApi } from '@shared/ipc'
 
 // Build the invoke-style groups from the channel table so the bridge can't drift from main.
 const api: Record<string, unknown> = {}
@@ -20,8 +20,8 @@ api.events = {
   onSkillsChanged: (cb) => subscribe(EVENT_CHANNELS.skills, cb),
   onMenu: (cb) => subscribe(EVENT_CHANNELS.menu, cb),
   onMcp: (cb) => subscribe(EVENT_CHANNELS.mcp, cb)
-} satisfies KilnApi['events']
+} satisfies OllmostApi['events']
 
-api.files = { pathFor: (file: File) => webUtils.getPathForFile(file) } satisfies KilnApi['files']
+api.files = { pathFor: (file: File) => webUtils.getPathForFile(file) } satisfies OllmostApi['files']
 
-contextBridge.exposeInMainWorld('kiln', api as unknown as KilnApi)
+contextBridge.exposeInMainWorld('ollmost', api as unknown as OllmostApi)

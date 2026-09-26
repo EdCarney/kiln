@@ -183,7 +183,7 @@ function MermaidView({ source }: { source: string }) {
   return (
     <div className="flex h-full flex-col">
       {error && (
-        <div className="m-4 rounded-kiln border border-danger/40 p-3 text-sm text-danger">Couldn't render this diagram: {error}</div>
+        <div className="m-4 rounded-ollmost border border-danger/40 p-3 text-sm text-danger">Couldn't render this diagram: {error}</div>
       )}
       <div ref={ref} className="flex flex-1 items-start justify-center overflow-auto p-6 [&_svg]:h-auto [&_svg]:max-w-full" />
     </div>

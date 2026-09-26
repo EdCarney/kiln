@@ -49,7 +49,7 @@ function Text({ value, muted }: { value: string; muted?: boolean }) {
   return (
     <pre
       className={cn(
-        'selectable max-h-[480px] overflow-auto whitespace-pre-wrap rounded-kiln border border-line bg-code p-3 font-mono text-[12px] leading-relaxed',
+        'selectable max-h-[480px] overflow-auto whitespace-pre-wrap rounded-ollmost border border-line bg-code p-3 font-mono text-[12px] leading-relaxed',
         muted && 'text-muted'
       )}
     >
@@ -203,7 +203,7 @@ export function TraceView({ trace, conversationId }: { trace: TraceDetail; conve
                   [
                     'Prompt tokens',
                     trace.promptTokens != null
-                      ? `${trace.promptTokens.toLocaleString()} (Kiln estimated ${anatomy?.total.toLocaleString()}${estimateDelta !== null ? `, ${estimateDelta > 0 ? '+' : ''}${estimateDelta}%` : ''})`
+                      ? `${trace.promptTokens.toLocaleString()} (Ollmost estimated ${anatomy?.total.toLocaleString()}${estimateDelta !== null ? `, ${estimateDelta > 0 ? '+' : ''}${estimateDelta}%` : ''})`
                       : `≈${anatomy?.total.toLocaleString()} (estimated)`
                   ],
                   ['Completion tokens', trace.completionTokens?.toLocaleString() ?? '—'],

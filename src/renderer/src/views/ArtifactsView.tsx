@@ -64,7 +64,7 @@ export function ArtifactsView() {
                       navigate({ name: 'chat', id: a.conversationId })
                       useArtifactPanel.getState().openArtifact(a.id)
                     }}
-                    className="flex flex-col rounded-kiln-lg border border-line bg-panel p-4 text-left transition-colors hover:border-line-strong"
+                    className="flex flex-col rounded-ollmost-lg border border-line bg-panel p-4 text-left transition-colors hover:border-line-strong"
                   >
                     <span className="mb-3 flex size-10 items-center justify-center rounded-lg border border-line bg-canvas text-muted">
                       <Icon className="size-5" />

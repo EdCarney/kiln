@@ -22,7 +22,7 @@ export default tseslint.config(
   { files: ['e2e/**'], languageOptions: { globals: { ...globals.node, ...globals.browser } } },
   { files: ['src/renderer/**'], languageOptions: { globals: globals.browser } },
   // The classic hook rules only. The plugin's recommended preset also has React Compiler diagnostics
-  // (set-state-in-effect, refs, purity…), which flag ordinary patterns here; Kiln doesn't use the compiler.
+  // (set-state-in-effect, refs, purity…), which flag ordinary patterns here; Ollmost doesn't use the compiler.
   {
     files: ['src/renderer/**/*.tsx'],
     plugins: { 'react-hooks': reactHooks },

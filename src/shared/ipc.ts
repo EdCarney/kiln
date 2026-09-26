@@ -35,6 +35,7 @@ import type {
   TraceSummary,
   UsageSummary
 } from './types'
+import type { MigrationNoticeView } from './migration'
 
 /** A link's page preview; image and icon are data: URLs. */
 export interface LinkPreview {
@@ -72,12 +73,15 @@ export interface SkillInput {
  * The renderer-facing API. Every method maps 1:1 to an `ipcMain.handle` channel
  * named `<group>:<method>` (see `src/main/ipc.ts` and `src/preload/index.ts`).
  */
-export interface KilnApi {
+export interface OllmostApi {
   app: {
     info(): Promise<{ version: string; dataDir: string; platform: string }>
     setNativeTheme(mode: 'system' | 'light' | 'dark', background: string): Promise<void>
     openExternal(url: string): Promise<void>
     openDataFolder(): Promise<void>
+    /** After the move from the old app (see @shared/migration): what needs entering again; null once dismissed. */
+    migrationNotice(): Promise<MigrationNoticeView | null>
+    dismissMigrationNotice(): Promise<void>
   }
   settings: {
     get(): Promise<Settings>
@@ -154,7 +158,7 @@ export interface KilnApi {
   usage: {
     /** Quota windows and recent spend from ollama.com (needs an API key). */
     account(refresh?: boolean): Promise<AccountUsage>
-    /** Kiln's own ledger of requests over the last N days. */
+    /** Ollmost's own ledger of requests over the last N days. */
     summary(days: number): Promise<UsageSummary>
     /** Last raw /api/usage response, for troubleshooting the undocumented endpoint. */
     raw(): Promise<{ at: number; json: unknown } | null>
@@ -173,7 +177,7 @@ export interface KilnApi {
     status(): Promise<RunnerStatus>
     /** Packages installed in the chats' Python environments. */
     packages(): Promise<Array<{ name: string; version: string }>>
-    /** Delete Kiln's Python environments and everything installed in them. Refused while code runs in a chat. */
+    /** Delete Ollmost's Python environments and everything installed in them. Refused while code runs in a chat. */
     resetEnvironment(): Promise<void>
     /** A file a run wrote, by its path in the chat’s workspace: preview a copy of it (Quick Look on a Mac), show it in
      * Finder (marking every file in the folder as downloaded; refused while the chat's code runs), or save a copy
@@ -213,7 +217,7 @@ export interface KilnApi {
     exportTraces(conversationId: ID | null): Promise<boolean>
     /** Re-send an edited request (non-streaming). Recorded as a 'replay' trace; nothing is added to the chat. */
     replay(conversationId: ID | null, body: unknown): Promise<TraceDetail>
-    /** The endpoint Kiln talks to, and whether it needs an API key (for curl export). */
+    /** The endpoint Ollmost talks to, and whether it needs an API key (for curl export). */
     target(): Promise<{ chatEndpoint: string; needsKey: boolean }>
     inspectApp(): Promise<void>
   }
@@ -233,7 +237,7 @@ export interface KilnApi {
 
 /** Channel names for the invoke-style methods, derived from the API shape. */
 export const INVOKE_CHANNELS = {
-  app: ['info', 'setNativeTheme', 'openExternal', 'openDataFolder'],
+  app: ['info', 'setNativeTheme', 'openExternal', 'openDataFolder', 'migrationNotice', 'dismissMigrationNotice'],
   settings: ['get', 'update', 'setApiKey'],
   models: ['list', 'info', 'setOverrides'],
   projects: ['list', 'get', 'create', 'update', 'delete', 'files', 'addFiles', 'removeFile'],
@@ -248,7 +252,7 @@ export const INVOKE_CHANNELS = {
   links: ['preview'],
   runner: ['status', 'packages', 'resetEnvironment', 'openFile', 'revealFile', 'saveFile'],
   mcp: ['list', 'save', 'remove', 'status', 'connect', 'restart', 'log', 'setToolPolicy', 'importJson', 'importSources', 'importFrom']
-} as const satisfies { [G in Exclude<keyof KilnApi, 'events' | 'files'>]: ReadonlyArray<keyof KilnApi[G]> }
+} as const satisfies { [G in Exclude<keyof OllmostApi, 'events' | 'files'>]: ReadonlyArray<keyof OllmostApi[G]> }
 
 export const EVENT_CHANNELS = {
   chat: 'event:chat',

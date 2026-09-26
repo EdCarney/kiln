@@ -1,5 +1,5 @@
-appId: local.kiln.app
-productName: Kiln
+appId: local.ollmost.app
+productName: Ollmost
 directories:
   buildResources: resources
 files:
@@ -17,9 +17,17 @@ mac:
       arch: [arm64, x64]
     - target: zip
       arch: [arm64, x64]
-  # Stable names so releases/latest/download/Kiln-arm64.zip always points at the newest build.
+  # Stable names so releases/latest/download/Ollmost-arm64.zip always points at the newest build.
   artifactName: ${productName}-${arch}.${ext}
   # No Developer ID yet: sign ad hoc so arm64 gets a valid signature. Hardened runtime would
   # enforce library validation and refuse Electron's own frameworks under an ad-hoc signature.
   identity: '-'
   hardenedRuntime: false
+  # The icon is made in Icon Composer (resources/Ollmost.icon) and compiled by scripts/make-icon.mjs, which needs Xcode, so
+  # the results are committed: Assets.car, the icon CFBundleIconName names, for macOS 26 and later (Liquid Glass, and the
+  # dark, tinted and clear styles), and icon.icns, found in resources/ by default, for older macOS.
+  extendInfo:
+    CFBundleIconName: Icon
+  extraResources:
+    - from: resources/Assets.car
+      to: Assets.car

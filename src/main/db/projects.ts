@@ -1,4 +1,5 @@
 import type { Project, ProjectFile } from '@shared/types'
+import { fromStored, toStored } from '../paths'
 import { now, uid } from '../util'
 import { all, get, run, transaction } from './index'
 
@@ -100,7 +101,7 @@ export function deleteProject(id: string): string[] {
        JOIN conversations c ON c.id = m.conversation_id WHERE c.project_id = ?`,
     id,
     id
-  ).map((r) => r.path)
+  ).map((r) => fromStored(r.path))
   transaction(() => {
     run(`DELETE FROM search_index WHERE conversation_id IN (SELECT id FROM conversations WHERE project_id = ?)`, id)
     run('DELETE FROM projects WHERE id = ?', id)
@@ -134,7 +135,7 @@ export function insertProjectFile(f: Omit<ProjectFileRow, 'created_at'>): Projec
     f.name,
     f.mime,
     f.size,
-    f.path,
+    toStored(f.path),
     f.text,
     f.token_est,
     now()
@@ -146,5 +147,5 @@ export function insertProjectFile(f: Omit<ProjectFileRow, 'created_at'>): Projec
 export function deleteProjectFile(id: string): string | null {
   const row = get<{ path: string }>('SELECT path FROM project_files WHERE id = ?', id)
   run('DELETE FROM project_files WHERE id = ?', id)
-  return row?.path ?? null
+  return row ? fromStored(row.path) : null
 }

@@ -6,7 +6,7 @@ import { promisify } from 'node:util'
 import { childEnv } from '../env'
 import { isPlainId, paths } from '../paths'
 
-// Code runs with Kiln's own Python environments (venvs made from the Python 3 on the user's PATH), so packages the
+// Code runs with Ollmost's own Python environments (venvs made from the Python 3 on the user's PATH), so packages the
 // model installs never touch the user's Python. A chat that may install packages (PyPI allowed) gets an environment of
 // its own, writable only by its runs: a shared writable one would let one chat's code plant code (a sitecustomize.py,
 // a .pth file, a patched package) that runs in every other chat (#69). Other chats share one without pip that no run
@@ -74,7 +74,7 @@ export async function ensureBaseVenv(): Promise<string> {
 }
 
 /**
- * Delete Kiln's Python environments (and every package installed in them): the shared one, and these chats' own. The
+ * Delete Ollmost's Python environments (and every package installed in them): the shared one, and these chats' own. The
  * next run makes a fresh one. Only while none of those chats' code runs (see quiesceEvery): it may write its own.
  */
 export async function resetVenv(chats: string[]): Promise<void> {
@@ -89,7 +89,7 @@ export async function removeChatVenv(conversationId: string): Promise<void> {
   await rm(chatVenvDir(conversationId), { recursive: true, force: true })
 }
 
-/** Whether any Kiln environment exists yet. */
+/** Whether any Ollmost environment exists yet. */
 export function venvsExist(): boolean {
   if (existsSync(venvPython(baseVenvDir()))) return true
   try {

@@ -1,5 +1,5 @@
 // A small MCP server for tests and the e2e run: `node tests/fixtures/mcp-server.mjs`. It speaks stdio like any local
-// server, and its tools exercise what Kiln has to handle (slow calls, errors, images, a changing tool list).
+// server, and its tools exercise what Ollmost has to handle (slow calls, errors, images, a changing tool list).
 import { spawn } from 'node:child_process'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
@@ -10,7 +10,7 @@ if (process.env.FIXTURE_CRASH_ON_START) {
   process.exit(3)
 }
 
-const server = new McpServer({ name: 'kiln-fixture', version: '1.2.3' })
+const server = new McpServer({ name: 'ollmost-fixture', version: '1.2.3' })
 const text = (t) => ({ content: [{ type: 'text', text: t }] })
 
 // Tools `rewrite` can change after the fact, as a server that turns on its user would (#64).

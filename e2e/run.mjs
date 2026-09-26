@@ -1,22 +1,24 @@
 // Live end-to-end smoke test: drives the built app with Playwright against real Ollama models.
 // Usage: npm run build && npm run e2e   (needs the Ollama app running and `ollama signin` for cloud models)
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, renameSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { fileURLToPath } from 'node:url'
+import electronPath from 'electron'
 import { _electron as electron } from 'playwright'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SHOTS = join(ROOT, 'e2e', 'shots')
-const CHAT_MODEL = process.env.KILN_E2E_MODEL ?? 'gpt-oss:120b'
-const VISION_MODEL = process.env.KILN_E2E_VISION_MODEL ?? 'kimi-k3'
+const CHAT_MODEL = process.env.OLLMOST_E2E_MODEL ?? 'gpt-oss:120b'
+const VISION_MODEL = process.env.OLLMOST_E2E_VISION_MODEL ?? 'kimi-k3'
 mkdirSync(SHOTS, { recursive: true })
 
-const userData = mkdtempSync(join(tmpdir(), 'kiln-e2e-'))
-const fixtures = mkdtempSync(join(tmpdir(), 'kiln-fixtures-'))
+const userData = mkdtempSync(join(tmpdir(), 'ollmost-e2e-'))
+const fixtures = mkdtempSync(join(tmpdir(), 'ollmost-fixtures-'))
 
 // A skill the model should use both when chosen with / and when it loads it on its own.
 mkdirSync(join(userData, 'skills', 'haiku-helper'), { recursive: true })
@@ -30,7 +32,7 @@ description: Write poems as a single haiku. Use whenever the user asks for a poe
 # Haiku helper
 
 Answer with exactly one haiku (three lines, 5-7-5 syllables).
-After the haiku, on its own line, sign it exactly: — Kiln Poetry Desk
+After the haiku, on its own line, sign it exactly: — Ollmost Poetry Desk
 `
 )
 writeFileSync(
@@ -66,7 +68,7 @@ const check = (name, ok, detail = '') => {
 }
 
 async function launch() {
-  const app = await electron.launch({ args: [ROOT], env: { ...process.env, KILN_USER_DATA: userData, KILN_USAGE_URL: USAGE_URL } })
+  const app = await electron.launch({ args: [ROOT], env: { ...process.env, OLLMOST_USER_DATA: userData, OLLMOST_USAGE_URL: USAGE_URL } })
   const win = await app.firstWindow()
   win.on('pageerror', (e) => console.log('[pageerror]', e.message))
   await win.waitForSelector('textarea', { timeout: 20000 })
@@ -89,17 +91,17 @@ async function pickModel(win, name) {
 }
 
 async function send(win, text) {
-  const before = await win.locator('.prose-kiln').count()
+  const before = await win.locator('.prose-ollmost').count()
   await win.fill('textarea', text)
   await win.click('button[aria-label="Send"]')
   // Wait for a new reply and for streaming to end. (A fast model can finish before a Stop button is ever seen.)
   await win.waitForFunction(
-    (n) => document.querySelectorAll('.prose-kiln').length > n && !document.querySelector('button[aria-label="Stop"]'),
+    (n) => document.querySelectorAll('.prose-ollmost').length > n && !document.querySelector('button[aria-label="Stop"]'),
     before,
     { timeout: 240000 }
   )
   await win.waitForTimeout(600)
-  return win.locator('.prose-kiln').last().innerText()
+  return win.locator('.prose-ollmost').last().innerText()
 }
 
 async function newChat(win) {
@@ -138,7 +140,7 @@ try {
     check('artifact cannot make network requests', net === 'blocked', net)
     const parent = await frame.evaluate(() => {
       try {
-        return typeof window.parent.kiln
+        return typeof window.parent.ollmost
       } catch {
         return 'blocked'
       }
@@ -151,15 +153,15 @@ try {
     .click()
     .catch(() => {})
 
-  // 2b. The main process only answers Kiln's own pages: a window showing anything else gets nothing back,
-  // even with Kiln's preload. (Electron doesn't report a window's preload, so the built path is passed in.)
+  // 2b. The main process only answers Ollmost's own pages: a window showing anything else gets nothing back,
+  // even with Ollmost's preload. (Electron doesn't report a window's preload, so the built path is passed in.)
   const ipcFromOtherPage = await app.evaluate(
     async ({ BrowserWindow }, preload) => {
       const other = new BrowserWindow({ show: false, webPreferences: { preload, sandbox: true, contextIsolation: true } })
       try {
-        await other.loadURL('data:text/html,<p>Not Kiln</p>')
+        await other.loadURL('data:text/html,<p>Not Ollmost</p>')
         return await other.webContents.executeJavaScript(
-          'window.kiln ? window.kiln.app.info().then(() => "answered", (e) => "refused: " + e.message) : "no bridge"'
+          'window.ollmost ? window.ollmost.app.info().then(() => "answered", (e) => "refused: " + e.message) : "no bridge"'
         )
       } finally {
         other.destroy()
@@ -167,14 +169,14 @@ try {
     },
     join(ROOT, 'out', 'preload', 'index.js')
   )
-  check('IPC from a page that is not Kiln is refused', ipcFromOtherPage.startsWith('refused'), ipcFromOtherPage.slice(0, 100))
+  check('IPC from a page that is not Ollmost is refused', ipcFromOtherPage.startsWith('refused'), ipcFromOtherPage.slice(0, 100))
   const ipcFromApp = await win.evaluate(() =>
-    window.kiln.app.info().then(
+    window.ollmost.app.info().then(
       () => 'answered',
       (e) => `refused: ${e.message}`
     )
   )
-  check("IPC from Kiln's own window is answered", ipcFromApp === 'answered', ipcFromApp)
+  check("IPC from Ollmost's own window is answered", ipcFromApp === 'answered', ipcFromApp)
 
   // 3. Manual skill via the / picker
   await newChat(win)
@@ -183,13 +185,13 @@ try {
   await win.keyboard.press('Enter')
   check('slash picker adds a skill chip', await win.locator('button[aria-label="Remove skill haiku-helper"]').isVisible())
   const haiku = await send(win, 'Tell me about rivers.')
-  check('manually chosen skill is followed', /Kiln Poetry Desk/.test(haiku), haiku.replace(/\n/g, ' / ').slice(0, 90))
+  check('manually chosen skill is followed', /Ollmost Poetry Desk/.test(haiku), haiku.replace(/\n/g, ' / ').slice(0, 90))
 
   // 4. Automatic skill loading through tool calls
   await newChat(win)
   const auto = await send(win, 'Write me a poem about mountains.')
   const pill = await win.locator('text=Using skill').count()
-  check('model loads a matching skill by itself', pill > 0 && /Kiln Poetry Desk/.test(auto), pill ? 'tool call seen' : 'no tool call')
+  check('model loads a matching skill by itself', pill > 0 && /Ollmost Poetry Desk/.test(auto), pill ? 'tool call seen' : 'no tool call')
   await win.screenshot({ path: join(SHOTS, 'skills.png') })
 
   // 5. Image attachment with a vision model
@@ -230,7 +232,7 @@ try {
     .last()
     .click()
   await win.getByRole('button', { name: 'Usage & cost' }).click()
-  await win.fill('input[placeholder="Paste your API key"]', 'kiln-e2e-key')
+  await win.fill('input[placeholder="Paste your API key"]', 'ollmost-e2e-key')
   await win.getByRole('button', { name: 'Save', exact: true }).click()
   await win.waitForFunction(() => /40\.0%/.test(document.querySelector('button[aria-label^="Ollama usage"]')?.textContent ?? ''), null, {
     timeout: 10000
@@ -238,7 +240,7 @@ try {
   check('quota chip shows weekly usage', true, await win.locator('button[aria-label^="Ollama usage"]').innerText())
   const unknownPace = await win.locator('button[aria-label^="Ollama usage"]').getAttribute('aria-label')
   check('pace is unknown until the reset time is known', /pace unknown/.test(unknownPace), unknownPace)
-  check('API key is sent as a bearer token', mockAuth === 'Bearer kiln-e2e-key')
+  check('API key is sent as a bearer token', mockAuth === 'Bearer ollmost-e2e-key')
   mockWeekly = 0.02
   await win.getByRole('button', { name: 'Check now' }).click()
   await win.waitForFunction(
@@ -295,7 +297,7 @@ try {
 
 const second = await launch()
 const dark = await second.win.evaluate(() => document.documentElement.classList.contains('dark'))
-const canvas = await second.win.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--k-canvas').trim())
+const canvas = await second.win.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--o-canvas').trim())
 check('theme and dark mode persist after restart', dark && canvas.toLowerCase() === '#2e3440', canvas)
 await second.win.screenshot({ path: join(SHOTS, 'home-nord-dark.png') })
 
@@ -308,8 +310,8 @@ await second.win.screenshot({ path: join(SHOTS, 'home-nord-dark.png') })
       await document.fonts.ready
       return {
         dark: document.documentElement.classList.contains('dark'),
-        canvas: cs.getPropertyValue('--k-canvas').trim().toLowerCase(),
-        dangerFg: cs.getPropertyValue('--k-dangerFg').trim().toLowerCase(),
+        canvas: cs.getPropertyValue('--o-canvas').trim().toLowerCase(),
+        dangerFg: cs.getPropertyValue('--o-dangerFg').trim().toLowerCase(),
         font: getComputedStyle(document.body).fontFamily,
         hackLoaded: [...document.fonts].some((f) => f.family.replace(/"/g, '') === 'Hack' && f.status === 'loaded')
       }
@@ -394,7 +396,7 @@ const fakeOllama = createServer(async (req, res) => {
             }
           : {
               role: 'assistant',
-              content: `The lead story is KILN-WEB-OK on Sept\u202F23, per [Example News](https://news.example.com/story).\n\nMore: [preview test](${pageUrl}) and [paypal.com](https://evil.example/login).`
+              content: `The lead story is OLLMOST-WEB-OK on Sept\u202F23, per [Example News](https://news.example.com/story).\n\nMore: [preview test](${pageUrl}) and [paypal.com](https://evil.example/login).`
             }
   } else if (toolNames.length) {
     message = {
@@ -403,21 +405,21 @@ const fakeOllama = createServer(async (req, res) => {
       tool_calls: [{ function: { name: 'web.run', arguments: { url: 'https://news.google.com' } } }]
     }
   } else {
-    message = { role: 'assistant', content: "I can't browse the web from Kiln, so I can't fetch today's headlines." }
+    message = { role: 'assistant', content: "I can't browse the web from Ollmost, so I can't fetch today's headlines." }
   }
   res.writeHead(200, { 'content-type': 'application/x-ndjson' })
   res.write(JSON.stringify({ message, done: false }) + '\n')
   res.end(JSON.stringify({ done: true, prompt_eval_count: 100, eval_count: 12, eval_duration: 1e8 }) + '\n')
 })
 // A page with OpenGraph metadata for link hover previews (served locally; previews normally refuse
-// local addresses, so the app is launched with KILN_ALLOW_PRIVATE_PREVIEWS for this test).
+// local addresses, so the app is launched with OLLMOST_ALLOW_PRIVATE_PREVIEWS for this test).
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
 const fakePages = createServer((req, res) => {
   if (req.url === '/article') {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
     return res.end(`<html><head><title>fallback</title>
-      <meta property="og:title" content="Preview Title KILN"><meta property="og:description" content="A page used to test hover previews.">
-      <meta property="og:site_name" content="Kiln Test Site"><meta property="og:image" content="/cover.png"><link rel="icon" href="/icon.png">
+      <meta property="og:title" content="Preview Title OLLMOST"><meta property="og:description" content="A page used to test hover previews.">
+      <meta property="og:site_name" content="Ollmost Test Site"><meta property="og:image" content="/cover.png"><link rel="icon" href="/icon.png">
       </head><body>article</body></html>`)
   }
   if (req.url === '/cover.png' || req.url === '/icon.png') return res.writeHead(200, { 'content-type': 'image/png' }).end(PNG)
@@ -437,12 +439,12 @@ const fakeWeb = createServer(async (req, res) => {
       JSON.stringify({ results: [{ title: 'Example News', url: 'https://news.example.com/story', content: 'Top story snippet' }] })
     )
   res.end(
-    JSON.stringify({ title: 'Example story', content: 'Full article text KILN-WEB-MARKER', links: ['https://news.example.com/other'] })
+    JSON.stringify({ title: 'Example story', content: 'Full article text OLLMOST-WEB-MARKER', links: ['https://news.example.com/other'] })
   )
 })
 await new Promise((r) => fakeOllama.listen(0, '127.0.0.1', r))
 await new Promise((r) => fakeWeb.listen(0, '127.0.0.1', r))
-const mockUserData = mkdtempSync(join(tmpdir(), 'kiln-e2e-tools-'))
+const mockUserData = mkdtempSync(join(tmpdir(), 'ollmost-e2e-tools-'))
 mkdirSync(join(mockUserData, 'skills', 'news-helper'), { recursive: true })
 writeFileSync(
   join(mockUserData, 'skills', 'news-helper', 'SKILL.md'),
@@ -453,15 +455,15 @@ writeFileSync(
     args: [ROOT],
     env: {
       ...process.env,
-      KILN_USER_DATA: mockUserData,
-      KILN_WEB_URL: `http://127.0.0.1:${fakeWeb.address().port}`,
-      KILN_ALLOW_PRIVATE_PREVIEWS: '1'
+      OLLMOST_USER_DATA: mockUserData,
+      OLLMOST_WEB_URL: `http://127.0.0.1:${fakeWeb.address().port}`,
+      OLLMOST_ALLOW_PRIVATE_PREVIEWS: '1'
     }
   })
   const win = await app.firstWindow()
   await win.waitForSelector('textarea', { timeout: 20000 })
   await win.evaluate(
-    (host) => window.kiln.settings.update({ connection: { mode: 'local', host }, showCloudCatalog: false }),
+    (host) => window.ollmost.settings.update({ connection: { mode: 'local', host }, showCloudCatalog: false }),
     `http://127.0.0.1:${fakeOllama.address().port}`
   )
   await win.reload()
@@ -480,7 +482,7 @@ writeFileSync(
       mockChats.length === 2 && mockChats[0].toolNames.length > 0 && !mockChats[1].toolNames.length,
       `${mockChats.length} requests`
     )
-    check('the explanation says Kiln has no internet access', /no internet access/.test(mockChats[1]?.toolResults[0] ?? ''))
+    check('the explanation says Ollmost has no internet access', /no internet access/.test(mockChats[1]?.toolResults[0] ?? ''))
     check('the turn still ends with an answer', /can't browse the web/.test(reply), reply.slice(0, 60))
     const note = await win
       .locator('text=Tried unavailable')
@@ -494,7 +496,7 @@ writeFileSync(
     await win.screenshot({ path: join(SHOTS, 'unknown-tool.png') })
 
     // With a key: search, an aliased page read, and a cited answer.
-    await win.evaluate(() => window.kiln.settings.setApiKey('mock-web-key'))
+    await win.evaluate(() => window.ollmost.settings.setApiKey('mock-web-key'))
     mockChats.length = 0
     await win.getByRole('button', { name: 'New chat' }).first().click()
     await win.waitForSelector('textarea[placeholder="How can I help you today?"]')
@@ -513,11 +515,11 @@ writeFileSync(
       webCalls[1]?.path === '/api/web_fetch' && webCalls[1]?.body.url === 'https://news.example.com/story'
     )
     const pageResult = mockChats[2]?.toolResults[1] ?? ''
-    check('page content reaches the model framed as untrusted', /KILN-WEB-MARKER/.test(pageResult) && /untrusted data/.test(pageResult))
-    check('the answer cites the page', /KILN-WEB-OK/.test(webReply), webReply.slice(0, 70))
+    check('page content reaches the model framed as untrusted', /OLLMOST-WEB-MARKER/.test(pageResult) && /untrusted data/.test(pageResult))
+    check('the answer cites the page', /OLLMOST-WEB-OK/.test(webReply), webReply.slice(0, 70))
     // gpt-oss writes "Sept 23" with U+202F, which the bundled fonts lack; it must still render as a real space.
     const spaceWidth = await win.evaluate(() => {
-      const prose = [...document.querySelectorAll('.prose-kiln')].at(-1)
+      const prose = [...document.querySelectorAll('.prose-ollmost')].at(-1)
       const walker = document.createTreeWalker(prose, NodeFilter.SHOW_TEXT)
       for (let node = walker.nextNode(); node; node = walker.nextNode()) {
         const i = node.textContent.indexOf('Sept\u00A023')
@@ -541,7 +543,7 @@ writeFileSync(
       const read = [...document.querySelectorAll('[data-testid="tool-group"]')].at(-1)
       return (
         /Opening it/.test(read?.previousElementSibling?.textContent ?? '') &&
-        /KILN-WEB-OK/.test(read?.nextElementSibling?.textContent ?? '')
+        /OLLMOST-WEB-OK/.test(read?.nextElementSibling?.textContent ?? '')
       )
     })
     check('a call made mid-answer shows where it happened', readSitsMidAnswer)
@@ -585,14 +587,14 @@ writeFileSync(
 
     // 13. Links (issue #1): hand cursor only on the link, a hover card showing the destination, and
     // an opt-in page preview.
-    const newsLink = win.locator('.prose-kiln a[href="https://news.example.com/story"]').last()
+    const newsLink = win.locator('.prose-ollmost a[href="https://news.example.com/story"]').last()
     const cursors = await newsLink.evaluate((a) => ({ link: getComputedStyle(a).cursor, text: getComputedStyle(a.closest('p')).cursor }))
     check(
       'links get the hand cursor; surrounding text keeps the text cursor',
       cursors.link === 'pointer' && cursors.text === 'auto',
       JSON.stringify(cursors)
     )
-    // Just after the debugger window closes: bring Kiln back to the front and move the pointer onto the link from
+    // Just after the debugger window closes: bring Ollmost back to the front and move the pointer onto the link from
     // outside it, so the hover card's pointerenter fires.
     await win.bringToFront()
     await win.mouse.move(5, 5)
@@ -608,7 +610,7 @@ writeFileSync(
     check('no page is fetched while previews are off', (await card.locator('img').count()) === 0)
     await win.mouse.move(5, 5)
     await card.waitFor({ state: 'detached', timeout: 5000 })
-    await win.locator('.prose-kiln a[href="https://evil.example/login"]').last().hover()
+    await win.locator('.prose-ollmost a[href="https://evil.example/login"]').last().hover()
     await card.waitFor({ timeout: 5000 })
     check(
       'a link whose text names another domain gets a warning',
@@ -617,15 +619,15 @@ writeFileSync(
     await win.mouse.move(5, 5)
     await card.waitFor({ state: 'detached', timeout: 5000 })
 
-    await win.evaluate(() => window.kiln.settings.update({ links: { previews: true } }))
+    await win.evaluate(() => window.ollmost.settings.update({ links: { previews: true } }))
     await win.reload()
     await win.waitForSelector('textarea')
     await win.locator('aside [role="button"]').first().click()
-    await win.waitForSelector(`.prose-kiln a[href="${pageUrl}"]`)
-    await win.locator(`.prose-kiln a[href="${pageUrl}"]`).last().hover()
+    await win.waitForSelector(`.prose-ollmost a[href="${pageUrl}"]`)
+    await win.locator(`.prose-ollmost a[href="${pageUrl}"]`).last().hover()
     await card.waitFor({ timeout: 5000 })
     await win.waitForFunction(
-      () => /Preview Title KILN/.test(document.querySelector('[data-testid="link-card"]')?.textContent ?? ''),
+      () => /Preview Title OLLMOST/.test(document.querySelector('[data-testid="link-card"]')?.textContent ?? ''),
       null,
       { timeout: 8000 }
     )
@@ -646,12 +648,12 @@ writeFileSync(
     const reopenCard = async () => {
       await win.mouse.move(5, 5)
       await card.waitFor({ state: 'detached', timeout: 5000 }).catch(() => {})
-      await win.locator(`.prose-kiln a[href="${pageUrl}"]`).last().hover()
+      await win.locator(`.prose-ollmost a[href="${pageUrl}"]`).last().hover()
       await card.waitFor({ timeout: 5000 })
     }
     await card.getByText('A page used to test hover previews.').click()
     check('clicking the excerpt does not open the link', (await opened()).length === 0)
-    await card.getByText('Preview Title KILN').click()
+    await card.getByText('Preview Title OLLMOST').click()
     await card.waitFor({ state: 'detached', timeout: 5000 }).catch(() => {})
     const closedAfterClick = (await card.count()) === 0
     await reopenCard()
@@ -734,7 +736,7 @@ const fixtureRunning = () => {
   await new Promise((r) => leakPages.listen(0, '127.0.0.1', r))
   const leakUrl = `http://127.0.0.1:${leakPages.address().port}/notes?d=secret`
   // Another app's config to import from (Claude Code's is pointed at nothing, so the real one isn't read).
-  const mcpFiles = mkdtempSync(join(tmpdir(), 'kiln-e2e-mcp-import-'))
+  const mcpFiles = mkdtempSync(join(tmpdir(), 'ollmost-e2e-mcp-import-'))
   writeFileSync(
     join(mcpFiles, 'claude_desktop_config.json'),
     JSON.stringify({
@@ -745,11 +747,11 @@ const fixtureRunning = () => {
     args: [ROOT],
     env: {
       ...process.env,
-      KILN_USER_DATA: mkdtempSync(join(tmpdir(), 'kiln-e2e-mcp-')),
-      KILN_CLAUDE_DESKTOP_CONFIG: join(mcpFiles, 'claude_desktop_config.json'),
-      KILN_CLAUDE_CODE_CONFIG: join(mcpFiles, 'none.json'),
+      OLLMOST_USER_DATA: mkdtempSync(join(tmpdir(), 'ollmost-e2e-mcp-')),
+      OLLMOST_CLAUDE_DESKTOP_CONFIG: join(mcpFiles, 'claude_desktop_config.json'),
+      OLLMOST_CLAUDE_CODE_CONFIG: join(mcpFiles, 'none.json'),
       // So the only thing that can stop the leak check's preview is the tool-chat rule, not the local-address one.
-      KILN_ALLOW_PRIVATE_PREVIEWS: '1'
+      OLLMOST_ALLOW_PRIVATE_PREVIEWS: '1'
     }
   })
   const win = await app.firstWindow()
@@ -757,7 +759,7 @@ const fixtureRunning = () => {
   try {
     await win.waitForSelector('textarea', { timeout: 20000 })
     await win.evaluate(
-      (host) => window.kiln.settings.update({ connection: { mode: 'local', host }, showCloudCatalog: false }),
+      (host) => window.ollmost.settings.update({ connection: { mode: 'local', host }, showCloudCatalog: false }),
       `http://127.0.0.1:${mcpOllama.address().port}`
     )
     await win.reload()
@@ -777,16 +779,16 @@ const fixtureRunning = () => {
     await dialog.locator('textarea').fill(FIXTURE)
     await dialog.getByRole('button', { name: 'Add variable' }).click()
     await dialog.getByLabel('Variable name').fill('FIXTURE_TOKEN')
-    await dialog.getByLabel('Value of FIXTURE_TOKEN').fill('kiln-e2e-secret')
+    await dialog.getByLabel('Value of FIXTURE_TOKEN').fill('ollmost-e2e-secret')
     await dialog.getByRole('button', { name: 'Add server' }).click()
     await win.locator('[data-testid="mcp-server"]').filter({ hasText: 'Fixture' }).waitFor({ timeout: 5000 })
-    const listed = await win.evaluate(() => window.kiln.mcp.list())
+    const listed = await win.evaluate(() => window.ollmost.mcp.list())
     check(
       'an MCP server added in Settings is saved, its secret kept out of the renderer',
       listed.length === 1 &&
         listed[0].id === 'fixture' &&
         listed[0].envKeys.join() === 'FIXTURE_TOKEN' &&
-        !JSON.stringify(listed).includes('kiln-e2e-secret'),
+        !JSON.stringify(listed).includes('ollmost-e2e-secret'),
       JSON.stringify(listed[0]?.envKeys)
     )
     await win.screenshot({ path: join(SHOTS, 'mcp-settings.png') })
@@ -798,12 +800,12 @@ const fixtureRunning = () => {
     let status = []
     for (let i = 0; i < 150 && status[0]?.state !== 'ready'; i++) {
       await win.waitForTimeout(200)
-      status = await win.evaluate(() => window.kiln.mcp.status())
+      status = await win.evaluate(() => window.ollmost.mcp.status())
     }
     check('the chat starts its server early and lists its tools', status[0].tools.length >= 10, `${status[0].tools.length} tools`)
 
     const card = win.locator('[data-testid="approval-card"]')
-    const last = () => win.locator('.prose-kiln').last().innerText()
+    const last = () => win.locator('.prose-ollmost').last().innerText()
     const idle = () => win.waitForFunction(() => !document.querySelector('button[aria-label="Stop"]'), null, { timeout: 30000 })
     const sendText = async (text) => {
       await win.fill('textarea', text)
@@ -910,13 +912,13 @@ const fixtureRunning = () => {
     )
 
     // With previews on, a link the model writes in a tool chat shows where it goes, but nothing is fetched from it.
-    await win.evaluate(() => window.kiln.settings.update({ links: { previews: true } }))
+    await win.evaluate(() => window.ollmost.settings.update({ links: { previews: true } }))
     await win.reload()
     await win.waitForSelector('textarea')
     await win.locator('aside [role="button"]').first().click()
     await sendText('LINK to the notes please')
     await idle()
-    const leakLink = win.locator(`.prose-kiln a[href="${leakUrl}"]`).last()
+    const leakLink = win.locator(`.prose-ollmost a[href="${leakUrl}"]`).last()
     await leakLink.hover()
     const linkCard = win.locator('[data-testid="link-card"]')
     await linkCard.waitFor({ timeout: 5000 })
@@ -969,7 +971,7 @@ const fixtureRunning = () => {
     await win.getByRole('dialog').getByRole('button', { name: 'Import' }).click()
     const imported = await win.locator('[data-testid="import-result"]').innerText()
     await win.getByRole('dialog').getByRole('button', { name: 'Done' }).click()
-    const servers = await win.evaluate(() => window.kiln.mcp.list())
+    const servers = await win.evaluate(() => window.ollmost.mcp.list())
     check(
       "importing copies another app's local servers, off for new chats, leaving remote ones out",
       /1 local server: Imported/.test(offer) &&
@@ -987,7 +989,7 @@ const fixtureRunning = () => {
     await closed
     quit = true
     await new Promise((r) => setTimeout(r, 500))
-    check('quitting Kiln stops its MCP servers', !fixtureRunning())
+    check('quitting Ollmost stops its MCP servers', !fixtureRunning())
   } catch (err) {
     check('MCP runs completed without errors', false, err.message.split('\n')[0])
     await win.screenshot({ path: join(SHOTS, 'mcp-failure.png') }).catch(() => {})
@@ -1002,13 +1004,13 @@ const fixtureRunning = () => {
 {
   const app = await electron.launch({
     args: [ROOT],
-    env: { ...process.env, KILN_USER_DATA: mkdtempSync(join(tmpdir(), 'kiln-e2e-mcp-live-')) }
+    env: { ...process.env, OLLMOST_USER_DATA: mkdtempSync(join(tmpdir(), 'ollmost-e2e-mcp-live-')) }
   })
   const win = await app.firstWindow()
   try {
     await win.waitForSelector('textarea', { timeout: 20000 })
     await win.evaluate(
-      (fixture) => window.kiln.mcp.save({ name: 'Fixture', command: 'node', args: [fixture], cwd: null, env: {}, defaultOn: true }),
+      (fixture) => window.ollmost.mcp.save({ name: 'Fixture', command: 'node', args: [fixture], cwd: null, env: {}, defaultOn: true }),
       FIXTURE
     )
     await win.reload()
@@ -1016,7 +1018,7 @@ const fixtureRunning = () => {
     await win.waitForTimeout(1500)
     await pickModel(win, CHAT_MODEL)
     await win.locator('button[aria-label="Turn off Fixture in this chat"]').waitFor({ timeout: 5000 })
-    await win.fill('textarea', "What's the internal codename for project Kiln? Look it up with your tools.")
+    await win.fill('textarea', "What's the internal codename for project Ollmost? Look it up with your tools.")
     await win.click('button[aria-label="Send"]')
     const card = win.locator('[data-testid="approval-card"]')
     await card.waitFor({ timeout: 180000 })
@@ -1024,7 +1026,7 @@ const fixtureRunning = () => {
     await card.getByRole('button', { name: 'Allow once' }).click()
     await win.waitForFunction(() => !document.querySelector('button[aria-label="Stop"]'), null, { timeout: 240000 })
     await win.waitForTimeout(600)
-    const answer = await win.locator('.prose-kiln').last().innerText()
+    const answer = await win.locator('.prose-ollmost').last().innerText()
     check(
       `${CHAT_MODEL} uses an MCP tool (after approval) and answers from it`,
       // gpt-oss sometimes writes a non-breaking space between the words.
@@ -1107,7 +1109,7 @@ const evilSvg = (port) =>
     res.end(JSON.stringify({ done: true, prompt_eval_count: 100, eval_count: 12, eval_duration: 1e8 }) + '\n')
   })
   await new Promise((r) => runnerOllama.listen(0, '127.0.0.1', r))
-  const runnerData = mkdtempSync(join(tmpdir(), 'kiln-e2e-runner-'))
+  const runnerData = mkdtempSync(join(tmpdir(), 'ollmost-e2e-runner-'))
   // A skill with a script, loaded by the model and run from its own folder.
   mkdirSync(join(runnerData, 'skills', 'note-maker', 'scripts'), { recursive: true })
   writeFileSync(
@@ -1116,21 +1118,21 @@ const evilSvg = (port) =>
   )
   writeFileSync(
     join(runnerData, 'skills', 'note-maker', 'scripts', 'make_note.py'),
-    "open('note.txt', 'w').write('KILN-SKILL-NOTE')\nprint('note written')\n"
+    "open('note.txt', 'w').write('OLLMOST-SKILL-NOTE')\nprint('note written')\n"
   )
   writeFileSync(join(fixtures, 'sales.csv'), 'region,amount\nnorth,120\nsouth,80\n')
-  const app = await electron.launch({ args: [ROOT], env: { ...process.env, KILN_USER_DATA: runnerData } })
+  const app = await electron.launch({ args: [ROOT], env: { ...process.env, OLLMOST_USER_DATA: runnerData } })
   const win = await app.firstWindow()
   try {
     await win.waitForSelector('textarea', { timeout: 20000 })
     await win.evaluate(
-      (host) => window.kiln.settings.update({ connection: { mode: 'local', host }, showCloudCatalog: false }),
+      (host) => window.ollmost.settings.update({ connection: { mode: 'local', host }, showCloudCatalog: false }),
       `http://127.0.0.1:${runnerOllama.address().port}`
     )
     await win.reload()
     await win.waitForSelector('textarea')
     await win.waitForTimeout(1500)
-    const status = await win.evaluate(() => window.kiln.runner.status())
+    const status = await win.evaluate(() => window.ollmost.runner.status())
     check('the code runner is available (sandbox and Python found)', status.available, status.reason ?? status.python?.version)
 
     // Attach a CSV and switch the runner on for this chat from the + menu.
@@ -1161,7 +1163,7 @@ const evilSvg = (port) =>
     await win.screenshot({ path: join(SHOTS, 'runner-approval.png') })
     await card.getByRole('button', { name: 'Allow once' }).click()
     await idle()
-    const answer = await win.locator('.prose-kiln').last().innerText()
+    const answer = await win.locator('.prose-ollmost').last().innerText()
     check('the code reads the upload and the model gets what it printed', /Exit code 0\. TOTAL 200/.test(answer), answer.slice(0, 80))
     const files = await win.locator('[data-testid="run-files"]').last().innerText()
     check(
@@ -1176,8 +1178,8 @@ const evilSvg = (port) =>
     check('an image the run wrote is previewed', imageLoaded)
     await win.screenshot({ path: join(SHOTS, 'runner-files.png') })
 
-    const chatId = (await win.evaluate(() => window.kiln.conversations.list()))[0].id
-    const savedTo = join(mkdtempSync(join(tmpdir(), 'kiln-e2e-save-')), 'total-copy.txt')
+    const chatId = (await win.evaluate(() => window.ollmost.conversations.list()))[0].id
+    const savedTo = join(mkdtempSync(join(tmpdir(), 'ollmost-e2e-save-')), 'total-copy.txt')
     await app.evaluate(({ dialog }, filePath) => {
       dialog.showSaveDialog = async () => ({ canceled: false, filePath })
     }, savedTo)
@@ -1185,7 +1187,7 @@ const evilSvg = (port) =>
     await win.waitForTimeout(800)
     const refused = await win.evaluate(
       (id) =>
-        window.kiln.runner.openFile(id, 'run.command').then(
+        window.ollmost.runner.openFile(id, 'run.command').then(
           () => 'opened',
           (e) => e.message
         ),
@@ -1193,7 +1195,7 @@ const evilSvg = (port) =>
     )
     const escaped = await win.evaluate(
       (id) =>
-        window.kiln.runner.openFile(id, '../../kiln.db').then(
+        window.ollmost.runner.openFile(id, '../../ollmost.db').then(
           () => 'opened',
           (e) => e.message
         ),
@@ -1206,7 +1208,7 @@ const evilSvg = (port) =>
       .evaluate((img) => img.complete && img.naturalWidth > 0)
     const svgRefused = await win.evaluate(
       (id) =>
-        window.kiln.runner.openFile(id, 'evil.svg').then(
+        window.ollmost.runner.openFile(id, 'evil.svg').then(
           () => 'opened',
           (e) => e.message
         ),
@@ -1218,7 +1220,7 @@ const evilSvg = (port) =>
       await w.loadURL(url).catch(() => {})
       await new Promise((r) => setTimeout(r, 1500))
       w.destroy()
-    }, `kiln://workspace/${chatId}/evil.svg`)
+    }, `ollmost://workspace/${chatId}/evil.svg`)
     await win.waitForTimeout(500)
     check(
       'a scripted SVG a run wrote is shown only as an image, never opened, and loads nothing even as a page',
@@ -1227,7 +1229,7 @@ const evilSvg = (port) =>
     )
 
     check(
-      'Save a copy works; Kiln won’t open a script a run wrote, or anything outside the chat’s folder',
+      'Save a copy works; Ollmost won’t open a script a run wrote, or anything outside the chat’s folder',
       (() => {
         try {
           return execFileSync('cat', [savedTo]).toString() === '200'
@@ -1273,7 +1275,7 @@ const evilSvg = (port) =>
     await card.waitFor({ timeout: 30000 })
     await card.getByRole('button', { name: 'Allow once' }).click()
     await idle()
-    const skillAnswer = await win.locator('.prose-kiln').last().innerText()
+    const skillAnswer = await win.locator('.prose-ollmost').last().innerText()
     const skillFiles = await win.locator('[data-testid="run-files"]').last().innerText()
     check(
       'a skill’s script runs from its folder and writes into the chat’s',
@@ -1293,17 +1295,17 @@ const evilSvg = (port) =>
 {
   const app = await electron.launch({
     args: [ROOT],
-    env: { ...process.env, KILN_USER_DATA: mkdtempSync(join(tmpdir(), 'kiln-e2e-runner-live-')) }
+    env: { ...process.env, OLLMOST_USER_DATA: mkdtempSync(join(tmpdir(), 'ollmost-e2e-runner-live-')) }
   })
   const win = await app.firstWindow()
   try {
     await win.waitForSelector('textarea', { timeout: 20000 })
-    await win.evaluate(() => window.kiln.settings.update({ runner: { defaultOn: true } }))
+    await win.evaluate(() => window.ollmost.settings.update({ runner: { defaultOn: true } }))
     await win.reload()
     await win.waitForSelector('textarea')
     await win.waitForTimeout(1500)
     await pickModel(win, CHAT_MODEL)
-    await win.fill('textarea', "What is the SHA-256 hex digest of the exact text 'kiln' (no newline)? Compute it with run_code.")
+    await win.fill('textarea', "What is the SHA-256 hex digest of the exact text 'ollmost' (no newline)? Compute it with run_code.")
     await win.click('button[aria-label="Send"]')
     const card = win.locator('[data-testid="approval-card"]')
     const t0 = Date.now()
@@ -1318,8 +1320,8 @@ const evilSvg = (port) =>
       await win.waitForTimeout(500)
     }
     await win.waitForTimeout(600)
-    const answer = await win.locator('.prose-kiln').last().innerText()
-    const digest = createHash('sha256').update('kiln').digest('hex')
+    const answer = await win.locator('.prose-ollmost').last().innerText()
+    const digest = createHash('sha256').update('ollmost').digest('hex')
     const ran = await win.locator('button', { hasText: 'Ran Python' }).count()
     check(`${CHAT_MODEL} runs code (after approval) and answers from it`, ran > 0 && answer.includes(digest), answer.slice(0, 90))
     await win.screenshot({ path: join(SHOTS, 'runner-live.png') })
@@ -1329,6 +1331,215 @@ const evilSvg = (port) =>
   } finally {
     await app.close()
   }
+}
+
+// 14. Coming from Kiln (#60): data Kiln left next to Ollmost's data folder moves over on the first launch, with its
+// chats, files and settings. The secrets Kiln's keychain entry encrypted are asked for again, once.
+{
+  const home = mkdtempSync(join(tmpdir(), 'ollmost-e2e-kiln-'))
+  const DOT_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
+  writeFileSync(join(fixtures, 'dot.png'), DOT_PNG)
+  const mock = createServer(async (req, res) => {
+    let raw = ''
+    for await (const chunk of req) raw += chunk
+    const body = raw ? JSON.parse(raw) : {}
+    const json = (obj) => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(obj))
+    if (req.url === '/api/tags') return json({ models: [{ name: 'mock-vision:latest' }] })
+    if (req.url === '/api/show')
+      return json({ capabilities: ['completion', 'vision'], model_info: { 'mock.context_length': 32768 }, details: {} })
+    if (!body.stream) return json({ message: { role: 'assistant', content: 'Heron picture' }, done: true })
+    res.writeHead(200, { 'content-type': 'application/x-ndjson' })
+    res.write(JSON.stringify({ message: { role: 'assistant', content: 'A dot.' }, done: false }) + '\n')
+    res.end(JSON.stringify({ done: true, prompt_eval_count: 10, eval_count: 2, eval_duration: 1e8 }) + '\n')
+  })
+  await new Promise((r) => mock.listen(0, '127.0.0.1', r))
+  const host = `http://127.0.0.1:${mock.address().port}`
+  const launchAt = async (dir) => {
+    const app = await electron.launch({ args: [ROOT], env: { ...process.env, OLLMOST_USER_DATA: dir } })
+    const win = await app.firstWindow()
+    await win.waitForSelector('textarea', { timeout: 20000 })
+    return { app, win }
+  }
+
+  // 1. Data as Kiln left it: made by the app on a seed folder, then given Kiln's names and absolute paths.
+  const seed = join(home, 'seed')
+  let { app, win } = await launchAt(seed)
+  let conversationId
+  try {
+    await win.evaluate((h) => window.ollmost.settings.update({ connection: { mode: 'local', host: h }, showCloudCatalog: false }), host)
+    await win.evaluate(
+      async (fixture) => {
+        await window.ollmost.settings.setApiKey('kiln-era-key')
+        await window.ollmost.mcp.save({
+          name: 'Tokened',
+          command: 'node',
+          args: [fixture],
+          cwd: null,
+          env: { TOKEN: 'secret' },
+          defaultOn: false
+        })
+      },
+      join(ROOT, 'tests', 'fixtures', 'mcp-server.mjs')
+    )
+    await win.reload()
+    await win.waitForSelector('textarea')
+    await stubOpenDialog(app, [join(fixtures, 'dot.png')])
+    await win.click('button[aria-label="Add"]')
+    await win.getByText('Add files or photos').click()
+    await win.locator('img[alt="dot.png"]').waitFor({ timeout: 10000 })
+    await send(win, 'What is this?')
+    // The title comes from a separate request once the reply has finished.
+    await win.waitForFunction(() => document.body.innerText.includes('Heron picture'), null, { timeout: 15000 })
+    conversationId = (await win.evaluate(() => window.ollmost.conversations.list({})))[0].id
+  } catch (err) {
+    check('data can be made the way Kiln left it', false, err.message.split('\n')[0])
+  } finally {
+    await app.close()
+  }
+  if (conversationId) {
+    const kiln = join(home, 'Kiln')
+    renameSync(seed, kiln)
+    for (const suffix of ['', '-wal', '-shm'])
+      if (existsSync(join(kiln, `ollmost.db${suffix}`))) renameSync(join(kiln, `ollmost.db${suffix}`), join(kiln, `kiln.db${suffix}`))
+    const db = new DatabaseSync(join(kiln, 'kiln.db'))
+    db.prepare("UPDATE attachments SET path = ? || '/' || path").run(kiln)
+    // Kiln's schema: every migration but the two the rename added (relative paths, trace labels), so they run again.
+    const version = db.prepare('PRAGMA user_version').get().user_version
+    db.exec(`PRAGMA user_version = ${version - 2}`)
+    db.close()
+    mkdirSync(join(kiln, 'runner', 'venvs', conversationId, 'bin'), { recursive: true })
+    mkdirSync(join(kiln, 'workspaces', conversationId, '.kiln', 'home'), { recursive: true })
+    writeFileSync(join(kiln, 'workspaces', conversationId, '.kiln', 'home', 'saved.txt'), 'kept')
+
+    // 2. Ollmost's first launch, while Kiln is still open: it waits, adding nothing to its data folder, and carries on
+    // by itself once Kiln has quit. The stand-in for Kiln is Electron holding the Kiln folder's singleton lock, as Kiln
+    // does. Electron creates the default data folder, empty, before the app's code runs; OLLMOST_USER_DATA skips that.
+    const data = join(home, 'Ollmost')
+    mkdirSync(data)
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+    const until = async (test, ms) => {
+      for (const end = Date.now() + ms; Date.now() < end; await sleep(250)) if (test()) return true
+      return test()
+    }
+    const lockPid = (folder) => {
+      try {
+        return Number(readlinkSync(join(folder, 'SingletonLock')).split('-').pop())
+      } catch {
+        return null
+      }
+    }
+    const alive = (pid) => {
+      try {
+        return process.kill(pid, 0)
+      } catch {
+        return false
+      }
+    }
+    writeFileSync(
+      join(home, 'kiln.js'),
+      `const { app } = require('electron')
+app.setPath('userData', ${JSON.stringify(kiln)})
+app.requestSingleInstanceLock()
+process.on('SIGTERM', () => app.quit())
+`
+    )
+    const standIn = spawn(electronPath, [join(home, 'kiln.js')], { stdio: 'ignore' })
+    const locked = await until(() => lockPid(kiln) !== null, 15000)
+    const waiting = await electron.launch({ args: [ROOT], env: { ...process.env, OLLMOST_USER_DATA: data } })
+    let waitingEnded = false
+    waiting.once('close', () => (waitingEnded = true))
+    try {
+      await sleep(3000)
+      check(
+        'while Kiln is open, Ollmost waits and adds nothing to its data folder',
+        locked && readdirSync(data).length === 0 && existsSync(join(kiln, 'kiln.db'))
+      )
+      standIn.kill('SIGTERM')
+      // The waiting Ollmost quits and relaunches, and the relaunch moves the folder. It gets no further here: it
+      // inherits Playwright's loader, which holds back Electron's ready event until Playwright asks for it.
+      const moved = await until(() => !existsSync(kiln) && existsSync(join(data, 'kiln.db')), 20000)
+      check('once Kiln has quit, Ollmost carries on by itself', moved && (await until(() => waitingEnded, 5000)))
+    } finally {
+      if (alive(standIn.pid)) standIn.kill('SIGKILL')
+      if (!waitingEnded) waiting.process().kill('SIGKILL')
+      const relaunched = lockPid(data)
+      if (relaunched !== null && alive(relaunched)) {
+        process.kill(relaunched, 'SIGTERM')
+        if (!(await until(() => !alive(relaunched), 10000))) process.kill(relaunched, 'SIGKILL')
+      }
+    }
+
+    // 3. Ollmost's first window with the data from Kiln.
+    ;({ app, win } = await launchAt(data))
+    try {
+      check(
+        'the Kiln folder is moved, not copied',
+        !existsSync(kiln) && existsSync(join(data, 'ollmost.db')) && !existsSync(join(data, 'kiln.db'))
+      )
+      const notice = win.locator('[data-testid="migration-notice"]')
+      const text = (await notice.innerText()).replace(/\n/g, ' ')
+      check(
+        'a notice says what to enter again',
+        /Kiln is now Ollmost/.test(text) && /API key/.test(text) && /Tokened/.test(text),
+        text.slice(0, 120)
+      )
+      const after = await win.evaluate(async () => ({
+        settings: await window.ollmost.settings.get(),
+        servers: await window.ollmost.mcp.list()
+      }))
+      check(
+        "the API key and the server's values are asked for again",
+        !after.settings.connection.hasApiKey && after.servers[0]?.missingEnv.join() === 'TOKEN',
+        JSON.stringify(after.servers[0]?.missingEnv)
+      )
+      await win.screenshot({ path: join(SHOTS, 'from-kiln.png') })
+      await notice.getByRole('button', { name: 'Open Settings' }).click()
+      check(
+        "the notice's Open Settings goes to where the API key is entered",
+        await win
+          .getByPlaceholder('Paste your API key')
+          .waitFor({ timeout: 5000 })
+          .then(
+            () => true,
+            () => false
+          )
+      )
+      await newChat(win)
+      await notice.getByRole('button', { name: 'Dismiss' }).click()
+      await win.getByText('Heron picture').first().click()
+      const img = win.locator('img[src^="ollmost://attachment/"]').first()
+      await img.waitFor({ timeout: 10000 })
+      const loaded = await img.evaluate((el) =>
+        el.complete
+          ? el.naturalWidth > 0
+          : new Promise((resolve) => {
+              el.onload = () => resolve(el.naturalWidth > 0)
+              el.onerror = () => resolve(false)
+            })
+      )
+      check('a chat from Kiln opens with its image', loaded)
+      const ws = join(data, 'workspaces', conversationId)
+      check(
+        "Kiln's Python environments are gone, and a chat's own files kept",
+        !existsSync(join(data, 'runner', 'venvs')) && readFileSync(join(ws, '.ollmost', 'home', 'saved.txt'), 'utf8') === 'kept'
+      )
+    } catch (err) {
+      check('coming from Kiln completed without errors', false, err.message.split('\n')[0])
+      await win.screenshot({ path: join(SHOTS, 'from-kiln-failure.png') }).catch(() => {})
+    } finally {
+      await app.close()
+    }
+
+    // 4. The notice is shown once.
+    ;({ app, win } = await launchAt(data))
+    try {
+      await win.waitForTimeout(1000)
+      check('the notice is gone once dismissed', (await win.locator('[data-testid="migration-notice"]').count()) === 0)
+    } finally {
+      await app.close()
+    }
+  }
+  mock.close()
 }
 
 const failed = results.filter((r) => !r.ok).length

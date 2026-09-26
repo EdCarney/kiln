@@ -4,9 +4,9 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { childEnv, INHERITED_ENV, inheritedEnv, loginPath, mergePath, readLoginPath } from '../src/main/env'
 
-const dir = mkdtempSync(join(tmpdir(), 'kiln-env-'))
+const dir = mkdtempSync(join(tmpdir(), 'ollmost-env-'))
 
-/** A stand-in login shell: runs the command Kiln passes (after -ilc) with the given script around it. */
+/** A stand-in login shell: runs the command Ollmost passes (after -ilc) with the given script around it. */
 function fakeShell(name: string, body: string): string {
   const path = join(dir, name)
   writeFileSync(path, `#!/bin/sh\n${body}\n`)
@@ -43,7 +43,7 @@ describe('readLoginPath', () => {
 })
 
 describe('loginPath', () => {
-  it("puts the login shell's PATH first and keeps Kiln's own after it", async () => {
+  it("puts the login shell's PATH first and keeps Ollmost's own after it", async () => {
     const shell = fakeShell('login', `PATH=/opt/tools/bin:/usr/bin; export PATH\neval "$2"`)
     expect(await loginPath({ shell, basePath: '/usr/bin:/bin' })).toBe('/opt/tools/bin:/usr/bin:/bin')
   })

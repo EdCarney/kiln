@@ -8,7 +8,7 @@ import { runnerTools } from '../runner/provider'
 import { skillTools } from './skillTools'
 import { webTools } from './webTools'
 
-/** What a request's tools let the model do. Decides what the prompt and error messages say Kiln can't do. */
+/** What a request's tools let the model do. Decides what the prompt and error messages say Ollmost can't do. */
 export type ToolGrant = 'web' | 'code'
 
 /** What this request offers, and the reply it belongs to. */
@@ -38,7 +38,7 @@ export interface ToolResult {
   event: ToolEvent
   /** Skill id to add to the conversation's active skills, so later turns keep it. */
   loadedSkillId?: string
-  /** The model called a tool Kiln doesn't provide (often a web or code tool it saw in training). */
+  /** The model called a tool Ollmost doesn't provide (often a web or code tool it saw in training). */
   unknown?: boolean
 }
 
@@ -92,7 +92,7 @@ export interface ToolProvider {
   allowKey?(call: ResolvedCall): string
   /** The user allowed this call for the whole chat (MCP tools record which version of the tool they trusted). */
   allowedForChat?(call: ResolvedCall): void
-  /** Where a call goes, for the debugger (a web API, an MCP server). Defaults to kiln://tools/<name>. */
+  /** Where a call goes, for the debugger (a web API, an MCP server). Defaults to ollmost://tools/<name>. */
   endpoint?(call: ResolvedCall): string
 }
 
@@ -122,10 +122,10 @@ export function toolGrants(ctx: ToolContext): Set<ToolGrant> {
   return new Set(active(ctx).flatMap((p) => p.grants ?? []))
 }
 
-/** What Kiln can't do with this request's tools, for an error shown to the user; null when it can do both. */
+/** What Ollmost can't do with this request's tools, for an error shown to the user; null when it can do both. */
 export function missingAbilities(grants: ReadonlySet<ToolGrant>): string | null {
   const missing = [!grants.has('web') && 'browse the web', !grants.has('code') && 'run code'].filter(Boolean)
-  return missing.length ? `Kiln can't ${missing.join(' or ')}.` : null
+  return missing.length ? `Ollmost can't ${missing.join(' or ')}.` : null
 }
 
 function argsOf(call: ToolCall): Record<string, unknown> {
@@ -168,11 +168,11 @@ function unknownToolMessage(name: string, ctx: ToolContext, grants: ReadonlySet<
   const code = grants.has('code')
   const lacks =
     !web && !code
-      ? 'Kiln has no internet access, browser, web search or code execution.'
+      ? 'Ollmost has no internet access, browser, web search or code execution.'
       : !web
-        ? 'Kiln has no internet access, browser or web search.'
+        ? 'Ollmost has no internet access, browser or web search.'
         : !code
-          ? 'Kiln cannot run code.'
+          ? 'Ollmost cannot run code.'
           : ''
   const limits = [...active(ctx).flatMap((p) => p.hint ?? []), lacks].filter(Boolean).join(' ')
   return `Error: there is no tool named "${name}". ${list} ${limits} Don't try other tool names. Answer the user directly and tell them plainly what you can't do.`
@@ -226,7 +226,7 @@ export function noteAllowedForChat(call: ToolCall, ctx: ToolContext): void {
 /** Where a call goes, for its debugger trace. */
 export function toolEndpoint(call: ToolCall, ctx: ToolContext): string {
   const resolved = resolveCall(call, ctx)
-  return (resolved && resolved.provider.endpoint?.(resolved)) ?? `kiln://tools/${resolved?.name ?? call.function.name}`
+  return (resolved && resolved.provider.endpoint?.(resolved)) ?? `ollmost://tools/${resolved?.name ?? call.function.name}`
 }
 
 /** What the model hears when the user denies a call, and what the reply shows. The call never ran. */

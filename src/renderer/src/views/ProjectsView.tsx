@@ -86,7 +86,7 @@ export function ProjectsView() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search projects…"
-                className="h-11 w-full rounded-kiln border border-line bg-panel pl-9 pr-3 text-sm outline-none placeholder:text-subtle focus:border-line-strong focus:ring-2 focus:ring-accent-soft"
+                className="h-11 w-full rounded-ollmost border border-line bg-panel pl-9 pr-3 text-sm outline-none placeholder:text-subtle focus:border-line-strong focus:ring-2 focus:ring-accent-soft"
               />
             </div>
           )}
@@ -99,7 +99,7 @@ export function ProjectsView() {
                   tabIndex={0}
                   onClick={() => navigate({ name: 'project', id: p.id })}
                   onKeyDown={(e) => e.key === 'Enter' && navigate({ name: 'project', id: p.id })}
-                  className="group flex h-44 flex-col rounded-kiln-lg border border-line bg-panel p-5 transition-colors hover:border-line-strong"
+                  className="group flex h-44 flex-col rounded-ollmost-lg border border-line bg-panel p-5 transition-colors hover:border-line-strong"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="font-medium">{p.name}</div>

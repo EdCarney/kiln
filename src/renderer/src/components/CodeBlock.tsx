@@ -58,7 +58,7 @@ export const CodeBlock = memo(function CodeBlock({ code, lang, onOpenAsArtifact,
 
   const lines = code.split('\n').length
   return (
-    <div className={cn('group/code my-3 overflow-hidden rounded-kiln border border-line bg-code font-ui', className)}>
+    <div className={cn('group/code my-3 overflow-hidden rounded-ollmost border border-line bg-code font-ui', className)}>
       <div className="flex h-9 items-center justify-between border-b border-line px-3 text-xs text-subtle">
         <span className="font-mono">{lang || 'text'}</span>
         <div className="flex items-center gap-1">

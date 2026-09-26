@@ -1,5 +1,8 @@
-# Formatting-only commits. GitHub skips these in blame; locally run:
+# Formatting-only and renaming commits. GitHub skips these in blame; locally run:
 #   git config blame.ignoreRevsFile .git-blame-ignore-revs
 
 # Format the codebase with Prettier
 6e673077a0d39e6a6f7127b425db28e153edb8b6
+
+# Rename Kiln to Ollmost (#60)
+44dbcf29c26e285e138dbfca8f2872fd3686cdeb
