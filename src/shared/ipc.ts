@@ -20,6 +20,7 @@ import type {
   PriceTable,
   Project,
   ProjectFile,
+  RunnerStatus,
   SearchHit,
   SendRequest,
   SendResult,
@@ -164,6 +165,18 @@ export interface KilnApi {
     /** Title, description, image and icon for a link (null when previews are off or unavailable). */
     preview(url: string): Promise<LinkPreview | null>
   }
+  runner: {
+    /** Whether code can run here, and if not, why. */
+    status(): Promise<RunnerStatus>
+    /** Packages in Kiln's Python environment. */
+    packages(): Promise<Array<{ name: string; version: string }>>
+    /** Delete Kiln's Python environment and everything installed in it. */
+    resetEnvironment(): Promise<void>
+    /** A file a run wrote, by its path in the chat's workspace: open it, show it in Finder, or save a copy. */
+    openFile(conversationId: ID, path: string): Promise<void>
+    revealFile(conversationId: ID, path: string): Promise<void>
+    saveFile(conversationId: ID, path: string): Promise<boolean>
+  }
   mcp: {
     /** Configured servers (environment variable names only, never values). */
     list(): Promise<McpServer[]>
@@ -228,6 +241,7 @@ export const INVOKE_CHANNELS = {
   usage: ['account', 'summary', 'raw', 'prices', 'refreshPrices'],
   debug: ['open', 'list', 'get', 'clear', 'exportTraces', 'replay', 'target', 'inspectApp'],
   links: ['preview'],
+  runner: ['status', 'packages', 'resetEnvironment', 'openFile', 'revealFile', 'saveFile'],
   mcp: ['list', 'save', 'remove', 'status', 'connect', 'restart', 'log', 'setToolPolicy', 'importJson', 'importSources', 'importFrom']
 } as const satisfies { [G in Exclude<keyof KilnApi, 'events' | 'files'>]: ReadonlyArray<keyof KilnApi[G]> }
 

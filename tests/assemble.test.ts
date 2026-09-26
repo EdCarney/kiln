@@ -90,6 +90,17 @@ describe('assemble', () => {
     expect(assemble(base).messages[0].content).not.toMatch(/mcp_tools/)
   })
 
+  it('describes the code runner: its folder, the chat’s uploads, network and time limit', () => {
+    const off = assemble({ ...base, codeRunner: { pypi: false, timeoutSec: 120, uploads: ['sales.csv'] } }).messages[0].content
+    expect(off).toMatch(/<code_runner>\nYou can run Python 3 or bash with run_code/)
+    expect(off).toMatch(/attached to this chat are in \.\/uploads: sales\.csv\./)
+    expect(off).toMatch(/no network access, so packages can't be installed/)
+    expect(off).toMatch(/stopped after 120 seconds/)
+    const pypi = assemble({ ...base, codeRunner: { pypi: true, timeoutSec: 60, uploads: [] } }).messages[0].content
+    expect(pypi).toMatch(/except PyPI: you can pip install/)
+    expect(assemble(base).messages[0].content).not.toMatch(/code_runner/)
+  })
+
   it('drops the oldest turns when history exceeds the context window', () => {
     const long = 'x'.repeat(40_000) // ~10k tokens each
     const history = [turn('user', long), turn('assistant', long), turn('user', long), turn('assistant', long), turn('user', 'latest')]

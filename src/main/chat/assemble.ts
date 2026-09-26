@@ -6,6 +6,7 @@ import {
   artifactsPrompt,
   basePrompt,
   chatInstructionsPrompt,
+  codePrompt,
   documentBlock,
   loadedSkillsPrompt,
   mcpPrompt,
@@ -55,6 +56,8 @@ export interface AssembleInput {
   grants: readonly ToolGrant[]
   /** Names of the MCP servers whose tools are on offer. */
   mcpServers?: readonly string[]
+  /** The code runner, when run_code is on offer. */
+  codeRunner?: { pypi: boolean; timeoutSec: number; uploads: readonly string[] } | null
   /** Roughly what the tool definitions add to every request; history gets less room by that much. */
   toolTokens?: number
   /**
@@ -93,6 +96,7 @@ export function promptBudget(contextLength: number | null): number {
 export function buildSystemPrompt(input: AssembleInput): string {
   const parts = [basePrompt({ userName: input.userName, model: input.model, date: input.date, web: input.web, grants: input.grants })]
   if (input.web === 'on') parts.push(webPrompt())
+  if (input.codeRunner) parts.push(codePrompt(input.codeRunner))
   if (input.mcpServers?.length) parts.push(mcpPrompt(input.mcpServers))
   if (input.preferences.trim()) parts.push(preferencesPrompt(input.preferences))
   if (input.project) parts.push(projectPrompt(input.project))

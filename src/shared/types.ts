@@ -87,6 +87,8 @@ export interface ToolEvent {
   declined?: boolean
   /** Where the tool comes from, for its card: an MCP server's name. */
   source?: string
+  /** Files a code run created or changed, relative to the chat's workspace. */
+  files?: Array<{ path: string; size: number }>
 }
 
 /** Your answer to a tool call that asked first. */
@@ -425,6 +427,18 @@ export interface McpStatus {
   serverInfo: { name: string; version: string } | null
 }
 
+// ---- Code runner ------------------------------------------------------------
+
+export interface RunnerStatus {
+  /** Whether code can run at all; when not, `reason` says why (no sandbox, no Python). */
+  available: boolean
+  reason: string | null
+  python: { path: string; version: string } | null
+  /** Kiln's own Python environment, created on first use. */
+  venv: string
+  venvExists: boolean
+}
+
 // ---- Theming ------------------------------------------------------------
 
 export const PALETTE_KEYS = [
@@ -490,6 +504,11 @@ export interface Settings {
   skills: { sources: { ollama: boolean; claude: boolean }; disabled: string[]; enabledImports: string[]; autoLoad: boolean }
   /** Web search and page reading through Ollama's web API (needs an ollama.com API key). */
   web: { enabled: boolean }
+  /**
+   * The sandboxed code runner: whether models may run code (asking first, or not), whether new chats start with it,
+   * whether code may download Python packages from PyPI, and how long a run may take.
+   */
+  runner: { mode: 'off' | 'ask' | 'allow'; defaultOn: boolean; pypi: boolean; timeoutSec: number }
   /** Record every request for the debugger window. */
   debug: { record: boolean }
   /** Hover cards on links; `previews` fetches page title/image from this Mac (off by default for privacy). */

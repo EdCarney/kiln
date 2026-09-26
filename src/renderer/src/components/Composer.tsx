@@ -1,4 +1,4 @@
-import { ArrowUp, FileText, Paperclip, Plus, Sparkles, Square, TriangleAlert, Wrench, X } from 'lucide-react'
+import { ArrowUp, FileText, Paperclip, Plus, Sparkles, Square, SquareTerminal, TriangleAlert, Wrench, X } from 'lucide-react'
 import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { normalizeThinkSetting } from '@shared/thinking'
 import type { Conversation, FileSource, McpServer, McpStatus, Skill, ThinkSetting } from '@shared/types'
@@ -21,14 +21,23 @@ export interface ComposerSubmit {
 }
 
 const MCP = 'mcp:'
+/** The code runner's tool source (see Conversation.toolSources). */
+const CODE = 'code'
 
 /** Model/think/skills/tools for this composer: persisted on the chat once it exists, drafted otherwise. */
 function useComposerSettings(conversation: Conversation | null) {
-  const { models, draftModel, draftThink, setDraftModel, setDraftThink, mcpServers } = useApp()
+  const { models, draftModel, draftThink, setDraftModel, setDraftThink, mcpServers, settings: appSettings } = useApp()
   const [draftSkills, setDraftSkills] = useState<string[]>([])
   // Null until changed: a new chat starts with the servers marked "on for new chats".
   const [draftSources, setDraftSources] = useState<string[] | null>(null)
-  const defaultSources = useMemo(() => mcpServers.filter((s) => s.defaultOn).map((s) => `${MCP}${s.id}`), [mcpServers])
+  const runner = appSettings?.runner
+  const defaultSources = useMemo(
+    () => [
+      ...(runner && runner.mode !== 'off' && runner.defaultOn ? [CODE] : []),
+      ...mcpServers.filter((s) => s.defaultOn).map((s) => `${MCP}${s.id}`)
+    ],
+    [mcpServers, runner]
+  )
 
   const persist = useCallback(
     async (patch: Partial<Pick<Conversation, 'model' | 'think' | 'skills' | 'toolSources'>>) => {
@@ -107,7 +116,8 @@ interface Props {
 }
 
 export function Composer({ conversation, draftKey, streaming, onSubmit, onStop, placeholder, autoFocus, large }: Props) {
-  const { models, skills: allSkills, navigate, mcpServers, mcpStatus } = useApp()
+  const { models, skills: allSkills, navigate, mcpServers, mcpStatus, settings: appSettings } = useApp()
+  const runnerOn = !!appSettings && appSettings.runner.mode !== 'off'
   const settings = useComposerSettings(conversation)
   // Each chat keeps its own unsent text and files, so switching chats never carries them along.
   const key = draftKey ?? conversation?.id ?? 'new'
@@ -130,6 +140,7 @@ export function Composer({ conversation, draftKey, streaming, onSubmit, onStop, 
   const activeServers = settings.toolSources
     .map((src) => mcpServers.find((s) => `${MCP}${s.id}` === src))
     .filter((s): s is McpServer => !!s)
+  const codeOn = runnerOn && settings.toolSources.includes(CODE)
   const toggleSource = (source: string, on: boolean) =>
     settings.setToolSources(on ? [...settings.toolSources, source] : settings.toolSources.filter((s) => s !== source))
 
@@ -339,8 +350,20 @@ export function Composer({ conversation, draftKey, streaming, onSubmit, onStop, 
           </div>
         )}
 
-        {(pending.length > 0 || activeSkills.length > 0 || activeServers.length > 0) && (
+        {(pending.length > 0 || activeSkills.length > 0 || activeServers.length > 0 || codeOn) && (
           <div className="flex flex-wrap gap-2 px-3 pt-3">
+            {codeOn && (
+              <span className="flex h-7 items-center gap-1.5 rounded-lg border border-line pl-2 pr-1 text-xs font-medium text-muted">
+                <SquareTerminal className="size-3.5" /> Code runner
+                <button
+                  aria-label="Turn off the code runner in this chat"
+                  onClick={() => toggleSource(CODE, false)}
+                  className="rounded p-0.5 hover:bg-hover"
+                >
+                  <X className="size-3" />
+                </button>
+              </span>
+            )}
             {activeServers.map((s) => (
               <Tooltip key={s.id} content={serverState(mcpStatus.find((x) => x.id === s.id))}>
                 <span className="flex h-7 items-center gap-1.5 rounded-lg border border-line pl-2 pr-1 text-xs font-medium text-muted">
@@ -431,6 +454,15 @@ export function Composer({ conversation, draftKey, streaming, onSubmit, onStop, 
                 <MenuItem onSelect={() => navigate({ name: 'skills' })}>Manage skills…</MenuItem>
               </MenuSub>
               <MenuSub label="Tools" icon={<Wrench className="size-4" />}>
+                {runnerOn && (
+                  <MenuCheckItem
+                    checked={settings.toolSources.includes(CODE)}
+                    description="Runs Python and bash in a sandbox"
+                    onCheckedChange={(on) => toggleSource(CODE, on)}
+                  >
+                    Code runner
+                  </MenuCheckItem>
+                )}
                 {mcpServers.length === 0 && <MenuLabel>No MCP servers yet</MenuLabel>}
                 {mcpServers.map((s) => (
                   <MenuCheckItem

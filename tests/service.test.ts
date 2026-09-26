@@ -791,6 +791,53 @@ describe('web_fetch in a chat with MCP servers', () => {
   })
 })
 
+// The sandbox is macOS's; CI runs on Linux.
+describe.runIf(process.platform === 'darwin')('the code runner in a reply', () => {
+  it('prepares the chat’s folder, asks before running, and gives the model what the code printed', async () => {
+    const { paths } = await import('../src/main/paths')
+    const { mkdtempSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const dir = mkdtempSync(join(tmpdir(), 'kiln-service-runner-'))
+    paths.workspaces = join(dir, 'workspaces')
+    paths.runner = join(dir, 'runner')
+    chat = (b, res, n) =>
+      n === 1
+        ? void res.writeHead(200).end(toolCall('run_code', { language: 'python', code: 'print(21 * 2)' }))
+        : reply('It is 42.')(b, res, n)
+    const r = service.send({
+      conversationId: null,
+      projectId: null,
+      content: 'what is 21*2? use code',
+      attachmentIds: [],
+      model: 'llama3.2',
+      think: null,
+      skills: [],
+      toolSources: ['code']
+    })
+    const ask = await waitFor(
+      () =>
+        events.find(
+          (e): e is Extract<ChatEvent, { type: 'tool' }> =>
+            e.type === 'tool' && e.conversationId === r.conversation.id && !!e.event.awaiting
+        ),
+      30_000
+    )
+    const system = (chatCalls[0].messages as Array<{ content: string }>)[0].content
+    expect(system).toMatch(/<code_runner>/)
+    expect(system).not.toMatch(/You cannot run code/)
+    expect(((chatCalls[0].tools as Array<{ function: { name: string } }>) ?? []).map((t) => t.function.name)).toContain('run_code')
+    approvals.decide(r.conversation.id, ask.messageId, ask.index, 'once')
+    const done = await waitFor(
+      () => events.find((e): e is Extract<ChatEvent, { type: 'done' }> => e.type === 'done' && e.conversationId === r.conversation.id),
+      60_000
+    )
+    const results = (chatCalls[1].messages as Array<{ role: string; content: string }>).filter((m) => m.role === 'tool')
+    expect(results[0].content).toMatch(/^Exit code 0\.\n\n42/)
+    expect(done.message.toolEvents[0]).toMatchObject({ tool: 'run_code', ok: true })
+  }, 120_000)
+})
+
 describe('markInterruptedReplies', () => {
   it('flags replies that never got their final save, and only those', () => {
     const c = createConversation({ projectId: null, model: 'llama3.2', think: null, skills: [], toolSources: [] })
