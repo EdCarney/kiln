@@ -4,7 +4,7 @@ import { readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { childEnv } from '../env'
-import { paths } from '../paths'
+import { isPlainId, paths } from '../paths'
 
 // Code runs with Kiln's own Python environments (venvs made from the Python 3 on the user's PATH), so packages the
 // model installs never touch the user's Python. A chat that may install packages (PyPI allowed) gets an environment of
@@ -73,15 +73,19 @@ export async function ensureBaseVenv(): Promise<string> {
   return baseVenvDir()
 }
 
-/** Delete every Kiln Python environment (and every package installed in them). The next run makes a fresh one. */
-export async function resetVenv(): Promise<void> {
+/**
+ * Delete Kiln's Python environments (and every package installed in them): the shared one, and these chats' own. The
+ * next run makes a fresh one. Only while none of those chats' code runs (see quiesceEvery): it may write its own.
+ */
+export async function resetVenv(chats: string[]): Promise<void> {
   // fs.rm removes links without following them, so a link code left in a chat's environment is only unlinked.
-  await Promise.all([chatVenvsDir(), baseVenvDir(), legacyVenvDir()].map((dir) => rm(dir, { recursive: true, force: true })))
+  const dirs = [baseVenvDir(), legacyVenvDir(), ...chats.filter(isPlainId).map(chatVenvDir)]
+  await Promise.all(dirs.map((dir) => rm(dir, { recursive: true, force: true })))
 }
 
 /** Delete a chat's own environment, with the chat. */
 export async function removeChatVenv(conversationId: string): Promise<void> {
-  if (!/^[\w-]+$/.test(conversationId)) return
+  if (!isPlainId(conversationId)) return
   await rm(chatVenvDir(conversationId), { recursive: true, force: true })
 }
 

@@ -13,6 +13,9 @@ export const paths = {
   runner: ''
 }
 
+/** Whether `id` is a plain id (letters, digits, `_`, `-`): safe as one folder name under Kiln's own folders. */
+export const isPlainId = (id: string): boolean => /^[\w-]+$/.test(id)
+
 export function initPaths(): void {
   paths.data = app.getPath('userData')
   paths.db = join(paths.data, 'kiln.db')

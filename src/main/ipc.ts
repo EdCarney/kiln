@@ -1,4 +1,4 @@
-import { copyFile, rm, writeFile } from 'node:fs/promises'
+import { rm, writeFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from 'electron'
 import { artifactExtension, slugify } from '@shared/artifactParser'
@@ -39,9 +39,17 @@ import { paths } from './paths'
 import { quarantine } from './quarantine'
 import { errorMessage } from './util'
 import { stageArtifact } from './protocols'
-import { installedPackages, resetVenv } from './runner/python'
+import { installedPackages } from './runner/python'
 import { runnerStatus } from './runner/status'
-import { removeWorkspace, workspaceFile, workspaceFiles } from './runner/workspace'
+import {
+  copyWorkspaceFile,
+  markWorkspaceFiles,
+  removeWorkspace,
+  resetEnvironments,
+  stageWorkspaceFile,
+  workspaceFile,
+  workspacePath
+} from './runner/workspace'
 import { getSettings, setApiKey, updateSettings } from './settings'
 import { getAccountUsage, invalidateAccountUsage, lastRawUsage } from './usage/account'
 import { currentBackground } from './background'
@@ -141,6 +149,7 @@ const impl: Impl = {
       await stopAll((conversationId) => getConversation(conversationId)?.projectId === id)
       const chats = listConversations({ projectId: id, limit: 100_000 }).map((c) => c.id)
       await removeFiles(deleteProject(id))
+      // Never throws: folders that can't go now are left for the next start's sweep.
       await Promise.all(chats.map(removeWorkspace))
     },
     files: async (id) => listProjectFiles(id),
@@ -270,28 +279,33 @@ const impl: Impl = {
   runner: {
     status: () => runnerStatus(),
     packages: () => installedPackages(),
-    resetEnvironment: () => resetVenv(),
+    // Every chat's code may write its own environment: none may be running while they're deleted (#71, #76).
+    resetEnvironment: () => resetEnvironments(),
     openFile: async (conversationId, path) => {
-      const file = await workspaceFile(conversationId, path)
-      if (!file) throw new Error('That file is no longer in the chat’s folder.')
+      if (!(await workspacePath(conversationId, path))) throw new Error('That file is no longer in the chat’s folder.')
       // Whatever opens the file runs outside the sandbox, and the file may carry the chat's data: on a Mac it's shown
       // with Quick Look, not handed to the app for its type, which might run its scripts or load remote content (#67).
-      const how = openWith(file, process.platform)
+      const how = openWith(path, process.platform)
       if (!how) throw new Error('Kiln only previews documents and images. Use Show in Finder for other files.')
+      // A copy, since the previewer reads by path whenever it likes, and code could put a link on that path (#71).
+      const copy = await stageWorkspaceFile(conversationId, path)
+      if (!copy) throw new Error('That file is no longer in the chat’s folder.')
+      await quarantine(copy)
       if (how === 'quick-look') {
         const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
         if (!win) throw new Error('There’s no window to preview the file in.')
-        return win.previewFile(file, basename(file))
+        return win.previewFile(copy, basename(path))
       }
-      const failed = await shell.openPath(file)
+      const failed = await shell.openPath(copy)
       if (failed) throw new Error(failed)
     },
     revealFile: async (conversationId, path) => {
       const file = await workspaceFile(conversationId, path)
       if (!file) throw new Error('That file is no longer in the chat’s folder.')
       // Finder shows the whole folder, so every file in it is marked as downloaded, not only this one: macOS then asks
-      // before running any script or app a run left there.
-      await quarantine(file, ...(await workspaceFiles(conversationId))).catch((err) => {
+      // before running any script or app a run left there. Not while the chat's code runs: it could swap a folder for
+      // a link while they're marked (#71, #76).
+      await markWorkspaceFiles(conversationId, path).catch((err) => {
         throw new Error(`Couldn’t mark the chat’s files as downloaded, so they weren’t shown: ${errorMessage(err)}`)
       })
       shell.showItemInFolder(file)
@@ -301,7 +315,7 @@ const impl: Impl = {
       if (!file) throw new Error('That file is no longer in the chat’s folder.')
       const res = await dialog.showSaveDialog({ defaultPath: basename(file) })
       if (res.canceled || !res.filePath) return false
-      await copyFile(file, res.filePath)
+      if (!(await copyWorkspaceFile(conversationId, path, res.filePath))) throw new Error('That file is no longer in the chat’s folder.')
       // A copy without the mark would open like any file of the user's: remove it rather than leave it unmarked.
       await quarantine(res.filePath).catch(async (err) => {
         await rm(res.filePath!, { force: true })

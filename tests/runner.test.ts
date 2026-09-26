@@ -1,7 +1,24 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync
+} from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, join, relative } from 'node:path'
+import { spawn } from 'node:child_process'
+import { EventEmitter } from 'node:events'
+import { basename, dirname, join } from 'node:path'
+import { PassThrough } from 'node:stream'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
+import type { GroupProcess } from '../src/main/processes'
 
 vi.mock('electron', () => ({
   safeStorage: { isEncryptionAvailable: () => false },
@@ -13,12 +30,15 @@ const { openDatabase } = await import('../src/main/db/index')
 const { createConversation, insertAttachment, insertMessage, linkAttachments } = await import('../src/main/db/conversations')
 const { updateSettings } = await import('../src/main/settings')
 const { paths } = await import('../src/main/paths')
-const { policyFor, PRIVATE_ROOTS, runSandboxed } = await import('../src/main/runner/sandbox')
+const { policyFor, PRIVATE_ROOTS, RUNTIME_TMPDIR, runSandboxed, supervise } = await import('../src/main/runner/sandbox')
 const workspace = await import('../src/main/runner/workspace')
 const tools = await import('../src/main/chat/tools')
 const python = await import('../src/main/runner/python')
 const { openWith, IMAGE_FILE } = await import('../src/shared/workspace')
-const { quarantine, quarantineValue, QUARANTINE_ATTR } = await import('../src/main/quarantine')
+const { quarantine, quarantineInWorkspace, quarantineValue, QUARANTINE_ATTR } = await import('../src/main/quarantine')
+const { reap } = await import('../src/main/runner/reaper')
+const { quiesce } = await import('../src/main/runner/lock')
+const { foldersOnPathInside } = await import('../src/main/runner/provider')
 
 const root = mkdtempSync(join(tmpdir(), 'kiln-runner-test-'))
 beforeAll(() => {
@@ -47,7 +67,7 @@ describe('the sandbox policy', () => {
         denyRead: ['/Users/me', '/Users', '/Volumes', '/private/var/folders', '/private/tmp'],
         allowRead: ['/w', '/Users/me/.claude/skills', '/Users/me/k/venv'],
         allowWrite: ['/w'],
-        denyWrite: ['/private/tmp/claude']
+        denyWrite: ['/private/tmp/claude', '/w/.kiln/.pinned']
       }
     })
   })
@@ -59,10 +79,19 @@ describe('the sandbox policy', () => {
     expect(policyFor({ ...base, home: '/Users', pypi: false }).filesystem.denyRead).toEqual(PRIVATE_ROOTS)
   })
 
+  it('lets code read tool folders on PATH inside hidden ones, never a hidden folder itself or one above it', () => {
+    const path = ['/Users/me/', '/Users/me/.local/bin', '/Users/me/./tools/../bin2', '/opt/homebrew/bin', '/Users', '/', 'rel/bin'].join(
+      ':'
+    )
+    expect(foldersOnPathInside(path, ['/Users/me', '/Users', '/Volumes'])).toEqual(['/Users/me/.local/bin', '/Users/me/bin2'])
+  })
+
   it('opens PyPI, and the Python environment for writing, only when allowed', () => {
     const p = policyFor({ ...base, pypi: true })
     expect(p.network.allowedDomains).toEqual(['pypi.org', 'files.pythonhosted.org'])
     expect(p.filesystem.allowWrite).toEqual(['/w', '/Users/me/k/venv'])
+    // #71: a path code can't write pins every folder above it, so none can be swapped for a link.
+    expect(p.filesystem.denyWrite).toEqual(['/private/tmp/claude', '/w/.kiln/.pinned', '/Users/me/k/venv/.pinned'])
   })
 })
 
@@ -126,6 +155,80 @@ describe('workspaces', () => {
     expect(await workspace.workspaceFile(id, 'out')).toBeNull()
   })
 
+  // #71: code can swap any folder in its workspace for a link, so a link anywhere in the path is refused, not only
+  // one that points outside: it could point elsewhere by the time the file is read.
+  it('hands out nothing through a link anywhere in its path, the workspace folder included', async () => {
+    const outside = mkdtempSync(join(tmpdir(), 'kiln-outside-'))
+    writeFileSync(join(outside, 'secret.txt'), 'secret')
+    const id = 'chat-linked-folder'
+    const dir = workspace.workspaceDir(id)
+    mkdirSync(join(dir, 'real'), { recursive: true })
+    writeFileSync(join(dir, 'real', 'mine.txt'), 'mine')
+    symlinkSync(outside, join(dir, 'out'))
+    symlinkSync(join(dir, 'real'), join(dir, 'inside'))
+    expect(await workspace.workspaceFile(id, 'out/secret.txt')).toBeNull()
+    expect(await workspace.workspaceFile(id, 'inside/mine.txt')).toBeNull()
+    expect(await workspace.readWorkspaceFile(id, 'out/secret.txt')).toBeNull()
+    expect((await workspace.readWorkspaceFile(id, 'real/mine.txt'))?.toString()).toBe('mine')
+    const copy = join(mkdtempSync(join(tmpdir(), 'kiln-copy-')), 'copy.txt')
+    expect(await workspace.copyWorkspaceFile(id, 'out/secret.txt', copy)).toBe(false)
+    expect(existsSync(copy)).toBe(false)
+    expect(await workspace.copyWorkspaceFile(id, 'real/mine.txt', copy)).toBe(true)
+    expect(readFileSync(copy, 'utf8')).toBe('mine')
+
+    // The workspace folder itself replaced by a link (code could, before the sandbox pinned it).
+    const rooted = 'chat-linked-root'
+    symlinkSync(outside, workspace.workspaceDir(rooted))
+    expect(await workspace.workspaceFile(rooted, 'secret.txt')).toBeNull()
+    expect(await workspace.stageWorkspaceFile(rooted, 'secret.txt')).toBeNull()
+    expect(await workspace.workspaceFiles(rooted)).toEqual([])
+    expect(await workspace.snapshot(workspace.workspaceDir(rooted))).toEqual(new Map())
+  })
+
+  it('makes a real folder of a workspace, or its .kiln or uploads, that a link replaced, writing nothing through it', async () => {
+    const outside = mkdtempSync(join(tmpdir(), 'kiln-outside-'))
+    const file = join(outside, 'notes.txt')
+    writeFileSync(file, 'keep')
+    const c = createConversation({ projectId: null, model: 'm', think: null, skills: [] })
+    const m = insertMessage({ conversationId: c.id, parentId: null, role: 'user', content: 'data' })
+    writeFileSync(join(root, 'files', 'u1'), 'a,b\n')
+    insertAttachment({
+      id: 'u1',
+      kind: 'document',
+      name: 'sales.csv',
+      mime: 'text/csv',
+      size: 4,
+      path: join(root, 'files', 'u1'),
+      text: 'a,b',
+      token_est: 1
+    })
+    linkAttachments(['u1'], m.id)
+    const dir = workspace.workspaceDir(c.id)
+    const untouched = () => expect(readdirSync(outside)).toEqual(['notes.txt'])
+
+    mkdirSync(paths.workspaces, { recursive: true })
+    symlinkSync(outside, dir)
+    await workspace.prepareWorkspace(c.id)
+    expect(lstatSync(dir).isDirectory()).toBe(true)
+    untouched()
+
+    for (const sub of ['.kiln', 'uploads']) {
+      rmSync(join(dir, sub), { recursive: true })
+      symlinkSync(outside, join(dir, sub))
+      await workspace.prepareWorkspace(c.id)
+      expect(lstatSync(join(dir, sub)).isDirectory()).toBe(true)
+      untouched()
+    }
+    // An upload replaced by a link to a file elsewhere: the copy replaces the link instead of overwriting that file.
+    rmSync(join(dir, 'uploads', 'sales.csv'))
+    symlinkSync(file, join(dir, 'uploads', 'sales.csv'))
+    await workspace.prepareWorkspace(c.id)
+    expect(lstatSync(join(dir, 'uploads', 'sales.csv')).isFile()).toBe(true)
+    expect(readFileSync(join(dir, 'uploads', 'sales.csv'), 'utf8')).toBe('a,b\n')
+    expect(readFileSync(file, 'utf8')).toBe('keep')
+    untouched()
+  })
+
   // Show in Finder marks these: Finder shows the whole folder, not only the file (#67).
   it('lists every file Finder would show, nearest first, leaving out .kiln and never following links', async () => {
     const id = 'chat-finder'
@@ -138,11 +241,92 @@ describe('workspaces', () => {
     for (const f of ['a/b/deep.txt', 'a/mid.txt', 'top.command', 'uploads/data.csv', '.kiln/run-1.py']) writeFileSync(join(dir, f), 'x')
     symlinkSync(outside, join(dir, 'linked'))
     symlinkSync(join(outside, 'mine.txt'), join(dir, 'mine.txt'))
-    const files = (await workspace.workspaceFiles(id)).map((f) => relative(dir, f))
+    const files = await workspace.workspaceFiles(id)
     expect([...files].sort()).toEqual(['a/b/deep.txt', 'a/mid.txt', 'top.command', 'uploads/data.csv'])
     expect(files.indexOf('top.command')).toBeLessThan(files.indexOf('a/mid.txt'))
     expect(files.indexOf('a/mid.txt')).toBeLessThan(files.indexOf('a/b/deep.txt'))
     expect(await workspace.workspaceFiles('../workspaces')).toEqual([])
+  })
+})
+
+describe('workspaces, further', () => {
+  it('names only the uploads that are there, and leaves a copy alone when its attachment’s file is gone', async () => {
+    const c = createConversation({ projectId: null, model: 'm', think: null, skills: [] })
+    const m = insertMessage({ conversationId: c.id, parentId: null, role: 'user', content: 'data' })
+    insertAttachment({
+      id: 'g1',
+      kind: 'document',
+      name: 'gone.csv',
+      mime: 'text/csv',
+      size: 9,
+      path: join(root, 'files', 'no-such-file'),
+      text: 'x',
+      token_est: 1
+    })
+    linkAttachments(['g1'], m.id)
+    mkdirSync(join(workspace.workspaceDir(c.id), 'uploads'), { recursive: true })
+    writeFileSync(join(workspace.workspaceDir(c.id), 'uploads', 'gone.csv'), 'edited')
+    expect((await workspace.prepareWorkspace(c.id)).uploads).toEqual([])
+    expect(readFileSync(join(workspace.workspaceDir(c.id), 'uploads', 'gone.csv'), 'utf8')).toBe('edited')
+  })
+
+  it('previews a copy kept in one place per file, removed with the chat', async () => {
+    const id = 'chat-preview'
+    const dir = workspace.workspaceDir(id)
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'a.txt'), 'one')
+    const first = await workspace.stageWorkspaceFile(id, 'a.txt')
+    writeFileSync(join(dir, 'a.txt'), 'two')
+    const second = await workspace.stageWorkspaceFile(id, 'a.txt')
+    expect(second).toBe(first)
+    expect(readFileSync(second!, 'utf8')).toBe('two')
+    expect(await workspace.stageWorkspaceFile(id, 'missing.txt')).toBeNull()
+    await workspace.removeWorkspace(id)
+    expect(existsSync(first!)).toBe(false)
+  })
+
+  // A chat delete that couldn't stop the chat's code leaves its folders; the next start removes them.
+  it('deletes the folders of chats that are gone at startup, never those of chats that exist, nor when quitting', async () => {
+    const kept = createConversation({ projectId: null, model: 'm', think: null, skills: [] })
+    await workspace.prepareWorkspace(kept.id)
+    const gone = 'chat-gone'
+    const folders = [workspace.workspaceDir(gone), workspace.scriptsDir(gone), python.chatVenvDir(gone)]
+    for (const dir of folders) mkdirSync(dir, { recursive: true })
+    await workspace.sweepWorkspaces()
+    for (const dir of folders) expect(existsSync(dir), dir).toBe(true)
+    await workspace.sweepWorkspaces({ removeOrphans: true })
+    for (const dir of folders) expect(existsSync(dir), dir).toBe(false)
+    expect(existsSync(workspace.workspaceDir(kept.id))).toBe(true)
+  })
+})
+
+// A run exits, then Kiln stops what it left and drains its output: the time limit and Stop must still be right.
+describe('supervising a run', () => {
+  const fake = () => {
+    const child = Object.assign(new EventEmitter(), { stdout: new PassThrough(), stderr: new PassThrough() })
+    const stop = vi.fn(async () => undefined)
+    return { proc: { child, stop } as unknown as GroupProcess, child, stop }
+  }
+
+  it('doesn’t call a run timed out when its leftovers are still being stopped at the time limit', async () => {
+    const { proc, child, stop } = fake()
+    const result = supervise(proc, { timeoutMs: 50 }, () => new Promise((resolve) => setTimeout(resolve, 150)))
+    child.stdout.end('done')
+    child.emit('exit', 0)
+    child.emit('close', 0)
+    expect(await result).toMatchObject({ code: 0, timedOut: false, output: 'done' })
+    expect(stop).not.toHaveBeenCalled()
+  })
+
+  it('stops a run at once when Stop came before it started', async () => {
+    const { proc, child, stop } = fake()
+    const controller = new AbortController()
+    controller.abort()
+    const result = supervise(proc, { timeoutMs: 10_000, signal: controller.signal }, async () => undefined)
+    expect(stop).toHaveBeenCalled()
+    child.emit('exit', null)
+    child.emit('close', null)
+    await expect(result).rejects.toThrow()
   })
 })
 
@@ -175,8 +359,8 @@ describe("Kiln's Python environments", () => {
     plantPackage(python.chatVenvDir('chat-d'), 'six', '1.16.0')
     symlinkSync(outside, join(python.chatVenvDir('chat-d'), 'lib', 'link'))
     mkdirSync(join(paths.runner, 'venv', 'bin'), { recursive: true })
-    await python.resetVenv()
-    expect(existsSync(python.chatVenvsDir())).toBe(false)
+    await python.resetVenv(['chat-a', 'chat-b', 'chat-d'])
+    expect(existsSync(python.chatVenvDir('chat-d'))).toBe(false)
     expect(existsSync(join(paths.runner, 'venv'))).toBe(false)
     expect(readFileSync(join(outside, 'keep.txt'), 'utf8')).toBe('keep')
     expect(await python.installedPackages()).toEqual([])
@@ -229,6 +413,49 @@ describe('handing out files a run wrote', () => {
     await expect(quarantine(join(root, 'missing.txt'))).rejects.toThrow()
   })
 
+  // Show in Finder shows the whole folder: every file in it is marked, never one a link leads to (#67, #71).
+  it.runIf(process.platform === 'darwin')('marks every file Finder shows in a chat’s folder, and nothing through a link', async () => {
+    const id = 'chat-mark'
+    const dir = workspace.workspaceDir(id)
+    const outside = mkdtempSync(join(tmpdir(), 'kiln-outside-'))
+    writeFileSync(join(outside, 'mine.txt'), 'x')
+    mkdirSync(join(dir, 'out'), { recursive: true })
+    mkdirSync(join(dir, '.kiln'), { recursive: true })
+    for (const f of ['shown.txt', 'out/run.command', '.kiln/run-1.py']) writeFileSync(join(dir, f), 'x')
+    symlinkSync(outside, join(dir, 'linked'))
+    await workspace.markWorkspaceFiles(id, 'shown.txt')
+    const { execFileSync } = await import('node:child_process')
+    const marked = (f: string) => {
+      try {
+        return /^0081;/.test(execFileSync('/usr/bin/xattr', ['-p', QUARANTINE_ATTR, f], { stdio: 'pipe' }).toString())
+      } catch {
+        return false
+      }
+    }
+    expect([join(dir, 'shown.txt'), join(dir, 'out', 'run.command')].map(marked)).toEqual([true, true])
+    expect([join(dir, '.kiln', 'run-1.py'), join(outside, 'mine.txt')].map(marked)).toEqual([false, false])
+  })
+
+  it.runIf(process.platform === 'darwin')(
+    'marks nothing in a workspace when a path has a link anywhere in it, writable or not',
+    async () => {
+      const dir = realpathSync(mkdtempSync(join(tmpdir(), 'kiln-marks-')))
+      mkdirSync(join(dir, 'real'))
+      writeFileSync(join(dir, 'real', 'writable.txt'), 'x')
+      writeFileSync(join(dir, 'real', 'locked.txt'), 'x')
+      chmodSync(join(dir, 'real', 'locked.txt'), 0o444)
+      writeFileSync(join(dir, 'first.txt'), 'x')
+      symlinkSync(join(dir, 'real'), join(dir, 'linked'))
+      for (const f of ['writable.txt', 'locked.txt'])
+        await expect(quarantineInWorkspace(join(dir, 'first.txt'), join(dir, 'linked', f))).rejects.toThrow()
+      const { execFileSync } = await import('node:child_process')
+      expect(() => execFileSync('/usr/bin/xattr', ['-p', QUARANTINE_ATTR, join(dir, 'first.txt')], { stdio: 'pipe' })).toThrow()
+      expect(statSync(join(dir, 'real', 'locked.txt')).mode & 0o777).toBe(0o444)
+      await quarantineInWorkspace(join(dir, 'first.txt'), join(dir, 'real', 'locked.txt'))
+      expect(statSync(join(dir, 'real', 'locked.txt')).mode & 0o777).toBe(0o644)
+    }
+  )
+
   // Code can make a file read-only, and the mark needs write permission: that mustn't leave a script unmarked.
   it.runIf(process.platform === 'darwin')('marks many files at once, read-only ones too, and a link itself, not its target', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'kiln-marks-'))
@@ -256,7 +483,8 @@ describe('handing out files a run wrote', () => {
 
 // The sandbox itself is macOS's (sandbox-exec); CI runs on Linux.
 describe.runIf(process.platform === 'darwin' && existsSync('/usr/bin/sandbox-exec'))('running code in the sandbox', () => {
-  const ws = mkdtempSync(join(tmpdir(), 'kiln-ws-'))
+  // Real paths, as run_code uses: the pin (and so the leftover check) matches the real path.
+  const ws = realpathSync(mkdtempSync(join(tmpdir(), 'kiln-ws-')))
   const fakeHome = mkdtempSync(join(tmpdir(), 'kiln-home-'))
   const elsewhere = mkdtempSync(join(tmpdir(), 'kiln-elsewhere-'))
   writeFileSync(join(fakeHome, 'private.txt'), 'private')
@@ -429,6 +657,162 @@ describe.runIf(process.platform === 'darwin' && existsSync('/usr/bin/sandbox-exe
       expect(r.content).toMatch(/^Exit code 0\.\n\n2/)
       const json = await tools.runTool(call('python', { code: 'print(3)' }), ctx(dir))
       expect(json.content).toMatch(/^Exit code 0\.\n\n3/)
+    }, 120_000)
+  })
+
+  // #73: code can leave its process group (fork, setsid, let go of its output) and outlive the run.
+  describe('code a run leaves running', () => {
+    const leftover = (keepOutput: boolean) =>
+      [
+        'import os, time',
+        'if os.fork() == 0:',
+        '    os.setsid()',
+        ...(keepOutput ? [] : ["    fd = os.open('/dev/null', os.O_RDWR)", '    for n in (0, 1, 2): os.dup2(fd, n)']),
+        "    open('child.pid', 'w').write(str(os.getpid()))",
+        '    while True:',
+        "        open('tick.txt', 'w').write(str(time.time())); time.sleep(0.05)",
+        "while not os.path.exists('child.pid'): time.sleep(0.01)",
+        "print('parent done')"
+      ].join('\n')
+    /** A sandboxed `sleep` started straight from the runtime, as if a run had left it (no run's end stops it). */
+    const leftBehind = async (dir: string, p: typeof policy) => {
+      const { SandboxManager } = await import('@anthropic-ai/sandbox-runtime')
+      const { argv, env } = await SandboxManager.wrapWithSandboxArgv('exec sleep 30', '/bin/bash', p, undefined, dir, { commandId: 'left' })
+      return spawn(argv[0], argv.slice(1), { cwd: dir, env: { ...process.env, ...env }, stdio: 'ignore', detached: true })
+    }
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 1000))
+
+    it('is stopped by the time the run returns, even outside its process group, and can’t keep the run going', async () => {
+      for (const keepOutput of [false, true]) {
+        rmSync(join(ws, 'child.pid'), { force: true })
+        writeFileSync(join(ws, 'leftover.py'), leftover(keepOutput))
+        const started = Date.now()
+        const r = await sandboxed('python3 leftover.py', { timeoutMs: 30_000 })
+        expect(r, `keepOutput=${keepOutput}`).toMatchObject({ code: 0, timedOut: false })
+        expect(r.output).toContain('parent done')
+        expect(Date.now() - started).toBeLessThan(15_000)
+        expect(alive(Number(readFileSync(join(ws, 'child.pid'), 'utf8'))), `keepOutput=${keepOutput}`).toBe(false)
+      }
+    }, 60_000)
+
+    // Kiln's sandbox for a chat is the only one that may write its folder but not the folder above it. macOS agents and
+    // browser helpers may write the temp folder the test workspaces are in: those must never be touched.
+    it("stops only that chat's code: not another chat's, a program outside the sandbox, or a sandbox that may write more", async () => {
+      const other = realpathSync(mkdtempSync(join(tmpdir(), 'kiln-ws-')))
+      const otherChat = await leftBehind(
+        other,
+        policyFor({ workspace: other, home: fakeHome, readable: [], venv: join(root, 'venv'), pypi: false })
+      )
+      const wider = await leftBehind(ws, { ...policy, filesystem: { ...policy.filesystem, allowWrite: [dirname(ws)] } })
+      // Shaped like a sandboxed app the user opened the folder in: it may write it, and delete it (no pin).
+      const granted = await leftBehind(ws, { ...policy, filesystem: { ...policy.filesystem, denyWrite: [RUNTIME_TMPDIR] } })
+      const unsandboxed = spawn('sleep', ['30'], { cwd: ws, stdio: 'ignore', detached: true })
+      const mine = await leftBehind(ws, policy)
+      await settle()
+      try {
+        expect(await reap([ws])).toEqual({ stopped: 1, checked: [ws] })
+        await new Promise((resolve) => setTimeout(resolve, 200))
+        expect(alive(mine.pid!)).toBe(false)
+        for (const p of [otherChat, wider, granted, unsandboxed]) expect(alive(p.pid!)).toBe(true)
+      } finally {
+        for (const p of [otherChat, wider, granted, unsandboxed, mine]) p.kill('SIGKILL')
+      }
+    }, 60_000)
+
+    it('is stopped in every chat at startup or when quitting, when no run’s end did it (a crash)', async () => {
+      const c = createConversation({ projectId: null, model: 'm', think: null, skills: [] })
+      const { dir } = await workspace.prepareWorkspace(c.id)
+      const real = realpathSync(dir)
+      const left = await leftBehind(
+        dir,
+        policyFor({ workspace: real, home: fakeHome, readable: [], venv: join(root, 'venv'), pypi: false })
+      )
+      await settle()
+      expect(await workspace.sweepWorkspaces()).toBeGreaterThanOrEqual(1)
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      expect(alive(left.pid!)).toBe(false)
+    }, 60_000)
+  })
+
+  // #76: a run waits while Kiln works in its folder; Stop pressed meanwhile must still stop it.
+  it('waits for Kiln’s work in the folder to finish before code starts, and heeds Stop pressed meanwhile', async () => {
+    let release = () => {}
+    const work = quiesce(ws, () => new Promise<void>((resolve) => (release = resolve)))
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    const controller = new AbortController()
+    let started = false
+    const run = sandboxed('touch started-too-soon', { signal: controller.signal }).finally(() => (started = true))
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(started).toBe(false)
+    controller.abort()
+    release()
+    await work
+    await expect(run).rejects.toThrow()
+    expect(existsSync(join(ws, 'started-too-soon'))).toBe(false)
+  }, 30_000)
+
+  // #71: Kiln works in a chat's folder outside the sandbox, so it must never follow a link code left there.
+  describe('links code leaves in its workspace', () => {
+    const ctx = (dir: string) => ({ skills: false, web: false, sources: ['code'], workspace: dir })
+    const call = (name: string, args: Record<string, unknown>) => ({ function: { name, arguments: args } })
+    const chat = async () => {
+      const c = createConversation({ projectId: null, model: 'm', think: null, skills: [] })
+      return { id: c.id, dir: (await workspace.prepareWorkspace(c.id)).dir }
+    }
+
+    it('can’t replace the workspace or its .kiln folder, so later runs still work there', async () => {
+      const { dir } = await chat()
+      const elsewhere = mkdtempSync(join(tmpdir(), 'kiln-elsewhere-'))
+      const swap = [
+        `cd / && rm -rf "${dir}"; mv "${dir}" "${dir}.moved"; ln -s "${elsewhere}" "${dir}.link" && mv "${dir}.link" "${dir}"`,
+        `cd "${dir}" && rm -rf .kiln; mv .kiln .kiln-moved; ln -s "${elsewhere}" .kiln-link && mv -f .kiln-link .kiln`,
+        'true'
+      ].join('; ')
+      const r = await tools.runTool(call('run_code', { language: 'bash', code: swap }), ctx(dir))
+      expect(r.content).toMatch(/Operation not permitted/)
+      expect(lstatSync(dir).isDirectory()).toBe(true)
+      expect(lstatSync(join(dir, '.kiln')).isDirectory()).toBe(true)
+      const next = await tools.runTool(
+        call('run_code', { language: 'python', code: "open('ok.txt', 'w').write('ok')\nprint('ok')" }),
+        ctx(dir)
+      )
+      expect(next.content).toMatch(/^Exit code 0\.\n\nok/)
+      expect(readdirSync(elsewhere)).toEqual([])
+    }, 120_000)
+
+    it('keeps the scripts a run executes outside the workspace, where code can’t change them', async () => {
+      const { id, dir } = await chat()
+      const code = [
+        'import os',
+        'print(os.path.dirname(__file__))',
+        'try:',
+        "    open(__file__, 'a').write('x')",
+        "    print('changed')",
+        'except OSError as e:',
+        "    print('refused', e.errno)"
+      ].join('\n')
+      const r = await tools.runTool(call('run_code', { language: 'python', code }), ctx(dir))
+      expect(r.content).toContain(workspace.scriptsDir(id))
+      expect(r.content).toMatch(/refused 1\b/)
+      expect(readdirSync(join(dir, '.kiln')).filter((f) => f.startsWith('run-'))).toEqual([])
+    }, 120_000)
+
+    it('lists nothing through a link, and waits for none of the chat’s code to be running to list its files', async () => {
+      const { id, dir } = await chat()
+      const elsewhere = mkdtempSync(join(tmpdir(), 'kiln-elsewhere-'))
+      writeFileSync(join(elsewhere, 'secret.txt'), 'secret')
+      const code = `mkdir out && echo x > out/a.txt && rm -rf out && ln -s "${elsewhere}" out`
+      const r = await tools.runTool(call('run_code', { language: 'bash', code }), ctx(dir))
+      expect(r.content).toMatch(/^Exit code 0\./)
+      expect(r.event.files).toEqual([])
+      expect(await workspace.workspaceFiles(id)).toEqual([])
+      expect(await workspace.workspaceFile(id, 'out/secret.txt')).toBeNull()
+
+      const slow = tools.runTool(call('run_code', { language: 'bash', code: 'touch started; sleep 3' }), ctx(dir))
+      for (let i = 0; i < 200 && !existsSync(join(dir, 'started')); i++) await new Promise((resolve) => setTimeout(resolve, 50))
+      await expect(workspace.workspaceFiles(id)).rejects.toThrow(/Code is running in this chat/)
+      await slow
+      expect(await workspace.workspaceFiles(id)).toEqual(['started'])
     }, 120_000)
   })
 })

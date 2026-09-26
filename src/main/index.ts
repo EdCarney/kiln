@@ -15,6 +15,8 @@ import { initPaths, paths } from './paths'
 import { stopAll as stopServers } from './mcp/manager'
 import { hasChildren, stopAllGroups, trackProcesses } from './processes'
 import { handleProtocols, registerSchemes } from './protocols'
+import { codeMayBeRunning } from './runner/lock'
+import { clearPreviews, clearPreviewsSync, sweepWorkspaces } from './runner/workspace'
 import { refreshPrices } from './usage/pricing'
 
 app.setName('Kiln')
@@ -139,6 +141,12 @@ app.whenReady().then(async () => {
     if (process.env.KILN_DEBUG)
       appendFileSync(join(paths.data, 'debug.log'), `${new Date().toISOString()} PATH for spawned tools: ${path}\n`)
   })
+  // Code a run left running before a crash (it can outlive its process group) is stopped (#73), and the folders of
+  // chats deleted while their code couldn't be stopped go.
+  void clearPreviews()
+  void sweepWorkspaces({ removeOrphans: true })
+    .then((n) => n && console.warn(`Kiln: stopped ${n} ${n === 1 ? 'process' : 'processes'} code left running in an earlier session`))
+    .catch((err) => console.warn("Kiln: couldn't check for code left running:", err))
   markInterruptedReplies()
   settleStaleTraces()
   await removeFiles(staleAttachmentPaths(Date.now() - 24 * 60 * 60 * 1000))
@@ -172,7 +180,7 @@ function watchApprovals(): void {
 // the processes Kiln started, before the process exits. Anything still running after that is killed on exit.
 let quitting = false
 app.on('before-quit', (event) => {
-  if (quitting || (!isReplying() && !hasChildren())) return
+  if (quitting || (!isReplying() && !hasChildren() && !codeMayBeRunning())) return
   event.preventDefault()
   quitting = true
   const timeout = new Promise((resolve) => setTimeout(resolve, 3000))
@@ -180,8 +188,13 @@ app.on('before-quit', (event) => {
   const stopped = stopAll()
     .then(() => stopServers())
     .then(() => stopAllGroups())
+    // Code a run left running outside its process group (#73); normally each run's end already stopped it.
+    .then(() => sweepWorkspaces())
+    .catch((err) => console.warn('Kiln: while quitting:', err))
   void Promise.race([stopped, timeout]).finally(() => app.quit())
 })
+
+app.on('will-quit', () => clearPreviewsSync())
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()

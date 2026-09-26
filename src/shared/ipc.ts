@@ -173,10 +173,11 @@ export interface KilnApi {
     status(): Promise<RunnerStatus>
     /** Packages installed in the chats' Python environments. */
     packages(): Promise<Array<{ name: string; version: string }>>
-    /** Delete Kiln's Python environments and everything installed in them. */
+    /** Delete Kiln's Python environments and everything installed in them. Refused while code runs in a chat. */
     resetEnvironment(): Promise<void>
-    /** A file a run wrote, by its path in the chat’s workspace: preview it (Quick Look on a Mac), show it in Finder
-     * (marking every file in the folder as downloaded), or save a copy (marked too). */
+    /** A file a run wrote, by its path in the chat’s workspace: preview a copy of it (Quick Look on a Mac), show it in
+     * Finder (marking every file in the folder as downloaded; refused while the chat's code runs), or save a copy
+     * (marked too). */
     openFile(conversationId: ID, path: string): Promise<void>
     revealFile(conversationId: ID, path: string): Promise<void>
     saveFile(conversationId: ID, path: string): Promise<boolean>
