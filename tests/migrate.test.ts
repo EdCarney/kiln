@@ -239,6 +239,32 @@ describe('finishing the move', () => {
     expect(readFileSync(join(dir, 'workspaces', 'c3', '.ollmost', 'new.txt'), 'utf8')).toBe('new')
   })
 
+  it('carries on past a folder it can’t change, keeping the marker so the next launch tries again', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const dir = mkdtempSync(join(tmpdir(), 'migrate-'))
+    writeFileSync(join(dir, migrate.MARKER), '')
+    // Code can make its own environment and workspace unwritable.
+    const locked = [join(dir, 'runner', 'venvs', 'c1', 'lib'), join(dir, 'workspaces', 'c1')]
+    mkdirSync(locked[0], { recursive: true })
+    writeFileSync(join(locked[0], 'site.py'), '')
+    mkdirSync(join(dir, 'workspaces', 'c1', '.kiln'), { recursive: true })
+    mkdirSync(join(dir, 'workspaces', 'c2', '.kiln'), { recursive: true })
+    for (const folder of locked) chmodSync(folder, 0o555)
+    try {
+      await migrate.finishMigration(dir, '.ollmost')
+      expect(existsSync(join(dir, 'workspaces', 'c2', '.ollmost'))).toBe(true)
+      expect(existsSync(join(dir, migrate.MARKER))).toBe(true)
+      expect(warn).toHaveBeenCalled()
+    } finally {
+      for (const folder of locked) chmodSync(folder, 0o755)
+      warn.mockRestore()
+    }
+    await migrate.finishMigration(dir, '.ollmost')
+    expect(existsSync(join(dir, 'runner', 'venvs'))).toBe(false)
+    expect(existsSync(join(dir, 'workspaces', 'c1', '.ollmost'))).toBe(true)
+    expect(existsSync(join(dir, migrate.MARKER))).toBe(false)
+  })
+
   it('relabels the debugger’s recorded endpoints', () => {
     const d = new DatabaseSync(':memory:')
     const index = MIGRATIONS.findIndex((sql) => sql.includes('recorded endpoints'))

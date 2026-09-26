@@ -101,7 +101,7 @@ Here `T` is the Ollmost data folder and `S` is the Kiln folder next to it.
 > Quit Kiln to move your chats, projects and settings to Ollmost. Ollmost will carry on by itself once Kiln has quit.
 > [Quit Ollmost]
 
-Ollmost checks the lock every 500 ms. When Kiln has quit, it closes the box (`showMessageBox`'s `signal`), then calls `app.relaunch()` and `app.exit(0)`. The relaunch finds Kiln gone and moves the folder. Ollmost doesn't quit Kiln itself: sending Kiln an Apple event would trigger a macOS Automation permission prompt.
+Ollmost checks the lock every 500 ms. When Kiln has quit, it closes the box (`showMessageBox`'s `signal`), then calls `app.relaunch()` and `app.exit(0)`. The relaunch finds Kiln gone and moves the folder. The box is a sheet on a small window: on macOS, `signal` closes only a box that has a parent window, and one without waits for a click. Ollmost doesn't quit Kiln itself: sending Kiln an Apple event would trigger a macOS Automation permission prompt.
 
 **If the move fails** (for example with a permissions error), Ollmost shows "Ollmost couldn't move your Kiln data: <error>. Nothing was changed; Kiln still has all of it." and quits before creating `T`. A later launch tries again.
 
@@ -114,6 +114,7 @@ Phase 2 runs when `T/.migrating-from-kiln` exists, or when `T/kiln.db` exists an
 1. **Database file (2a, before it opens).** Rename `kiln.db-wal` and `kiln.db-shm` first, then `kiln.db`, each to its `ollmost.db` name, skipping any that don't exist.
    - The order matters. SQLite finds the WAL by the database's name, and a crash between renames must never leave `ollmost.db` next to an orphaned `kiln.db-wal`: that would drop transactions not yet checkpointed.
    - If both `kiln.db` and `ollmost.db` exist, nothing is renamed: Ollmost opens `ollmost.db`, leaves `kiln.db` where it is, and logs the problem.
+   - If a rename fails, Ollmost shows "Ollmost couldn't open your Kiln data: <error>. It's all still in <folder>. Ollmost tries again the next time it opens." and quits without opening the database: opening it would start an empty `ollmost.db` next to `kiln.db`.
 2. **SQL migration (runs for every database, migrated or not).** This is a new entry in `MIGRATIONS`:
    ```sql
    -- File paths relative to the data folder: files/<name> (every stored file lives in files/).
@@ -136,7 +137,7 @@ Phase 2 runs when `T/.migrating-from-kiln` exists, or when `T/kiln.db` exists an
    - In each `workspaces/<id>`, rename `.kiln` to `.ollmost`. This keeps the run's `HOME`, where code may have saved configuration. If `.ollmost` already exists, `.kiln` is removed instead.
    - `rename` acts on the entry itself, so if code swapped `.kiln` for a link, the link is what gets moved. `prepareWorkspace` already replaces a link with a folder where it expects one.
    - `runner/scripts` is kept. `runner/previews` is already cleared at every start.
-5. **Delete `T/.migrating-from-kiln`.**
+5. **Delete `T/.migrating-from-kiln`,** if every step above succeeded. A step that fails (code can make its own environment or workspace unwritable) is logged and the others still run: the marker stays, so the next launch tries again, and Ollmost starts either way.
 
 ### B4. Stored paths are relative from now on
 
@@ -161,7 +162,7 @@ This covers decision 1 for the migration, and for any later keychain loss.
   - The migration's `env = null` makes the same state.
 - **The manager doesn't start a locked server.** Its status is an error: "Ollmost couldn't read this server's environment values. Enter them again in Settings → Tools." Its tools aren't offered to chats.
 - **Settings → Tools** shows the missing variable names on the server, with value fields.
-  - `saveServer` on a locked server requires a value, or an explicit removal, for every missing key. It says which keys are still missing.
+  - `saveServer` on a locked server keeps every missing key it isn't given a value for, so saving only some of them leaves the server locked, still naming what's missing. (Refusing such a save would break switching "Use in new chats", which saves with no values.)
   - Saving all of them unlocks the server.
 
 ### B6. The one-time notice
@@ -247,7 +248,7 @@ Every commit leaves a working app. **In particular, no commit ever launches with
   - The marker goes last, and a second run is a no-op.
 - **Locked MCP servers** (with `safeStorage` mocked, as `tests/mcp.test.ts` already does):
   - A decryption failure locks the server, and the manager refuses to start it.
-  - Saving only some of the missing values is refused, and saving all of them unlocks it.
+  - Saving only some of the missing values keeps the server locked, and saving all of them unlocks it.
 
 **Sandbox test (the existing macOS Seatbelt suite):**
 - A sandboxed process allowed to write folder A stays in A.
@@ -264,6 +265,7 @@ Every commit leaves a working app. **In particular, no commit ever launches with
    - the notice shows
    - `<tmp>/Kiln` is gone
    - a code run works, with its environment rebuilt
+4. Before step 3's launch, with a stand-in Kiln (Electron holding `<tmp>/Kiln`'s singleton lock): Ollmost waits without creating `<tmp>/Ollmost`, and once the stand-in quits, it quits and relaunches by itself, and the relaunch moves the folder.
 
 **Before merging:**
 - `git grep -i kiln` finds only the migration code and its tests, the installers' `Kiln.app` cleanup, the README's "Coming from Kiln" note, and this spec.

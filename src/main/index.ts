@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog, Menu, type MenuItemConstructorOptions, nativeTheme, shell } from 'electron'
 import { EVENT_CHANNELS } from '@shared/ipc'
+import { BUILTIN_THEMES, usesDark } from '@shared/themes'
 import { currentBackground, currentThemeSource } from './background'
 import { onWaitingChange } from './chat/approvals'
 import { isReplying, markInterruptedReplies, stopAll } from './chat/service'
@@ -20,6 +21,7 @@ import {
   moveKilnData,
   oldDataFolder,
   renameDatabase,
+  renameFailedText,
   STILL_OPEN,
   waitForKiln
 } from './migrate'
@@ -31,6 +33,7 @@ import { codeMayBeRunning } from './runner/lock'
 import { OLLMOST_DIR } from './runner/sandbox'
 import { clearPreviews, clearPreviewsSync, sweepWorkspaces } from './runner/workspace'
 import { refreshPrices } from './usage/pricing'
+import { errorMessage } from './util'
 
 app.setName('Ollmost')
 // Tests and experiments can point Ollmost at a throwaway data folder.
@@ -158,7 +161,16 @@ app.whenReady().then(async () => {
   initPaths(dataDir)
   // A move from the old app finishes here: its database renamed before it opens, the rest once it has.
   const migrating = migrationPending(paths.data, paths.db)
-  if (migrating) renameDatabase(paths.data, paths.db)
+  if (migrating) {
+    // Opening the database before it has its new name would start an empty one next to Kiln's.
+    try {
+      renameDatabase(paths.data, paths.db)
+    } catch (err) {
+      const { title, content } = renameFailedText(errorMessage(err), paths.data)
+      dialog.showErrorBox(title, content)
+      return app.exit(1)
+    }
+  }
   // Before anything starts a process: record live process groups, and stop any a crashed run left behind.
   void trackProcesses(join(paths.data, 'processes.json')).then((n) => {
     if (n) console.warn(`Ollmost: stopped ${n} process ${n === 1 ? 'group' : 'groups'} left running by an earlier session`)
@@ -208,10 +220,28 @@ function watchApprovals(): void {
 /** The old app is still open: say so, and relaunch (which moves its data) once it has quit. */
 async function waitThenRelaunch(): Promise<void> {
   const from = oldDataFolder(dataDir)
+  // On macOS a message box closes by its signal only as a sheet on a window: on its own, it waits for a click.
+  const theme = BUILTIN_THEMES[0]
+  const window = new BrowserWindow({
+    width: 480,
+    height: 220,
+    title: app.name,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    backgroundColor: (usesDark(theme, 'system', nativeTheme.shouldUseDarkColors) ? theme.dark : theme.light).canvas
+  })
   const quit = await waitForKiln(
     () => kilnPid(from) !== null,
     (signal) =>
-      dialog.showMessageBox({ type: 'info', message: STILL_OPEN.message, detail: STILL_OPEN.detail, buttons: [STILL_OPEN.button], signal })
+      dialog.showMessageBox(window, {
+        type: 'info',
+        message: STILL_OPEN.message,
+        detail: STILL_OPEN.detail,
+        buttons: [STILL_OPEN.button],
+        signal
+      })
   )
   if (quit) app.relaunch()
   app.exit(0)

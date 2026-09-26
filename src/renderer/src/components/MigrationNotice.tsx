@@ -28,7 +28,7 @@ export function MigrationNotice() {
       {notice.apiKey && (
         <div className="flex items-center justify-between gap-3">
           <span>{NOTICE_API_KEY}</span>
-          <Button size="sm" onClick={() => navigate({ name: 'settings', tab: 'general' })}>
+          <Button size="sm" onClick={() => navigate({ name: 'settings', tab: 'usage' })}>
             Open Settings
           </Button>
         </div>

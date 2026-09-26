@@ -1,13 +1,14 @@
 // Live end-to-end smoke test: drives the built app with Playwright against real Ollama models.
 // Usage: npm run build && npm run e2e   (needs the Ollama app running and `ollama signin` for cloud models)
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, renameSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { fileURLToPath } from 'node:url'
+import electronPath from 'electron'
 import { _electron as electron } from 'playwright'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -1410,8 +1411,60 @@ const evilSvg = (port) =>
     mkdirSync(join(kiln, 'workspaces', conversationId, '.kiln', 'home'), { recursive: true })
     writeFileSync(join(kiln, 'workspaces', conversationId, '.kiln', 'home', 'saved.txt'), 'kept')
 
-    // 2. Ollmost's first launch next to it.
+    // 2. Ollmost's first launch, while Kiln is still open: it waits, creating nothing, and carries on by itself once
+    // Kiln has quit. The stand-in for Kiln is Electron holding the Kiln folder's singleton lock, as Kiln does.
     const data = join(home, 'Ollmost')
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+    const until = async (test, ms) => {
+      for (const end = Date.now() + ms; Date.now() < end; await sleep(250)) if (test()) return true
+      return test()
+    }
+    const lockPid = (folder) => {
+      try {
+        return Number(readlinkSync(join(folder, 'SingletonLock')).split('-').pop())
+      } catch {
+        return null
+      }
+    }
+    const alive = (pid) => {
+      try {
+        return process.kill(pid, 0)
+      } catch {
+        return false
+      }
+    }
+    writeFileSync(
+      join(home, 'kiln.js'),
+      `const { app } = require('electron')
+app.setPath('userData', ${JSON.stringify(kiln)})
+app.requestSingleInstanceLock()
+process.on('SIGTERM', () => app.quit())
+`
+    )
+    const standIn = spawn(electronPath, [join(home, 'kiln.js')], { stdio: 'ignore' })
+    const locked = await until(() => lockPid(kiln) !== null, 15000)
+    const waiting = await electron.launch({ args: [ROOT], env: { ...process.env, OLLMOST_USER_DATA: data } })
+    let waitingEnded = false
+    waiting.once('close', () => (waitingEnded = true))
+    try {
+      await sleep(3000)
+      check('while Kiln is open, Ollmost waits and creates nothing', locked && !existsSync(data) && existsSync(join(kiln, 'kiln.db')))
+      standIn.kill('SIGTERM')
+      // The waiting Ollmost quits and relaunches, and the relaunch moves the folder. It gets no further here: it
+      // inherits Playwright's loader, which holds back Electron's ready event until Playwright asks for it.
+      const moved = await until(() => !existsSync(kiln) && existsSync(join(data, 'kiln.db')), 20000)
+      check('once Kiln has quit, Ollmost carries on by itself', moved && (await until(() => waitingEnded, 5000)))
+    } finally {
+      if (alive(standIn.pid)) standIn.kill('SIGKILL')
+      if (!waitingEnded) waiting.process().kill('SIGKILL')
+      const relaunched = lockPid(data)
+      if (relaunched !== null && alive(relaunched)) {
+        process.kill(relaunched, 'SIGTERM')
+        if (!(await until(() => !alive(relaunched), 10000))) process.kill(relaunched, 'SIGKILL')
+      }
+    }
+
+    // 3. Ollmost's first window with the data from Kiln.
     ;({ app, win } = await launchAt(data))
     try {
       check(
@@ -1435,6 +1488,18 @@ const evilSvg = (port) =>
         JSON.stringify(after.servers[0]?.missingEnv)
       )
       await win.screenshot({ path: join(SHOTS, 'from-kiln.png') })
+      await notice.getByRole('button', { name: 'Open Settings' }).click()
+      check(
+        "the notice's Open Settings goes to where the API key is entered",
+        await win
+          .getByPlaceholder('Paste your API key')
+          .waitFor({ timeout: 5000 })
+          .then(
+            () => true,
+            () => false
+          )
+      )
+      await newChat(win)
       await notice.getByRole('button', { name: 'Dismiss' }).click()
       await win.getByText('Heron picture').first().click()
       const img = win.locator('img[src^="ollmost://attachment/"]').first()
@@ -1460,7 +1525,7 @@ const evilSvg = (port) =>
       await app.close()
     }
 
-    // 3. The notice is shown once.
+    // 4. The notice is shown once.
     ;({ app, win } = await launchAt(data))
     try {
       await win.waitForTimeout(1000)

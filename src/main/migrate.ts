@@ -107,6 +107,11 @@ export const moveFailedText = (error: string): { title: string; content: string 
   content: `${error}\n\nNothing was changed: Kiln still has all of it.`
 })
 
+export const renameFailedText = (error: string, dataDir: string): { title: string; content: string } => ({
+  title: "Ollmost couldn't open your Kiln data",
+  content: `${error}\n\nIt's all still in ${dataDir}. Ollmost tries again the next time it opens.`
+})
+
 /** Whether a moved Kiln folder still has work left: the marker, or Kiln's database not yet renamed. */
 export function migrationPending(dataDir: string, dbFile: string): boolean {
   return existsSync(join(dataDir, MARKER)) || (basename(dbFile) !== OLD_DB && existsSync(join(dataDir, OLD_DB)))
@@ -142,27 +147,42 @@ const NOTICE_KEY = 'migratedFromKiln'
  * Ollmost's key they'd fail, or about once in 256 decrypt to garbage), noting in the same transaction what to ask for
  * again. The Python environments go (they point at the old folder; the next run rebuilds them), and each chat's
  * hidden folder gets its new name (it holds the run's home folder). Every step can run again after a crash; the
- * marker goes last.
+ * marker goes last. A step that fails (code can make its own folders unwritable) is logged and the rest still run:
+ * the marker stays, so the next launch tries again, and Ollmost starts either way.
  */
 export async function finishMigration(dataDir: string, workspaceDir: string): Promise<void> {
-  transaction(() => {
-    if (readSetting<MigrationNotice | null>(NOTICE_KEY, null)) return
-    const apiKey = readSetting<string | null>('apiKey', null) !== null
-    deleteSetting('apiKey')
-    writeSetting(NOTICE_KEY, { at: Date.now(), apiKey, servers: forgetEnvValues(), dismissed: false } satisfies MigrationNotice)
-  })
+  let finished = true
+  const step = async (what: string, act: () => unknown): Promise<void> => {
+    try {
+      await act()
+    } catch (err) {
+      finished = false
+      console.warn(`Ollmost: couldn't ${what} after the move from Kiln (the next launch tries again):`, err)
+    }
+  }
+  await step('forget its secrets', () =>
+    transaction(() => {
+      if (readSetting<MigrationNotice | null>(NOTICE_KEY, null)) return
+      const apiKey = readSetting<string | null>('apiKey', null) !== null
+      deleteSetting('apiKey')
+      writeSetting(NOTICE_KEY, { at: Date.now(), apiKey, servers: forgetEnvValues(), dismissed: false } satisfies MigrationNotice)
+    })
+  )
   // rm removes a link code left in an environment without following it.
-  for (const venv of ['base-venv', 'venvs', 'venv']) await rm(join(dataDir, 'runner', venv), { recursive: true, force: true })
+  for (const venv of ['base-venv', 'venvs', 'venv'])
+    await step(`remove runner/${venv}`, () => rm(join(dataDir, 'runner', venv), { recursive: true, force: true }))
   const workspaces = join(dataDir, 'workspaces')
   for (const id of await readdir(workspaces).catch(() => [] as string[])) {
     const from = join(workspaces, id, OLD_WORKSPACE_DIR)
     const to = join(workspaces, id, workspaceDir)
     if (from === to || !(await lstat(from).catch(() => null))) continue
     // rename and rm act on the entry itself: a link code put there is moved or removed, never followed.
-    if (await lstat(to).catch(() => null)) await rm(from, { recursive: true, force: true })
-    else await rename(from, to)
+    await step(`rename workspaces/${id}/${OLD_WORKSPACE_DIR}`, async () => {
+      if (await lstat(to).catch(() => null)) await rm(from, { recursive: true, force: true })
+      else await rename(from, to)
+    })
   }
-  await rm(join(dataDir, MARKER), { force: true })
+  if (finished) await rm(join(dataDir, MARKER), { force: true })
 }
 
 /** What didn't carry over, until the user dismisses the notice. */
