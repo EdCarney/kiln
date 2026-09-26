@@ -46,7 +46,7 @@ import { MCP_SOURCE } from '../mcp/provider'
 import { conversationUsage, insertUsageEvent } from '../db/usage'
 import { requestCost } from '../usage/pricing'
 import { errorMessage, estimateTokens } from '../util'
-import { waitForDecision } from './approvals'
+import { EVERY_TIME, waitForDecision } from './approvals'
 import { assemble, type HistoryTurn, promptBudget } from './assemble'
 import { TITLE_PROMPT } from './prompts'
 import { TOOL_RESULT_CHARS } from './results'
@@ -505,13 +505,16 @@ async function generate(
         // Stop, deleting the chat and quitting abort the wait, and the call never runs.
         let decision: ToolDecision | 'auto' = 'auto'
         const allowKey = allowKeyFor(call, toolContext)
-        if (approvalFor(call, toolContext) === 'ask' && !allowedInChat().includes(allowKey)) {
+        const approval = approvalFor(call, toolContext)
+        // A call that asks every time does so even if the chat somehow holds an answer for it.
+        const everyTime = approval === 'ask-every-time'
+        if (approval !== 'auto' && (everyTime || !allowedInChat().includes(allowKey))) {
           if (declined.has(allowKey)) decision = 'deny'
           else {
-            toolEvents[index] = { ...pending, awaiting: true, allowKey }
+            toolEvents[index] = { ...pending, awaiting: true, ...(everyTime && { everyTime }) }
             emit({ type: 'tool', conversationId, messageId, index, event: toolEvents[index] })
             checkpoint(true)
-            decision = await waitForDecision(conversationId, messageId, index, controller.signal)
+            decision = await waitForDecision(conversationId, messageId, index, controller.signal, everyTime ? EVERY_TIME : undefined)
           }
           if (decision === 'deny') declined.add(allowKey)
           if (decision === 'chat') {

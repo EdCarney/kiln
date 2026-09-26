@@ -91,14 +91,24 @@ function validate(input: McpServerInput): void {
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) throw new Error(`"${key}" isn't a valid environment variable name.`)
 }
 
-/** Whether an edit makes a server run a different program: a new command or arguments. */
-const runsSomethingElse = (before: StoredServer, command: string, args: string[]) =>
-  before.command !== command || JSON.stringify(before.args) !== JSON.stringify(args)
+/**
+ * Whether an edit changes what the server is: its command, arguments or folder, or any environment value (a new token
+ * can switch the account behind the same program). The same edits restart a running server (mcp.save in ipc.ts).
+ */
+export const changesServer = (
+  before: Pick<McpServer, 'command' | 'args' | 'cwd'>,
+  after: Pick<McpServer, 'command' | 'args' | 'cwd'>,
+  envEdits: Record<string, unknown>
+): boolean =>
+  before.command !== after.command ||
+  JSON.stringify(before.args) !== JSON.stringify(after.args) ||
+  before.cwd !== after.cwd ||
+  Object.keys(envEdits).length > 0
 
 /**
  * Add a server, or update one (its id stays the same). Returns the saved server. An edit that changes what the server
- * runs resets its per-tool settings to Ask and forgets chats' "Allow for this chat" answers for it: those were given
- * to the old program.
+ * is resets its per-tool settings to Ask and forgets chats' "Allow for this chat" answers for it: those were given to
+ * the old program or account.
  */
 export function saveServer(input: McpServerInput): McpServer {
   validate(input)
@@ -107,7 +117,8 @@ export function saveServer(input: McpServerInput): McpServer {
   if (input.id && !existing) throw new Error('That MCP server no longer exists.')
   const command = input.command.trim()
   const args = input.args.map((a) => a.trim()).filter(Boolean)
-  const replaced = !!existing && runsSomethingElse(existing, command, args)
+  const cwd = input.cwd?.trim() || null
+  const replaced = !!existing && changesServer(existing, { command, args, cwd }, input.env)
   const env = existing ? decryptEnv(existing.env) : {}
   for (const [key, value] of Object.entries(input.env)) {
     if (value === null) delete env[key]
@@ -118,7 +129,7 @@ export function saveServer(input: McpServerInput): McpServer {
     name: input.name.trim(),
     command,
     args,
-    cwd: input.cwd?.trim() || null,
+    cwd,
     env: encryptEnv(env),
     envKeys: Object.keys(env).sort(),
     defaultOn: input.defaultOn,

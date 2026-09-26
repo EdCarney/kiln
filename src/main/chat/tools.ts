@@ -39,6 +39,9 @@ export interface ToolResult {
   unknown?: boolean
 }
 
+/** How a call is approved: it runs, it asks (and can be allowed for the chat), or it asks each time. */
+export type Approval = 'auto' | 'ask' | 'ask-every-time'
+
 /** A call matched to the provider that runs it. `via` is the name the model used when it called an alias. */
 export interface ResolvedCall {
   provider: ToolProvider
@@ -70,9 +73,15 @@ export interface ToolProvider {
   /**
    * Whether a call runs straight away ('auto') or waits for the user to allow it ('ask', the default, so a provider
    * that doesn't say never runs unasked). Tools that act on this Mac or the user's accounts ask; the user can still
-   * allow one for a whole chat.
+   * allow one for a whole chat. 'ask-every-time' asks with only Allow once and Deny, for calls where one approval
+   * mustn't cover the next (a fetch whose URL can carry data out).
    */
-  approval?(call: ResolvedCall, ctx: ToolContext): 'auto' | 'ask'
+  approval?(call: ResolvedCall, ctx: ToolContext): Approval
+  /**
+   * Results that only make sense whole (a skill's instructions): capped at TOOL_RESULT_CHARS, but not cut to the
+   * call's share of a round's room.
+   */
+  wholeResults?: boolean
   /**
    * What "Allow for this chat" and a denial cover for this call (see src/shared/toolAllow.ts). Defaults to the tool's
    * name. MCP tools use their server and own name; web_fetch uses the site.
@@ -172,7 +181,7 @@ const preview = (content: string) => (content.length > PREVIEW_CHARS ? `${conten
  */
 export function settleToolEvent(e: ToolEvent): ToolEvent {
   if (e.awaiting) {
-    const { awaiting: _awaiting, allowKey: _allowKey, ...rest } = e
+    const { awaiting: _awaiting, everyTime: _everyTime, ...rest } = e
     return { ...rest, pending: false, ok: false, summary: `${e.summary} (not run)` }
   }
   return e.pending ? { ...e, pending: false, ok: false, summary: `${e.summary} (stopped)` } : e
@@ -189,7 +198,7 @@ export function pendingEvent(call: ToolCall, ctx: ToolContext): ToolEvent {
  * Whether a call must wait for the user's answer before it runs. A provider that doesn't say asks. Calls to tools
  * nothing offers never ask: they don't run.
  */
-export function approvalFor(call: ToolCall, ctx: ToolContext): 'auto' | 'ask' {
+export function approvalFor(call: ToolCall, ctx: ToolContext): Approval {
   const resolved = resolveCall(call, ctx)
   if (!resolved) return 'auto'
   return resolved.provider.approval?.(resolved, ctx) ?? 'ask'
@@ -209,7 +218,7 @@ export function toolEndpoint(call: ToolCall, ctx: ToolContext): string {
 
 /** What the model hears when the user denies a call, and what the reply shows. The call never ran. */
 export function declinedResult(call: ToolCall, pending: ToolEvent): ToolResult {
-  const { awaiting: _awaiting, allowKey: _allowKey, ...event } = pending
+  const { awaiting: _awaiting, everyTime: _everyTime, ...event } = pending
   return {
     content: `The user declined to run ${call.function.name}, so it didn't run. Don't call it again unless they ask. Carry on without it, and tell them plainly what you couldn't do.`,
     event: { ...event, pending: false, ok: false, declined: true }
@@ -235,7 +244,7 @@ export async function runTool(call: ToolCall, ctx: ToolContext): Promise<ToolRes
     const message = errorMessage(err)
     result = { content: `Error: ${message}`, event: { tool: resolved.name, args: resolved.args, ok: false, summary: message } }
   }
-  const max = Math.min(ctx.maxResultChars ?? TOOL_RESULT_CHARS, TOOL_RESULT_CHARS)
+  const max = resolved.provider.wholeResults ? TOOL_RESULT_CHARS : Math.min(ctx.maxResultChars ?? TOOL_RESULT_CHARS, TOOL_RESULT_CHARS)
   return { ...result, content: capText(result.content, max), event: { preview: preview(result.content), ...result.event } }
 }
 

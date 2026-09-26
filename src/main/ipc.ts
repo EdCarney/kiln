@@ -42,7 +42,17 @@ import { replayRequest } from './debug/replay'
 import { clearTraces, getTrace, listTraces, tracesForExport } from './debug/traces'
 import { openDebugWindow } from './debug/window'
 import { linkPreview } from './links/preview'
-import { addImported, getServer, importFrom, importSources, listServers, removeServer, saveServer, setToolPolicy } from './mcp/config'
+import {
+  addImported,
+  changesServer,
+  getServer,
+  importFrom,
+  importSources,
+  listServers,
+  removeServer,
+  saveServer,
+  setToolPolicy
+} from './mcp/config'
 import {
   connect as connectServer,
   forget as forgetServer,
@@ -251,12 +261,7 @@ const impl: Impl = {
       const server = saveServer(input)
       // A running server picks up a new command or environment only when it starts again; a new name or the
       // "Use in new chats" switch doesn't need that.
-      const relaunch =
-        !!before &&
-        (before.command !== server.command ||
-          JSON.stringify(before.args) !== JSON.stringify(server.args) ||
-          before.cwd !== server.cwd ||
-          Object.keys(input.env).length > 0)
+      const relaunch = !!before && changesServer(before, server, input.env)
       if (relaunch && isActive(server.id)) void restartServer(server.id)
       else notifyServers()
       return server

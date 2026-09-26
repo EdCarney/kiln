@@ -127,10 +127,10 @@ async function listAllTools(client: Client): Promise<Tool[]> {
   return tools
 }
 
-async function start(id: string, c: Connection): Promise<void> {
+/** Start a server as `generation`, which connect() has already claimed, so a later stop or restart always overtakes it. */
+async function start(id: string, c: Connection, generation: number): Promise<void> {
   const config = getServerConfig(id)
   if (!config) return
-  const generation = ++c.generation
   update(c, { state: 'starting', error: null, tools: [], serverInfo: null })
   const env = await childEnv(config.env)
   if (c.generation !== generation) return // stopped while the environment was worked out
@@ -177,11 +177,12 @@ export function connect(id: string): Promise<void> {
   if (c.client && c.status.state === 'ready') return Promise.resolve()
   // A start that a stop or restart overtook is finishing for nothing: begin a new one rather than wait on it.
   if (c.starting && c.startingGeneration === c.generation) return c.starting
-  const starting: Promise<void> = start(id, c).finally(() => {
+  const generation = ++c.generation
+  const starting: Promise<void> = start(id, c, generation).finally(() => {
     if (c.starting === starting) c.starting = null
   })
   c.starting = starting
-  c.startingGeneration = c.generation // start() has already claimed its generation
+  c.startingGeneration = generation
   return starting
 }
 

