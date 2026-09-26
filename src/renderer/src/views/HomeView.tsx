@@ -1,5 +1,6 @@
 import { TriangleAlert } from 'lucide-react'
 import { Composer } from '@/components/Composer'
+import { MigrationNotice } from '@/components/MigrationNotice'
 import { OllmostMark } from '@/components/OllmostMark'
 import { TopBar } from '@/components/TopBar'
 import { Button } from '@/components/ui'
@@ -21,6 +22,7 @@ export function HomeView() {
             {greeting(settings?.userName ?? '')}
           </h1>
 
+          <MigrationNotice />
           {noModels && (
             <div className="mb-4 flex items-start gap-3 rounded-kiln border border-line bg-panel p-4 text-sm">
               <TriangleAlert className="mt-0.5 size-4 shrink-0 text-danger" />

@@ -1,6 +1,7 @@
 import { appendFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { app, BrowserWindow, Menu, type MenuItemConstructorOptions, nativeTheme, shell } from 'electron'
+import { app, BrowserWindow, dialog, Menu, type MenuItemConstructorOptions, nativeTheme, shell } from 'electron'
 import { EVENT_CHANNELS } from '@shared/ipc'
 import { currentBackground, currentThemeSource } from './background'
 import { onWaitingChange } from './chat/approvals'
@@ -11,17 +12,35 @@ import { settleStaleTraces } from './debug/traces'
 import { staleAttachmentPaths } from './db/conversations'
 import { removeFiles } from './files/ingest'
 import { registerIpc } from './ipc'
+import {
+  finishMigration,
+  kilnPid,
+  migrationPending,
+  moveFailedText,
+  moveKilnData,
+  oldDataFolder,
+  renameDatabase,
+  STILL_OPEN,
+  waitForKiln
+} from './migrate'
 import { initPaths, paths } from './paths'
 import { stopAll as stopServers } from './mcp/manager'
 import { hasChildren, stopAllGroups, trackProcesses } from './processes'
 import { handleProtocols, registerSchemes } from './protocols'
 import { codeMayBeRunning } from './runner/lock'
+import { KILN_DIR } from './runner/sandbox'
 import { clearPreviews, clearPreviewsSync, sweepWorkspaces } from './runner/workspace'
 import { refreshPrices } from './usage/pricing'
 
 app.setName('Kiln')
 // Tests and experiments can point Kiln at a throwaway data folder.
 if (process.env.KILN_USER_DATA) app.setPath('userData', process.env.KILN_USER_DATA)
+// Before anything can create the data folder: move the old app's there, if it left one (#60).
+const dataDir = app.getPath('userData')
+const move = moveKilnData(dataDir)
+// Waiting for the old app to quit, or after a failed move, this session must not create the data folder, or the move
+// would be skipped for good. It uses a folder of its own, the same for every launch meanwhile, so they hand off.
+if (move.state === 'kiln-running' || move.state === 'failed') app.setPath('userData', join(tmpdir(), `${app.name}-waiting`))
 registerSchemes()
 
 // A second launch hands off to the running instance. app.quit() is asynchronous, so whenReady below
@@ -130,12 +149,22 @@ app.on('second-instance', () => {
 
 app.whenReady().then(async () => {
   if (!hasLock) return
-  initPaths(app.getPath('userData'))
+  if (move.state === 'kiln-running') return void (await waitThenRelaunch())
+  if (move.state === 'failed') {
+    const { title, content } = moveFailedText(move.error)
+    dialog.showErrorBox(title, content)
+    return app.exit(1)
+  }
+  initPaths(dataDir)
+  // A move from the old app finishes here: its database renamed before it opens, the rest once it has.
+  const migrating = migrationPending(paths.data, paths.db)
+  if (migrating) renameDatabase(paths.data, paths.db)
   // Before anything starts a process: record live process groups, and stop any a crashed run left behind.
   void trackProcesses(join(paths.data, 'processes.json')).then((n) => {
     if (n) console.warn(`Kiln: stopped ${n} process ${n === 1 ? 'group' : 'groups'} left running by an earlier session`)
   })
   openDatabase(paths.db)
+  if (migrating) await finishMigration(paths.data, KILN_DIR)
   // Ask the login shell for its PATH now, so a tool Kiln starts later doesn't wait for it.
   void childPath().then((path) => {
     if (process.env.KILN_DEBUG)
@@ -174,6 +203,18 @@ function watchApprovals(): void {
     if (count > shown && !BrowserWindow.getFocusedWindow()) app.dock?.bounce('informational')
     shown = count
   })
+}
+
+/** The old app is still open: say so, and relaunch (which moves its data) once it has quit. */
+async function waitThenRelaunch(): Promise<void> {
+  const from = oldDataFolder(dataDir)
+  const quit = await waitForKiln(
+    () => kilnPid(from) !== null,
+    (signal) =>
+      dialog.showMessageBox({ type: 'info', message: STILL_OPEN.message, detail: STILL_OPEN.detail, buttons: [STILL_OPEN.button], signal })
+  )
+  if (quit) app.relaunch()
+  app.exit(0)
 }
 
 // Quitting mid-reply: stop the stream (which denies any call waiting for approval) and save what arrived, then stop

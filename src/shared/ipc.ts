@@ -35,6 +35,7 @@ import type {
   TraceSummary,
   UsageSummary
 } from './types'
+import type { MigrationNoticeView } from './migration'
 
 /** A link's page preview; image and icon are data: URLs. */
 export interface LinkPreview {
@@ -78,6 +79,9 @@ export interface KilnApi {
     setNativeTheme(mode: 'system' | 'light' | 'dark', background: string): Promise<void>
     openExternal(url: string): Promise<void>
     openDataFolder(): Promise<void>
+    /** After the move from the old app (see @shared/migration): what needs entering again; null once dismissed. */
+    migrationNotice(): Promise<MigrationNoticeView | null>
+    dismissMigrationNotice(): Promise<void>
   }
   settings: {
     get(): Promise<Settings>
@@ -233,7 +237,7 @@ export interface KilnApi {
 
 /** Channel names for the invoke-style methods, derived from the API shape. */
 export const INVOKE_CHANNELS = {
-  app: ['info', 'setNativeTheme', 'openExternal', 'openDataFolder'],
+  app: ['info', 'setNativeTheme', 'openExternal', 'openDataFolder', 'migrationNotice', 'dismissMigrationNotice'],
   settings: ['get', 'update', 'setApiKey'],
   models: ['list', 'info', 'setOverrides'],
   projects: ['list', 'get', 'create', 'update', 'delete', 'files', 'addFiles', 'removeFile'],

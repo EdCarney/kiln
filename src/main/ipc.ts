@@ -69,6 +69,7 @@ import {
   saveServer,
   setToolPolicy
 } from './mcp/config'
+import { dismissMigrationNotice, migrationNotice } from './migrate'
 import {
   connect as connectServer,
   forget as forgetServer,
@@ -110,7 +111,14 @@ const impl: Impl = {
     openExternal: async (url) => {
       if (/^(https?|mailto):/i.test(url)) await shell.openExternal(url)
     },
-    openDataFolder: async () => void (await shell.openPath(paths.data))
+    openDataFolder: async () => void (await shell.openPath(paths.data)),
+    migrationNotice: async () => {
+      const notice = migrationNotice()
+      if (!notice) return null
+      const servers = notice.servers.map((id) => getServer(id)?.name).filter((name): name is string => !!name)
+      return { apiKey: notice.apiKey, servers }
+    },
+    dismissMigrationNotice: async () => dismissMigrationNotice()
   },
 
   settings: {
