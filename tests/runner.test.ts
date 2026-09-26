@@ -16,6 +16,8 @@ const { paths } = await import('../src/main/paths')
 const { policyFor, runSandboxed } = await import('../src/main/runner/sandbox')
 const workspace = await import('../src/main/runner/workspace')
 const tools = await import('../src/main/chat/tools')
+const { openWith, IMAGE_FILE } = await import('../src/shared/workspace')
+const { quarantine, quarantineValue, QUARANTINE_ATTR } = await import('../src/main/quarantine')
 
 const root = mkdtempSync(join(tmpdir(), 'kiln-runner-test-'))
 beforeAll(() => {
@@ -114,6 +116,40 @@ describe('workspaces', () => {
     expect(await workspace.workspaceFile(id, join(dir, 'out', 'report.txt'))).toBeNull()
     expect(await workspace.workspaceFile('../workspaces/chat-files', 'out/report.txt')).toBeNull()
     expect(await workspace.workspaceFile(id, 'out')).toBeNull()
+  })
+})
+
+// A file a run wrote may carry the chat's data, and whatever opens it runs outside the sandbox (#67).
+describe('handing out files a run wrote', () => {
+  it('previews documents with Quick Look on a Mac, never in the app for their type', () => {
+    for (const f of ['report.docx', 'data.xlsx', 'notes.md', 'table.csv', 'out.json', 'chart.png', 'doc.pdf', 'a.txt'])
+      expect(openWith(f, 'darwin')).toBe('quick-look')
+  })
+
+  it('elsewhere opens only plain text, PDFs and bitmaps', () => {
+    for (const f of ['a.txt', 'doc.pdf', 'chart.png', 'photo.JPG', 'anim.gif', 'pic.webp']) expect(openWith(f, 'linux')).toBe('default-app')
+    for (const f of ['report.docx', 'deck.pptx', 'data.xlsx', 'notes.md', 'table.csv', 'out.json', 'x.rtf', 'y.odt'])
+      expect(openWith(f, 'linux')).toBeNull()
+  })
+
+  it('never opens an SVG, a script or an app, though an SVG is still shown inline as an image', () => {
+    for (const platform of ['darwin', 'linux', 'win32'])
+      for (const f of ['plot.svg', 'run.command', 'x.sh', 'x.py', 'x.html', 'Evil.app', 'x.webloc', 'x.terminal'])
+        expect(openWith(f, platform)).toBeNull()
+    expect(IMAGE_FILE.test('plot.svg')).toBe(true)
+  })
+
+  it('marks handed-out files the way browsers mark downloads', () => {
+    expect(quarantineValue(Date.UTC(2026, 0, 1))).toBe(`0081;${(Date.UTC(2026, 0, 1) / 1000).toString(16)};Kiln;`)
+  })
+
+  it.runIf(process.platform === 'darwin')('writes the quarantine mark on macOS', async () => {
+    const file = join(root, 'handed-out.txt')
+    writeFileSync(file, 'x')
+    await quarantine(file)
+    const { execFileSync } = await import('node:child_process')
+    expect(execFileSync('/usr/bin/xattr', ['-p', QUARANTINE_ATTR, file]).toString().trim()).toMatch(/^0081;[0-9a-f]+;Kiln;$/)
+    await expect(quarantine(join(root, 'missing.txt'))).rejects.toThrow()
   })
 })
 

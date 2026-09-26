@@ -1040,11 +1040,24 @@ const fixtureRunning = () => {
   }
 }
 
+/** An SVG that requests the mock server from a script, an external image and a stylesheet, if anything runs it. */
+const evilSvg = (port) =>
+  `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="40" height="40">` +
+  `<style>@import url(http://127.0.0.1:${port}/svg-style);</style>` +
+  `<image href="http://127.0.0.1:${port}/svg-image" width="10" height="10"/>` +
+  `<script>fetch("http://127.0.0.1:${port}/svg-script")</script><rect width="40" height="40" fill="red"/></svg>`
+
 // 13. The code runner: switched on per chat, asking first, reading the chat's uploads, writing files the user can
 // see and save, and running a skill's script from its folder. Deterministic against a mock model, then live.
 {
   const runnerChats = []
+  const svgHits = []
   const runnerOllama = createServer(async (req, res) => {
+    // A scripted SVG a run writes calls home here if anything runs it (#67).
+    if (req.url.startsWith('/svg-')) {
+      svgHits.push(req.url)
+      return res.writeHead(200).end()
+    }
     let raw = ''
     for await (const chunk of req) raw += chunk
     const body = raw ? JSON.parse(raw) : {}
@@ -1074,6 +1087,7 @@ const fixtureRunning = () => {
               "open('total.txt', 'w').write(str(total))",
               `open('chart.png', 'wb').write(base64.b64decode('${PNG.toString('base64')}'))`,
               "open('run.command', 'w').write('echo hi')",
+              `open('evil.svg', 'w').write('${evilSvg(runnerOllama.address().port)}')`,
               "print('TOTAL', total)"
             ].join('\n')
           })
@@ -1148,7 +1162,11 @@ const fixtureRunning = () => {
     const answer = await win.locator('.prose-kiln').last().innerText()
     check('the code reads the upload and the model gets what it printed', /Exit code 0\. TOTAL 200/.test(answer), answer.slice(0, 80))
     const files = await win.locator('[data-testid="run-files"]').last().innerText()
-    check('files the run wrote are listed', /total\.txt/.test(files) && /chart\.png/.test(files), files.replace(/\n/g, ' '))
+    check(
+      'files the run wrote are listed',
+      /total\.txt/.test(files) && /chart\.png/.test(files) && /evil\.svg/.test(files),
+      files.replace(/\n/g, ' ')
+    )
     const imageLoaded = await win
       .locator('[data-testid="run-files"] img')
       .last()
@@ -1179,6 +1197,33 @@ const fixtureRunning = () => {
         ),
       chatId
     )
+    // The scripted SVG: shown inline as an image, never opened, and served so it can't run even if loaded as a page.
+    const svgShown = await win
+      .locator('[data-testid="run-files"] img[alt="evil.svg"]')
+      .last()
+      .evaluate((img) => img.complete && img.naturalWidth > 0)
+    const svgRefused = await win.evaluate(
+      (id) =>
+        window.kiln.runner.openFile(id, 'evil.svg').then(
+          () => 'opened',
+          (e) => e.message
+        ),
+      chatId
+    )
+    const previewButtons = await win.locator('[data-testid="run-files"]').last().locator('button[aria-label^="Preview "]').count()
+    await app.evaluate(async ({ BrowserWindow }, url) => {
+      const w = new BrowserWindow({ show: false })
+      await w.loadURL(url).catch(() => {})
+      await new Promise((r) => setTimeout(r, 1500))
+      w.destroy()
+    }, `kiln://workspace/${chatId}/evil.svg`)
+    await win.waitForTimeout(500)
+    check(
+      'a scripted SVG a run wrote is shown only as an image, never opened, and loads nothing even as a page',
+      svgShown && /only previews documents and images/.test(svgRefused) && previewButtons === 2 && svgHits.length === 0,
+      `shown=${svgShown} | ${svgRefused} | preview buttons ${previewButtons} | hits ${svgHits.join(',')}`
+    )
+
     check(
       'Save a copy works; Kiln won’t open a script a run wrote, or anything outside the chat’s folder',
       (() => {
@@ -1188,7 +1233,7 @@ const fixtureRunning = () => {
           return false
         }
       })() &&
-        /only opens documents and images/.test(refused) &&
+        /only previews documents and images/.test(refused) &&
         /no longer in the chat/.test(escaped),
       `${refused} | ${escaped}`
     )

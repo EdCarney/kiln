@@ -175,7 +175,8 @@ export interface KilnApi {
     packages(): Promise<Array<{ name: string; version: string }>>
     /** Delete Kiln's Python environment and everything installed in it. */
     resetEnvironment(): Promise<void>
-    /** A file a run wrote, by its path in the chat's workspace: open it, show it in Finder, or save a copy. */
+    /** A file a run wrote, by its path in the chat’s workspace: preview it (Quick Look on a Mac), show it in Finder, or
+     * save a copy (both marked as downloaded). */
     openFile(conversationId: ID, path: string): Promise<void>
     revealFile(conversationId: ID, path: string): Promise<void>
     saveFile(conversationId: ID, path: string): Promise<boolean>
