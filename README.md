@@ -89,7 +89,7 @@ tests/           Vitest unit tests      e2e/   live Playwright run against real 
   - A chat's menu lists the tools you allowed there (by tool and server, or site), with a way to go back to asking. Going back takes effect at once, even in a reply that's still running.
   - Kiln talks to servers through its own stdio transport (`src/main/mcp/transport.ts`), so stopping a server also stops what it started (`npx` runs the real server as a child).
 - **Approving tool calls.** A tool whose provider asks first waits in the reply with an approval card: **Allow once**, **Allow for this chat** or **Deny**. MCP tools ask, and so does any tool whose provider doesn't say otherwise. Skills and web search never ask.
-  - `web_fetch` asks before every fetch in a chat with MCP servers on, with only **Allow once** and **Deny**. A URL can carry data out (`https://evil.example/?d=…`) and a page or tool result could tell the model to send it; allowing a whole site wouldn't be safe on hosts where anyone can read requests (webhook.site, Apps Script, request bins). A denial covers that site for the rest of the reply.
+  - `web_fetch` asks before every fetch in a chat with MCP servers on, or with files in it (attachments, or its project's knowledge), with only **Allow once** and **Deny**. A URL can carry data out (`https://evil.example/?d=…`) and a page or tool result could tell the model to send it; allowing a whole site wouldn't be safe on hosts where anyone can read requests (webhook.site, Apps Script, request bins). A denial covers that site for the rest of the reply.
   - A denied call doesn't run, and the model is told not to try it again unless you ask. Stopping the reply, deleting the chat or quitting counts as a no, and a call that was waiting when Kiln closed shows as not run.
   - A chat you aren't looking at gets a hand icon in the sidebar and a toast, and the Dock icon shows how many calls are waiting.
   - Processes Kiln starts run in their own process group (`src/main/processes.ts`), so stopping one also stops anything it started, and quitting stops them all.
@@ -152,7 +152,7 @@ Builds are signed ad hoc (`identity: '-'` in `electron-builder.yml`), which is e
 
 - **Web pages go through ollama.com.** Kiln can't browse local-network pages or sites behind a login.
 - **Web content can try prompt injection.** It's marked as untrusted and every fetch is visible, but a determined page could still steer a model's answer. Treat web-sourced answers with the usual care.
-- **Fetches ask first only in chats with MCP servers on.** Elsewhere `web_fetch` runs unasked, though a chat's attachments, project knowledge and earlier messages are private too. The model is told never to put conversation details into URLs, but that's an instruction, not a control.
+- **Fetches don't ask in chats with no tools and no files.** There `web_fetch` runs unasked, though earlier messages can be private too. The model is told never to put conversation details into URLs, but that's an instruction, not a control.
 - **Skills can't run scripts.** Skills like docx/pptx/xlsx/pdf get their instructions only. The model is told to produce results directly. Running scripts needs a sandboxed code runner.
 - **Automatic skill loading depends on the model.** In testing, gpt-oss loaded a clearly matching skill 80–100% of the time. Picking a skill with `/` always works.
 - **React artifacts aren't rendered.** They're shown as JSX source.

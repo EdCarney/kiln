@@ -334,10 +334,15 @@ async function generate(
       unavailable.push(`${modelName} can't use tools, so this chat's MCP servers weren't used.`)
     if (unavailable.length) stats.unavailableTools = unavailable
 
+    const project = conversation.projectId ? getProject(conversation.projectId) : null
+    const knowledge = project ? projectKnowledge(project.id) : []
+    const messages = listMessages(conversationId)
     const toolContext: ToolContext = {
       skills: skillIndex.length > 0,
       web: web === 'on',
       sources,
+      // Files the user shared are private, and a fetch URL could carry them out (#62).
+      privateFiles: knowledge.length > 0 || messages.some((m) => m.attachments.length > 0),
       workspace: null,
       signal: controller.signal
     }
@@ -349,11 +354,8 @@ async function generate(
       .filter((r) => running.has(r.server.id))
       .map((r) => r.server.name)
 
-    const project = conversation.projectId ? getProject(conversation.projectId) : null
     const history = await Promise.all(
-      listMessages(conversationId)
-        .filter((m) => m.id !== messageId && !(m.role === 'assistant' && !m.content))
-        .map((m) => toTurn(m, vision))
+      messages.filter((m) => m.id !== messageId && !(m.role === 'assistant' && !m.content)).map((m) => toTurn(m, vision))
     )
 
     const assembled = assemble({
@@ -370,7 +372,7 @@ async function generate(
       pastTools: toolsCapable,
       project: project ? { name: project.name, instructions: project.instructions } : null,
       chatInstructions: conversation.instructions,
-      knowledge: project ? projectKnowledge(project.id) : [],
+      knowledge,
       skillIndex,
       selectedSkills: await load(selectedIds),
       loadedSkills: await load(loadedIds),

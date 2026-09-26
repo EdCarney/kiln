@@ -300,7 +300,7 @@ function ApprovalCard({ e, conversationId, messageId, index }: { e: ToolEvent; c
       )}
       {e.everyTime && (
         <div className="mt-2 text-xs text-muted">
-          In a chat with tools on, Kiln asks before every page it fetches: a web address can carry data out.
+          In a chat with tools on or files shared, Kiln asks before every page it fetches: a web address can carry data out.
         </div>
       )}
       <div className="mt-3 flex flex-wrap justify-end gap-2">

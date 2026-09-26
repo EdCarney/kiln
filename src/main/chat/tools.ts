@@ -16,6 +16,8 @@ export interface ToolContext {
   web: boolean
   /** Tool sources switched on for the chat (Conversation.toolSources): `mcp:<server id>`. */
   sources: readonly string[]
+  /** The chat holds files the user shared: attachments, or its project's knowledge. */
+  privateFiles?: boolean
   /** The folder tools act in, for a later Code mode. Nothing uses it yet. */
   workspace: string | null
   /** The reply's stop signal: long-running tools are cancelled with it. */
