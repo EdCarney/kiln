@@ -15,11 +15,18 @@ export const PYPI_HOSTS = ['pypi.org', 'files.pythonhosted.org']
 /** How much output a run keeps (the model sees less: tool results are capped). */
 const OUTPUT_BYTES = 256 * 1024
 
+/**
+ * Where user data lives outside the home folder: other accounts' homes and /Users/Shared, other disks and mounted
+ * images, and the per-user and shared temp folders (caches, drafts, downloads in progress). Hidden like the home
+ * folder (#68). macOS spells /tmp and /var as /private/tmp and /private/var.
+ */
+export const PRIVATE_ROOTS = ['/Users', '/Volumes', '/private/var/folders', '/private/tmp']
+
 export interface PolicyInput {
-  /** The chat's workspace: the only folder code can write to (and read inside the home folder). */
+  /** The chat's workspace: the only folder code can write to (and read inside the hidden folders). */
   workspace: string
   home: string
-  /** Folders code may read inside the home folder: skills, Kiln's Python environment, tool folders on PATH. */
+  /** Folders code may read inside the hidden folders: skills, Kiln's Python environment, tool folders on PATH. */
   readable: string[]
   /** Kiln's Python environment, writable only when packages may be installed. */
   venv: string
@@ -27,7 +34,7 @@ export interface PolicyInput {
 }
 
 /**
- * What code may touch. Reads: everything outside the home folder (system libraries, Homebrew), and inside it only
+ * What code may touch. Reads: the system (libraries, Homebrew, Python), but in the home folder and PRIVATE_ROOTS only
  * the workspace and `readable`. Writes: the workspace (and the Python environment when PyPI is allowed). Network: none,
  * or PyPI's two hosts.
  */
@@ -35,7 +42,7 @@ export function policyFor(p: PolicyInput): SandboxRuntimeConfig {
   return {
     network: { allowedDomains: p.pypi ? PYPI_HOSTS : [], deniedDomains: [] },
     filesystem: {
-      denyRead: [p.home],
+      denyRead: [...new Set([p.home, ...PRIVATE_ROOTS])],
       allowRead: [p.workspace, ...p.readable, p.venv],
       allowWrite: p.pypi ? [p.workspace, p.venv] : [p.workspace],
       denyWrite: []

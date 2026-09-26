@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
@@ -13,7 +13,7 @@ const { openDatabase } = await import('../src/main/db/index')
 const { createConversation, insertAttachment, insertMessage, linkAttachments } = await import('../src/main/db/conversations')
 const { updateSettings } = await import('../src/main/settings')
 const { paths } = await import('../src/main/paths')
-const { policyFor, runSandboxed } = await import('../src/main/runner/sandbox')
+const { policyFor, PRIVATE_ROOTS, runSandboxed } = await import('../src/main/runner/sandbox')
 const workspace = await import('../src/main/runner/workspace')
 const tools = await import('../src/main/chat/tools')
 const { openWith, IMAGE_FILE } = await import('../src/shared/workspace')
@@ -43,12 +43,19 @@ describe('the sandbox policy', () => {
     expect(policyFor({ ...base, pypi: false })).toEqual({
       network: { allowedDomains: [], deniedDomains: [] },
       filesystem: {
-        denyRead: ['/Users/me'],
+        denyRead: ['/Users/me', '/Users', '/Volumes', '/private/var/folders', '/private/tmp'],
         allowRead: ['/w', '/Users/me/.claude/skills', '/Users/me/k/venv'],
         allowWrite: ['/w'],
         denyWrite: []
       }
     })
+  })
+
+  // #68: the sandbox allows every read it doesn't deny, and user data isn't only in the home folder.
+  it('also hides other accounts, shared and mounted folders, and the temp folders', () => {
+    const { denyRead } = policyFor({ ...base, home: '/Volumes/Home/me', pypi: false }).filesystem
+    expect(denyRead).toEqual(['/Volumes/Home/me', '/Users', '/Volumes', '/private/var/folders', '/private/tmp'])
+    expect(policyFor({ ...base, home: '/Users', pypi: false }).filesystem.denyRead).toEqual(PRIVATE_ROOTS)
   })
 
   it('opens PyPI, and the Python environment for writing, only when allowed', () => {
@@ -173,6 +180,28 @@ describe.runIf(process.platform === 'darwin' && existsSync('/usr/bin/sandbox-exe
     expect(existsSync(join(elsewhere, 'escape.txt'))).toBe(false)
     const denied = await sandboxed(`cat ${join(fakeHome, 'private.txt')}`)
     expect(denied.output).toMatch(/Operation not permitted/)
+  })
+
+  // #68: outside the home folder too. The test folders are in the per-user temp folder (/private/var/folders).
+  it('reads nothing in /Users/Shared, the temp folders or other disks, but still its workspace', async () => {
+    const shared = join('/Users/Shared', `kiln-test-${process.pid}.txt`)
+    const tmp = join('/private/tmp', `kiln-test-${process.pid}.txt`)
+    writeFileSync(shared, 'shared')
+    writeFileSync(tmp, 'tmp')
+    writeFileSync(join(elsewhere, 'draft.txt'), 'draft')
+    writeFileSync(join(ws, 'mine.txt'), 'mine')
+    try {
+      for (const file of [shared, tmp, '/tmp/' + tmp.split('/').at(-1), join(elsewhere, 'draft.txt')]) {
+        const r = await sandboxed(`cat "${file}"`)
+        expect(r.code, file).not.toBe(0)
+        expect(r.output, file).toMatch(/Operation not permitted/)
+      }
+      expect((await sandboxed('ls /Volumes')).output).toMatch(/Operation not permitted/)
+      expect((await sandboxed(`cat ${join(ws, 'mine.txt')}`)).output.trim()).toBe('mine')
+    } finally {
+      rmSync(shared, { force: true })
+      rmSync(tmp, { force: true })
+    }
   })
 
   it('has no network, and says so', async () => {

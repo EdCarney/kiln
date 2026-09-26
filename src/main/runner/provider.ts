@@ -10,7 +10,7 @@ import { listSkills } from '../skills/library'
 import type { ToolProvider, ToolResult } from '../chat/tools'
 import { capText } from '../chat/results'
 import { ensureVenv, venvDir } from './python'
-import { policyFor, runSandboxed } from './sandbox'
+import { policyFor, PRIVATE_ROOTS, runSandboxed } from './sandbox'
 import { changedFiles, KILN_DIR, snapshot } from './workspace'
 
 // run_code: Python or bash in the chat's workspace, under the sandbox. Each call is a fresh process; files persist.
@@ -59,11 +59,11 @@ const firstLine = (code: string) =>
 
 let runs = 0
 
-/** Folders code may read inside the home folder: skills, Kiln's runner files, and tool folders on PATH. */
+/** Folders code may read inside the hidden ones (see policyFor): skills, Kiln's runner files, tool folders on PATH. */
 async function readableFolders(): Promise<string[]> {
-  const home = homedir()
+  const hidden = [homedir(), ...PRIVATE_ROOTS]
   const skills = [...new Set((await listSkills()).map((s) => s.dir))]
-  const onPath = (await childPath()).split(delimiter).filter((d) => d.startsWith(home + '/'))
+  const onPath = (await childPath()).split(delimiter).filter((d) => hidden.some((h) => d.startsWith(h + '/')))
   return [...skills, paths.runner, ...onPath]
 }
 
