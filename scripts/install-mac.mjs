@@ -15,6 +15,22 @@ const running = () => {
     return false
   }
 }
+// Kiln was renamed Ollmost (#60): Ollmost moves Kiln's data on its first launch, which needs Kiln closed.
+const kilnRunning = () => {
+  try {
+    execFileSync('pgrep', ['-f', 'Kiln.app/Contents/MacOS/Kiln'])
+    return true
+  } catch {
+    return false
+  }
+}
+const bundleId = (app) => {
+  try {
+    return execFileSync('defaults', ['read', join(app, 'Contents', 'Info'), 'CFBundleIdentifier'], { encoding: 'utf8' }).trim()
+  } catch {
+    return ''
+  }
+}
 
 run('npx electron-vite build')
 run('npx electron-builder --mac --dir')
@@ -32,7 +48,25 @@ if (running()) {
   execFileSync('osascript', ['-e', 'quit app "Ollmost"'])
   for (let i = 0; i < 20 && running(); i++) execSync('sleep 0.5')
 }
+if (kilnRunning()) {
+  execFileSync('osascript', ['-e', 'quit app "Kiln"'])
+  for (let i = 0; i < 20 && kilnRunning(); i++) execSync('sleep 0.5')
+  if (kilnRunning()) throw new Error('Kiln is still running. Quit it and run this again.')
+}
 if (existsSync(target)) rmSync(target, { recursive: true, force: true })
 execFileSync('ditto', [built, target])
 execFileSync('open', [target])
 console.log(`Installed ${target}`)
+
+// Remove Kiln.app once Ollmost has moved Kiln's data, and only if it really is Kiln.
+const oldApp = join(installDir, 'Kiln.app')
+const oldDb = join(homedir(), 'Library', 'Application Support', 'Kiln', 'kiln.db')
+if (existsSync(oldApp) && bundleId(oldApp) === 'local.kiln.app') {
+  for (let i = 0; i < 120 && existsSync(oldDb); i++) execSync('sleep 0.5')
+  if (existsSync(oldDb))
+    console.log(`Kept ${oldApp}: your Kiln data hasn't moved yet. Open Ollmost, and delete Kiln.app once your chats show up.`)
+  else {
+    rmSync(oldApp, { recursive: true, force: true })
+    console.log(`Removed ${oldApp} (Kiln is now Ollmost)`)
+  }
+}

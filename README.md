@@ -27,6 +27,12 @@ Use the same setting when you upgrade. The script only replaces the copy in the 
 - **The ollama.com API key is per Mac.** It's encrypted with that Mac's Keychain, so enter it on each machine. After an upgrade, macOS may ask to let Ollmost use "Ollmost Safe Storage"; choose Always Allow.
 - **Local Ollama is per Mac too.** Anything that goes through the Ollama app needs it installed and signed in on that machine.
 
+### Coming from Kiln
+
+Ollmost used to be called Kiln. Install Ollmost as above. On its first launch it moves your chats, projects, files and settings over from `~/Library/Application Support/Kiln`, and the installer then removes `Kiln.app`. Quit Kiln first, or Ollmost waits for it.
+
+Two things don't carry over, because your Mac's keychain tied them to Kiln: your ollama.com API key, and your MCP servers' environment values. Ollmost asks for them again. You can delete the old "Kiln Safe Storage" item in Keychain Access. Notifications ask for permission again, and a Dock icon pinned for Kiln needs pinning again for Ollmost.
+
 ## Run it from source
 
 Requirements: macOS, Node 22+, and the [Ollama app](https://ollama.com) running. For cloud models, run `ollama signin` once.

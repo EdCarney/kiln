@@ -4,6 +4,7 @@
 # Set OLLMOST_INSTALL_DIR to install somewhere other than /Applications:
 #   curl -fsSL .../install.sh | OLLMOST_INSTALL_DIR=~/Applications bash
 # Your data in ~/Library/Application Support/Ollmost is untouched.
+# Coming from Kiln: Ollmost moves Kiln's data on its first launch, and this removes Kiln.app afterwards.
 #
 # curl doesn't set the quarantine flag that a browser download gets, so macOS doesn't block
 # the unsigned app.
@@ -50,13 +51,39 @@ main() {
     if running; then fail "Ollmost is still running. Quit it and run this again."; fi
   fi
 
+  # Kiln was renamed Ollmost (#60). Ollmost moves Kiln's data on its first launch, which needs Kiln closed.
+  if kiln_running; then
+    echo "Quitting Kiln"
+    osascript -e 'quit app "Kiln"' || true
+    for _ in $(seq 20); do kiln_running || break; sleep 0.5; done
+    if kiln_running; then fail "Kiln is still running. Quit it and run this again."; fi
+  fi
+
   rm -rf "$target"
   ditto "$tmp/Ollmost.app" "$target"
   echo "Installed $target ($arch)"
   open "$target"
+  remove_kiln "$dir"
 }
 
 running() { pgrep -f 'Ollmost.app/Contents/MacOS/Ollmost' >/dev/null; }
+
+kiln_running() { pgrep -f 'Kiln.app/Contents/MacOS/Kiln' >/dev/null; }
+
+# Remove Kiln.app from the install folder once Ollmost has moved Kiln's data (on its first launch), and only if it
+# really is Kiln, not another app with that name.
+remove_kiln() {
+  local old="$1/Kiln.app" data="$HOME/Library/Application Support/Kiln"
+  [ -d "$old" ] || return 0
+  [ "$(defaults read "$old/Contents/Info" CFBundleIdentifier 2>/dev/null)" = local.kiln.app ] || return 0
+  for _ in $(seq 120); do [ -e "$data/kiln.db" ] || break; sleep 0.5; done
+  if [ -e "$data/kiln.db" ]; then
+    echo "Kept $old: your Kiln data hasn't moved yet. Open Ollmost, and delete Kiln.app once your chats show up."
+  else
+    rm -rf "$old"
+    echo "Removed $old (Kiln is now Ollmost)"
+  fi
+}
 
 fail() {
   echo "Error: $1" >&2
