@@ -1,6 +1,6 @@
 import { ChevronRight, ClipboardPaste, Download, Plus, RotateCcw, ScrollText, Trash2, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import type { McpImportResult, McpImportSource, McpServer, McpStatus, ToolPolicy } from '@shared/types'
+import type { McpImportResult, McpImportSource, McpServer, McpStatus, RunnerStatus, Settings, ToolPolicy } from '@shared/types'
 import { Button, Field, Modal, Switch, TextArea, TextField, Tooltip } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/format'
@@ -393,6 +393,95 @@ function ServerDialog({ server, onClose }: { server: McpServer | null; onClose: 
   )
 }
 
+const RUNNER_MODES: Array<{ value: Settings['runner']['mode']; label: string }> = [
+  { value: 'off', label: 'Off' },
+  { value: 'ask', label: 'Ask each time' },
+  { value: 'allow', label: 'Always allow' }
+]
+const LIMITS = [30, 120, 300, 600].map((sec) => ({ value: String(sec), label: sec < 60 ? `${sec} s` : `${sec / 60} min` }))
+
+function RunnerSection() {
+  const { settings, updateSettings } = useApp()
+  const [status, setStatus] = useState<RunnerStatus | null>(null)
+  const [packages, setPackages] = useState<Array<{ name: string; version: string }> | null>(null)
+  const [showPackages, setShowPackages] = useState(false)
+  const refresh = () => {
+    void api.runner.status().then(setStatus).catch(reportError)
+    void api.runner.packages().then(setPackages).catch(reportError)
+  }
+  useEffect(refresh, [])
+  if (!settings) return null
+  const r = settings.runner
+  const update = (patch: Partial<Settings['runner']>) => void updateSettings({ runner: patch })
+
+  return (
+    <Section
+      title="Code runner"
+      description="Lets models run Python and bash to calculate, analyse data, make charts and create files, and lets skills run their scripts. Code runs in a macOS sandbox, in a folder of its own for each chat: it can't see your other files, and it has no network access unless you allow PyPI below."
+    >
+      <div data-testid="runner-status" className={cn('text-xs', status && !status.available ? 'text-danger' : 'text-muted')}>
+        {!status
+          ? 'Checking…'
+          : status.available
+            ? `Ready: Python ${status.python?.version} (${status.python?.path}), sandboxed.`
+            : status.reason}
+      </div>
+      <Row label="When a model wants to run code">
+        <Segmented label="When a model wants to run code" value={r.mode} options={RUNNER_MODES} onChange={(mode) => update({ mode })} />
+      </Row>
+      <Row label="Use in new chats" hint="Switch it on or off per chat in the + menu, under Tools.">
+        <Switch checked={r.defaultOn} onChange={(defaultOn) => update({ defaultOn })} />
+      </Row>
+      <Row
+        label="Let code download Python packages from PyPI"
+        hint="Only pypi.org and files.pythonhosted.org, installed into Kiln's own Python environment. Needed by skills that use packages like python-docx."
+      >
+        <Switch checked={r.pypi} onChange={(pypi) => update({ pypi })} />
+      </Row>
+      <Row label="Time limit per run">
+        <Segmented
+          label="Time limit per run"
+          value={String(r.timeoutSec)}
+          options={LIMITS}
+          onChange={(v) => update({ timeoutSec: Number(v) })}
+        />
+      </Row>
+      <Row
+        label="Kiln's Python environment"
+        hint={
+          status?.venvExists
+            ? `${packages?.length ?? 0} packages installed. Resetting deletes them; the next run starts a fresh environment.`
+            : 'Made the first time code runs.'
+        }
+      >
+        <div className="flex gap-2">
+          {!!packages?.length && (
+            <Button size="sm" variant="ghost" onClick={() => setShowPackages(!showPackages)}>
+              {showPackages ? 'Hide packages' : 'Show packages'}
+            </Button>
+          )}
+          <Button
+            size="sm"
+            disabled={!status?.venvExists}
+            onClick={() => void api.runner.resetEnvironment().then(refresh).catch(reportError)}
+          >
+            Reset
+          </Button>
+        </div>
+      </Row>
+      {showPackages && packages && (
+        <div className="selectable max-h-48 overflow-auto rounded-md border border-line bg-code p-2 font-mono text-[11px] text-muted">
+          {packages.map((p) => (
+            <div key={p.name}>
+              {p.name} {p.version}
+            </div>
+          ))}
+        </div>
+      )}
+    </Section>
+  )
+}
+
 export function ToolsTab() {
   const { mcpServers, mcpStatus, loadMcp } = useApp()
   const [editing, setEditing] = useState<McpServer | 'new' | null>(null)
@@ -405,6 +494,7 @@ export function ToolsTab() {
 
   return (
     <>
+      <RunnerSection />
       <Section
         title="MCP servers"
         description="Local servers that give models more tools: files, notes, calendars, developer tools. Kiln starts them on this Mac when a chat uses them. They run with your permissions and aren't sandboxed, so add only servers you trust. Models ask before using a tool."

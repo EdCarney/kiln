@@ -366,6 +366,14 @@ export function attachmentRowsForMessage(messageId: string): AttachmentRow[] {
   return all<AttachmentRow>('SELECT * FROM attachments WHERE message_id = ? ORDER BY created_at', messageId)
 }
 
+/** Every file attached to a chat's messages, oldest first. */
+export function attachmentRowsForConversation(conversationId: string): AttachmentRow[] {
+  return all<AttachmentRow>(
+    `SELECT a.* FROM attachments a JOIN messages m ON m.id = a.message_id WHERE m.conversation_id = ? ORDER BY a.created_at`,
+    conversationId
+  )
+}
+
 export function linkAttachments(ids: string[], messageId: string): void {
   for (const id of ids) run('UPDATE attachments SET message_id = ? WHERE id = ? AND message_id IS NULL', messageId, id)
 }

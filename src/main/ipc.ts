@@ -1,8 +1,10 @@
-import { writeFile } from 'node:fs/promises'
+import { copyFile, writeFile } from 'node:fs/promises'
+import { basename } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from 'electron'
 import { artifactExtension, slugify } from '@shared/artifactParser'
 import { EVENT_CHANNELS, type KilnApi } from '@shared/ipc'
 import { parseServersJson } from '@shared/mcpImport'
+import { OPENABLE_FILE } from '@shared/workspace'
 import { BUILTIN_THEMES } from '@shared/themes'
 import type { ThemeDef } from '@shared/types'
 import { decide } from './chat/approvals'
@@ -35,6 +37,9 @@ import { appPages, isAppFrame } from './ipcSender'
 import { getModelInfo, listModels, setModelOverrides } from './ollama/models'
 import { paths } from './paths'
 import { stageArtifact } from './protocols'
+import { installedPackages, resetVenv } from './runner/python'
+import { runnerStatus } from './runner/status'
+import { removeWorkspace, workspaceFile } from './runner/workspace'
 import { getSettings, setApiKey, updateSettings } from './settings'
 import { getAccountUsage, invalidateAccountUsage, lastRawUsage } from './usage/account'
 import { currentBackground } from './background'
@@ -132,7 +137,9 @@ const impl: Impl = {
     delete: async (id) => {
       // Let replies in the project's chats finish saving before their rows go.
       await stopAll((conversationId) => getConversation(conversationId)?.projectId === id)
+      const chats = listConversations({ projectId: id, limit: 100_000 }).map((c) => c.id)
       await removeFiles(deleteProject(id))
+      await Promise.all(chats.map(removeWorkspace))
     },
     files: async (id) => listProjectFiles(id),
     addFiles: async (id, sources) => {
@@ -173,6 +180,7 @@ const impl: Impl = {
       // Wait for a reply in progress to stop and save, so it never writes to a deleted chat.
       await stop(id, { quiet: true })
       await removeFiles(deleteConversation(id))
+      await removeWorkspace(id)
     },
     search: async (q) => search(q)
   },
@@ -255,6 +263,33 @@ const impl: Impl = {
   links: {
     // Not in chats with tools or files: a model-written link could carry their data out on hover (#63).
     preview: async (url, conversationId) => (previewsAllowed(conversationId ?? null) ? linkPreview(url) : null)
+  },
+
+  runner: {
+    status: () => runnerStatus(),
+    packages: () => installedPackages(),
+    resetEnvironment: () => resetVenv(),
+    openFile: async (conversationId, path) => {
+      const file = await workspaceFile(conversationId, path)
+      if (!file) throw new Error('That file is no longer in the chat’s folder.')
+      // Opening runs whatever app handles the type, outside the sandbox: never a script or an app a run wrote.
+      if (!OPENABLE_FILE.test(file)) throw new Error('Kiln only opens documents and images. Use Show in Finder for other files.')
+      const failed = await shell.openPath(file)
+      if (failed) throw new Error(failed)
+    },
+    revealFile: async (conversationId, path) => {
+      const file = await workspaceFile(conversationId, path)
+      if (!file) throw new Error('That file is no longer in the chat’s folder.')
+      shell.showItemInFolder(file)
+    },
+    saveFile: async (conversationId, path) => {
+      const file = await workspaceFile(conversationId, path)
+      if (!file) throw new Error('That file is no longer in the chat’s folder.')
+      const res = await dialog.showSaveDialog({ defaultPath: basename(file) })
+      if (res.canceled || !res.filePath) return false
+      await copyFile(file, res.filePath)
+      return true
+    }
   },
 
   mcp: {

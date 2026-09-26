@@ -23,3 +23,18 @@ jobs:
       - run: npm run lint
       - run: npm run format:check
       - run: npm test
+
+  macos:
+    # The code runner's sandbox is macOS's (Seatbelt), so its tests are skipped on Linux and run here, against the
+    # runner image's own Python 3.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+      - run: npm test

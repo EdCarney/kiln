@@ -52,10 +52,11 @@ export const skillTools: ToolProvider = {
     }
     const detail = (await getSkill(skill.id))!
     const extra = skill.files.length ? `\n\nSupporting files: ${skill.files.slice(0, 40).join(', ')}` : ''
-    const scripts =
-      skill.hasScripts && !ctx.grants.has('code')
-        ? '\n\n[This app cannot execute scripts. Where the skill says to run one, produce the result directly instead.]'
-        : ''
+    const scripts = !skill.hasScripts
+      ? ''
+      : ctx.grants.has('code')
+        ? `\n\n[This skill's files are in ${skill.dir}. To run one of its scripts, call run_code with language "bash" and a command using the script's full path, for example: python "${skill.dir}/scripts/<script>" <arguments>. Write output files to the current folder, not the skill's.]`
+        : '\n\n[This app cannot execute scripts. Where the skill says to run one, produce the result directly instead.]'
     return {
       content: `${detail.body}${extra}${scripts}`,
       event: { tool: name, args, ok: true, summary: skill.name },

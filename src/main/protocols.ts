@@ -1,7 +1,9 @@
 import { pathToFileURL } from 'node:url'
 import { net, protocol } from 'electron'
 import type { ArtifactType } from '@shared/types'
+import { IMAGE_FILE } from '@shared/workspace'
 import { getAttachmentRow } from './db/conversations'
+import { workspaceFile } from './runner/workspace'
 import { getSettings } from './settings'
 import { uid } from './util'
 
@@ -66,12 +68,18 @@ export function handleProtocols(): void {
     })
   })
 
-  // Attachments are served by id only, never by path, so the renderer can't read arbitrary files.
-  protocol.handle('kiln', (req) => {
+  // Attachments are served by id only, never by path, so the renderer can't read arbitrary files. Images a code run
+  // wrote are served by chat and path, only from inside that chat's workspace (see workspaceFile).
+  protocol.handle('kiln', async (req) => {
     const url = new URL(req.url)
     if (url.hostname === 'attachment') {
       const row = getAttachmentRow(url.pathname.slice(1))
       if (row) return net.fetch(pathToFileURL(row.path).toString())
+    }
+    if (url.hostname === 'workspace') {
+      const [conversationId, ...rest] = url.pathname.slice(1).split('/').map(decodeURIComponent)
+      const file = IMAGE_FILE.test(rest.join('/')) ? await workspaceFile(conversationId, rest.join('/')) : null
+      if (file) return net.fetch(pathToFileURL(file).toString())
     }
     return new Response('Not found', { status: 404 })
   })

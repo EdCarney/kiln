@@ -1,6 +1,7 @@
 // Live end-to-end smoke test: drives the built app with Playwright against real Ollama models.
 // Usage: npm run build && npm run e2e   (needs the Ollama app running and `ollama signin` for cloud models)
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
@@ -1034,6 +1035,223 @@ const fixtureRunning = () => {
   } catch (err) {
     check('live MCP run completed without errors', false, err.message.split('\n')[0])
     await win.screenshot({ path: join(SHOTS, 'mcp-live-failure.png') }).catch(() => {})
+  } finally {
+    await app.close()
+  }
+}
+
+// 13. The code runner: switched on per chat, asking first, reading the chat's uploads, writing files the user can
+// see and save, and running a skill's script from its folder. Deterministic against a mock model, then live.
+{
+  const runnerChats = []
+  const runnerOllama = createServer(async (req, res) => {
+    let raw = ''
+    for await (const chunk of req) raw += chunk
+    const body = raw ? JSON.parse(raw) : {}
+    const json = (obj) => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(obj))
+    if (req.url === '/api/tags') return json({ models: [{ name: 'mock-tools:latest' }] })
+    if (req.url === '/api/show')
+      return json({ capabilities: ['completion', 'tools'], model_info: { 'mock.context_length': 32768 }, details: {} })
+    if (!body.stream) return json({ message: { role: 'assistant', content: 'Mock title' }, done: true })
+    const toolNames = (body.tools ?? []).map((t) => t.function.name)
+    const lastUser = body.messages.findLastIndex((m) => m.role === 'user')
+    const question = body.messages[lastUser].content
+    const results = body.messages
+      .slice(lastUser)
+      .filter((m) => m.role === 'tool')
+      .map((m) => m.content)
+    runnerChats.push({ toolNames, system: body.messages[0].content, results })
+    const call = (name, args, content = '') => ({ role: 'assistant', content, tool_calls: [{ function: { name, arguments: args } }] })
+    let message
+    if (/sales/.test(question)) {
+      message = !results.length
+        ? call('run_code', {
+            language: 'python',
+            code: [
+              'import base64, csv',
+              "rows = list(csv.DictReader(open('uploads/sales.csv')))",
+              "total = sum(int(r['amount']) for r in rows)",
+              "open('total.txt', 'w').write(str(total))",
+              `open('chart.png', 'wb').write(base64.b64decode('${PNG.toString('base64')}'))`,
+              "open('run.command', 'w').write('echo hi')",
+              "print('TOTAL', total)"
+            ].join('\n')
+          })
+        : { role: 'assistant', content: `Result: ${results.at(-1).split('\n').slice(0, 3).join(' ')}` }
+    } else if (/note skill/.test(question)) {
+      const dir = results[0]?.match(/This skill's files are in (.+?)\. To run one of its scripts/)?.[1]
+      message = !results.length
+        ? call('load_skill', { name: 'note-maker' })
+        : results.length === 1
+          ? call('run_code', { language: 'bash', code: `python "${dir}/scripts/make_note.py"` })
+          : { role: 'assistant', content: `Skill said: ${results.at(-1).split('\n').slice(0, 3).join(' ')}` }
+    } else message = { role: 'assistant', content: 'Plain answer.' }
+    res.writeHead(200, { 'content-type': 'application/x-ndjson' })
+    res.write(JSON.stringify({ message, done: false }) + '\n')
+    res.end(JSON.stringify({ done: true, prompt_eval_count: 100, eval_count: 12, eval_duration: 1e8 }) + '\n')
+  })
+  await new Promise((r) => runnerOllama.listen(0, '127.0.0.1', r))
+  const runnerData = mkdtempSync(join(tmpdir(), 'kiln-e2e-runner-'))
+  // A skill with a script, loaded by the model and run from its own folder.
+  mkdirSync(join(runnerData, 'skills', 'note-maker', 'scripts'), { recursive: true })
+  writeFileSync(
+    join(runnerData, 'skills', 'note-maker', 'SKILL.md'),
+    '---\nname: note-maker\ndescription: Makes a note file. Use when asked for a note.\n---\n\nRun scripts/make_note.py.\n'
+  )
+  writeFileSync(
+    join(runnerData, 'skills', 'note-maker', 'scripts', 'make_note.py'),
+    "open('note.txt', 'w').write('KILN-SKILL-NOTE')\nprint('note written')\n"
+  )
+  writeFileSync(join(fixtures, 'sales.csv'), 'region,amount\nnorth,120\nsouth,80\n')
+  const app = await electron.launch({ args: [ROOT], env: { ...process.env, KILN_USER_DATA: runnerData } })
+  const win = await app.firstWindow()
+  try {
+    await win.waitForSelector('textarea', { timeout: 20000 })
+    await win.evaluate(
+      (host) => window.kiln.settings.update({ connection: { mode: 'local', host }, showCloudCatalog: false }),
+      `http://127.0.0.1:${runnerOllama.address().port}`
+    )
+    await win.reload()
+    await win.waitForSelector('textarea')
+    await win.waitForTimeout(1500)
+    const status = await win.evaluate(() => window.kiln.runner.status())
+    check('the code runner is available (sandbox and Python found)', status.available, status.reason ?? status.python?.version)
+
+    // Attach a CSV and switch the runner on for this chat from the + menu.
+    await stubOpenDialog(app, [join(fixtures, 'sales.csv')])
+    await win.click('button[aria-label="Add"]')
+    await win.getByText('Add files or photos').click()
+    await win.waitForSelector('text=sales.csv', { timeout: 10000 })
+    await win.click('button[aria-label="Add"]')
+    await win.getByRole('menuitem', { name: 'Tools' }).click()
+    await win.getByRole('menuitemcheckbox', { name: /Code runner/ }).click()
+    await win.keyboard.press('Escape')
+    await win.locator('button[aria-label="Turn off the code runner in this chat"]').waitFor({ timeout: 5000 })
+
+    const card = win.locator('[data-testid="approval-card"]')
+    const idle = () => win.waitForFunction(() => !document.querySelector('button[aria-label="Stop"]'), null, { timeout: 120000 })
+    await win.fill('textarea', 'Add up the sales in my file.')
+    await win.click('button[aria-label="Send"]')
+    await card.waitFor({ timeout: 30000 })
+    const asked = await card.innerText()
+    check(
+      'a run asks first, showing its code, and the model is told about the runner and the upload',
+      /Run this Python in the sandbox\?/.test(asked) &&
+        /uploads\/sales\.csv/.test(asked) &&
+        runnerChats[0]?.toolNames.includes('run_code') &&
+        /<code_runner>/.test(runnerChats[0].system) &&
+        /uploads: sales\.csv/.test(runnerChats[0].system)
+    )
+    await win.screenshot({ path: join(SHOTS, 'runner-approval.png') })
+    await card.getByRole('button', { name: 'Allow once' }).click()
+    await idle()
+    const answer = await win.locator('.prose-kiln').last().innerText()
+    check('the code reads the upload and the model gets what it printed', /Exit code 0\. TOTAL 200/.test(answer), answer.slice(0, 80))
+    const files = await win.locator('[data-testid="run-files"]').last().innerText()
+    check('files the run wrote are listed', /total\.txt/.test(files) && /chart\.png/.test(files), files.replace(/\n/g, ' '))
+    const imageLoaded = await win
+      .locator('[data-testid="run-files"] img')
+      .last()
+      .evaluate((img) => img.complete && img.naturalWidth > 0)
+    check('an image the run wrote is previewed', imageLoaded)
+    await win.screenshot({ path: join(SHOTS, 'runner-files.png') })
+
+    const chatId = (await win.evaluate(() => window.kiln.conversations.list()))[0].id
+    const savedTo = join(mkdtempSync(join(tmpdir(), 'kiln-e2e-save-')), 'total-copy.txt')
+    await app.evaluate(({ dialog }, filePath) => {
+      dialog.showSaveDialog = async () => ({ canceled: false, filePath })
+    }, savedTo)
+    await win.getByRole('button', { name: 'Save a copy of total.txt' }).click()
+    await win.waitForTimeout(800)
+    const refused = await win.evaluate(
+      (id) =>
+        window.kiln.runner.openFile(id, 'run.command').then(
+          () => 'opened',
+          (e) => e.message
+        ),
+      chatId
+    )
+    const escaped = await win.evaluate(
+      (id) =>
+        window.kiln.runner.openFile(id, '../../kiln.db').then(
+          () => 'opened',
+          (e) => e.message
+        ),
+      chatId
+    )
+    check(
+      'Save a copy works; Kiln won’t open a script a run wrote, or anything outside the chat’s folder',
+      (() => {
+        try {
+          return execFileSync('cat', [savedTo]).toString() === '200'
+        } catch {
+          return false
+        }
+      })() &&
+        /only opens documents and images/.test(refused) &&
+        /no longer in the chat/.test(escaped),
+      `${refused} | ${escaped}`
+    )
+
+    // A skill's script, run from the skill's folder (readable inside the sandbox), writing into the chat's folder.
+    await win.fill('textarea', 'Use the note skill please.')
+    await win.click('button[aria-label="Send"]')
+    await card.waitFor({ timeout: 30000 })
+    await card.getByRole('button', { name: 'Allow once' }).click()
+    await idle()
+    const skillAnswer = await win.locator('.prose-kiln').last().innerText()
+    const skillFiles = await win.locator('[data-testid="run-files"]').last().innerText()
+    check(
+      'a skill’s script runs from its folder and writes into the chat’s',
+      /Exit code 0\. note written/.test(skillAnswer) && /note\.txt/.test(skillFiles),
+      skillAnswer.slice(0, 80)
+    )
+  } catch (err) {
+    check('code runner runs completed without errors', false, err.message.split('\n')[0])
+    await win.screenshot({ path: join(SHOTS, 'runner-failure.png') }).catch(() => {})
+  } finally {
+    await app.close()
+    runnerOllama.close()
+  }
+}
+
+// 13b. Live: a real model uses the code runner for something it can't do reliably in its head.
+{
+  const app = await electron.launch({
+    args: [ROOT],
+    env: { ...process.env, KILN_USER_DATA: mkdtempSync(join(tmpdir(), 'kiln-e2e-runner-live-')) }
+  })
+  const win = await app.firstWindow()
+  try {
+    await win.waitForSelector('textarea', { timeout: 20000 })
+    await win.evaluate(() => window.kiln.settings.update({ runner: { defaultOn: true } }))
+    await win.reload()
+    await win.waitForSelector('textarea')
+    await win.waitForTimeout(1500)
+    await pickModel(win, CHAT_MODEL)
+    await win.fill('textarea', "What is the SHA-256 hex digest of the exact text 'kiln' (no newline)? Compute it with run_code.")
+    await win.click('button[aria-label="Send"]')
+    const card = win.locator('[data-testid="approval-card"]')
+    const t0 = Date.now()
+    while (Date.now() - t0 < 240000) {
+      // The card can still be counted for a moment after it was answered: don't wait on a click that can't land.
+      if (await card.count())
+        await card
+          .getByRole('button', { name: 'Allow for this chat' })
+          .click({ timeout: 2000 })
+          .catch(() => {})
+      if (!(await win.locator('button[aria-label="Stop"]').count()) && !(await card.count())) break
+      await win.waitForTimeout(500)
+    }
+    await win.waitForTimeout(600)
+    const answer = await win.locator('.prose-kiln').last().innerText()
+    const digest = createHash('sha256').update('kiln').digest('hex')
+    const ran = await win.locator('button', { hasText: 'Ran Python' }).count()
+    check(`${CHAT_MODEL} runs code (after approval) and answers from it`, ran > 0 && answer.includes(digest), answer.slice(0, 90))
+    await win.screenshot({ path: join(SHOTS, 'runner-live.png') })
+  } catch (err) {
+    check('live code runner run completed without errors', false, err.message.split('\n')[0])
+    await win.screenshot({ path: join(SHOTS, 'runner-live-failure.png') }).catch(() => {})
   } finally {
     await app.close()
   }

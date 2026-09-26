@@ -18,6 +18,7 @@ const DEFAULTS: StoredSettings = {
   artifacts: { enabled: true, allowCdn: true },
   skills: { sources: { ollama: true, claude: true }, disabled: [], enabledImports: [], autoLoad: true },
   web: { enabled: true },
+  runner: { mode: 'ask', defaultOn: false, pypi: false, timeoutSec: 120 },
   debug: { record: true },
   links: { previews: false },
   usage: { showInHeader: true, headerWindow: 'auto', anchors: {}, monthlyDay: null, poolUsd: null }
