@@ -2,10 +2,11 @@
 // Usage: npm run build && npm run e2e   (needs the Ollama app running and `ollama signin` for cloud models)
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { fileURLToPath } from 'node:url'
 import { _electron as electron } from 'playwright'
 
@@ -1329,6 +1330,146 @@ const evilSvg = (port) =>
   } finally {
     await app.close()
   }
+}
+
+// 14. Coming from Kiln (#60): data Kiln left next to Ollmost's data folder moves over on the first launch, with its
+// chats, files and settings. The secrets Kiln's keychain entry encrypted are asked for again, once.
+{
+  const home = mkdtempSync(join(tmpdir(), 'ollmost-e2e-kiln-'))
+  const DOT_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
+  writeFileSync(join(fixtures, 'dot.png'), DOT_PNG)
+  const mock = createServer(async (req, res) => {
+    let raw = ''
+    for await (const chunk of req) raw += chunk
+    const body = raw ? JSON.parse(raw) : {}
+    const json = (obj) => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(obj))
+    if (req.url === '/api/tags') return json({ models: [{ name: 'mock-vision:latest' }] })
+    if (req.url === '/api/show')
+      return json({ capabilities: ['completion', 'vision'], model_info: { 'mock.context_length': 32768 }, details: {} })
+    if (!body.stream) return json({ message: { role: 'assistant', content: 'Heron picture' }, done: true })
+    res.writeHead(200, { 'content-type': 'application/x-ndjson' })
+    res.write(JSON.stringify({ message: { role: 'assistant', content: 'A dot.' }, done: false }) + '\n')
+    res.end(JSON.stringify({ done: true, prompt_eval_count: 10, eval_count: 2, eval_duration: 1e8 }) + '\n')
+  })
+  await new Promise((r) => mock.listen(0, '127.0.0.1', r))
+  const host = `http://127.0.0.1:${mock.address().port}`
+  const launchAt = async (dir) => {
+    const app = await electron.launch({ args: [ROOT], env: { ...process.env, OLLMOST_USER_DATA: dir } })
+    const win = await app.firstWindow()
+    await win.waitForSelector('textarea', { timeout: 20000 })
+    return { app, win }
+  }
+
+  // 1. Data as Kiln left it: made by the app on a seed folder, then given Kiln's names and absolute paths.
+  const seed = join(home, 'seed')
+  let { app, win } = await launchAt(seed)
+  let conversationId
+  try {
+    await win.evaluate((h) => window.ollmost.settings.update({ connection: { mode: 'local', host: h }, showCloudCatalog: false }), host)
+    await win.evaluate(
+      async (fixture) => {
+        await window.ollmost.settings.setApiKey('kiln-era-key')
+        await window.ollmost.mcp.save({
+          name: 'Tokened',
+          command: 'node',
+          args: [fixture],
+          cwd: null,
+          env: { TOKEN: 'secret' },
+          defaultOn: false
+        })
+      },
+      join(ROOT, 'tests', 'fixtures', 'mcp-server.mjs')
+    )
+    await win.reload()
+    await win.waitForSelector('textarea')
+    await stubOpenDialog(app, [join(fixtures, 'dot.png')])
+    await win.click('button[aria-label="Add"]')
+    await win.getByText('Add files or photos').click()
+    await win.locator('img[alt="dot.png"]').waitFor({ timeout: 10000 })
+    await send(win, 'What is this?')
+    // The title comes from a separate request once the reply has finished.
+    await win.waitForFunction(() => document.body.innerText.includes('Heron picture'), null, { timeout: 15000 })
+    conversationId = (await win.evaluate(() => window.ollmost.conversations.list({})))[0].id
+  } catch (err) {
+    check('data can be made the way Kiln left it', false, err.message.split('\n')[0])
+  } finally {
+    await app.close()
+  }
+  if (conversationId) {
+    const kiln = join(home, 'Kiln')
+    renameSync(seed, kiln)
+    for (const suffix of ['', '-wal', '-shm'])
+      if (existsSync(join(kiln, `ollmost.db${suffix}`))) renameSync(join(kiln, `ollmost.db${suffix}`), join(kiln, `kiln.db${suffix}`))
+    const db = new DatabaseSync(join(kiln, 'kiln.db'))
+    db.prepare("UPDATE attachments SET path = ? || '/' || path").run(kiln)
+    // Kiln's schema: every migration but the two the rename added (relative paths, trace labels), so they run again.
+    const version = db.prepare('PRAGMA user_version').get().user_version
+    db.exec(`PRAGMA user_version = ${version - 2}`)
+    db.close()
+    mkdirSync(join(kiln, 'runner', 'venvs', conversationId, 'bin'), { recursive: true })
+    mkdirSync(join(kiln, 'workspaces', conversationId, '.kiln', 'home'), { recursive: true })
+    writeFileSync(join(kiln, 'workspaces', conversationId, '.kiln', 'home', 'saved.txt'), 'kept')
+
+    // 2. Ollmost's first launch next to it.
+    const data = join(home, 'Ollmost')
+    ;({ app, win } = await launchAt(data))
+    try {
+      check(
+        'the Kiln folder is moved, not copied',
+        !existsSync(kiln) && existsSync(join(data, 'ollmost.db')) && !existsSync(join(data, 'kiln.db'))
+      )
+      const notice = win.locator('[data-testid="migration-notice"]')
+      const text = (await notice.innerText()).replace(/\n/g, ' ')
+      check(
+        'a notice says what to enter again',
+        /Kiln is now Ollmost/.test(text) && /API key/.test(text) && /Tokened/.test(text),
+        text.slice(0, 120)
+      )
+      const after = await win.evaluate(async () => ({
+        settings: await window.ollmost.settings.get(),
+        servers: await window.ollmost.mcp.list()
+      }))
+      check(
+        "the API key and the server's values are asked for again",
+        !after.settings.connection.hasApiKey && after.servers[0]?.missingEnv.join() === 'TOKEN',
+        JSON.stringify(after.servers[0]?.missingEnv)
+      )
+      await win.screenshot({ path: join(SHOTS, 'from-kiln.png') })
+      await notice.getByRole('button', { name: 'Dismiss' }).click()
+      await win.getByText('Heron picture').first().click()
+      const img = win.locator('img[src^="ollmost://attachment/"]').first()
+      await img.waitFor({ timeout: 10000 })
+      const loaded = await img.evaluate((el) =>
+        el.complete
+          ? el.naturalWidth > 0
+          : new Promise((resolve) => {
+              el.onload = () => resolve(el.naturalWidth > 0)
+              el.onerror = () => resolve(false)
+            })
+      )
+      check('a chat from Kiln opens with its image', loaded)
+      const ws = join(data, 'workspaces', conversationId)
+      check(
+        "Kiln's Python environments are gone, and a chat's own files kept",
+        !existsSync(join(data, 'runner', 'venvs')) && readFileSync(join(ws, '.ollmost', 'home', 'saved.txt'), 'utf8') === 'kept'
+      )
+    } catch (err) {
+      check('coming from Kiln completed without errors', false, err.message.split('\n')[0])
+      await win.screenshot({ path: join(SHOTS, 'from-kiln-failure.png') }).catch(() => {})
+    } finally {
+      await app.close()
+    }
+
+    // 3. The notice is shown once.
+    ;({ app, win } = await launchAt(data))
+    try {
+      await win.waitForTimeout(1000)
+      check('the notice is gone once dismissed', (await win.locator('[data-testid="migration-notice"]').count()) === 0)
+    } finally {
+      await app.close()
+    }
+  }
+  mock.close()
 }
 
 const failed = results.filter((r) => !r.ok).length
