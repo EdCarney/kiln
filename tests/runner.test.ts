@@ -356,6 +356,21 @@ describe.runIf(process.platform === 'darwin' && existsSync('/usr/bin/sandbox-exe
       expect((await tools.runTool(call('run_code', { language: 'python', code: 'print(2)' }), ctx(c))).content).not.toMatch(/PLANTED/)
     }, 180_000)
 
+    // pip checks certificates through macOS's trust service, which the sandbox blocks. Needs the network (pypi.org).
+    it('installs a package from PyPI into the chat’s own environment', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'kiln-run-'))
+      mkdirSync(join(dir, '.kiln', 'tmp'), { recursive: true })
+      updateSettings({ runner: { pypi: true } })
+      try {
+        const code = 'pip install -q --disable-pip-version-check --no-deps six && python -c "import six; print(six.__file__)"'
+        const r = await tools.runTool(call('run_code', { language: 'bash', code }), ctx(dir))
+        expect(r.content).toMatch(/^Exit code 0\./)
+        expect(r.content).toContain(join(python.chatVenvDir(basename(dir)), 'lib'))
+      } finally {
+        updateSettings({ runner: { pypi: false } })
+      }
+    }, 180_000)
+
     it("answers gpt-oss's built-in python tool, whose code can arrive as plain text", async () => {
       const dir = mkdtempSync(join(tmpdir(), 'kiln-run-'))
       expect(tools.resolveCall(call('python', 'print(1 + 1)'), ctx(dir))).toMatchObject({ name: 'run_code', via: 'python' })

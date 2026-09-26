@@ -119,6 +119,9 @@ async function run(language: Language, code: string, workspace: string, signal?:
     HOME: join(workspace, KILN_DIR, 'home'),
     TMPDIR: join(workspace, KILN_DIR, 'tmp'),
     PIP_CACHE_DIR: join(workspace, KILN_DIR, 'tmp', 'pip'),
+    // pip checks certificates through macOS's trust service, which the sandbox blocks (SSLCertVerificationError, OSStatus
+    // -26276), so every install failed. Its own certificate bundle works.
+    PIP_USE_DEPRECATED: 'legacy-certs',
     MPLBACKEND: 'Agg',
     PYTHONUNBUFFERED: '1'
   }
