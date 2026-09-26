@@ -173,5 +173,11 @@ export const MIGRATIONS: string[] = [
   -- "Allow for this chat" answers were stored by offered tool name; they're now keyed by server and tool (or site),
   -- so the old ones can't be read reliably. Clearing them means each tool asks once more.
   UPDATE conversations SET allowed_tools = '[]';
+  `,
+  /* sql */ `
+  -- File paths relative to the data folder (files/<name>), so the folder can move (#60). Every stored file is in
+  -- files/; replace(path, rtrim(path, replace(path, '/', '')), '') is SQLite's way to take a path's last part.
+  UPDATE attachments SET path = 'files/' || replace(path, rtrim(path, replace(path, '/', '')), '') WHERE path LIKE '/%';
+  UPDATE project_files SET path = 'files/' || replace(path, rtrim(path, replace(path, '/', '')), '') WHERE path LIKE '/%';
   `
 ]

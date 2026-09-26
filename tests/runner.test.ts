@@ -44,6 +44,7 @@ const { foldersOnPathInside } = await import('../src/main/runner/provider')
 const root = mkdtempSync(join(tmpdir(), 'kiln-runner-test-'))
 beforeAll(() => {
   openDatabase(':memory:')
+  paths.data = root
   paths.workspaces = join(root, 'workspaces')
   paths.runner = join(root, 'runner')
   updateSettings({ skills: { sources: { ollama: false, claude: false } } })

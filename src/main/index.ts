@@ -130,7 +130,7 @@ app.on('second-instance', () => {
 
 app.whenReady().then(async () => {
   if (!hasLock) return
-  initPaths()
+  initPaths(app.getPath('userData'))
   // Before anything starts a process: record live process groups, and stop any a crashed run left behind.
   void trackProcesses(join(paths.data, 'processes.json')).then((n) => {
     if (n) console.warn(`Kiln: stopped ${n} process ${n === 1 ? 'group' : 'groups'} left running by an earlier session`)

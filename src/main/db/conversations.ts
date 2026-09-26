@@ -1,6 +1,7 @@
 import type { ConversationPatch } from '@shared/ipc'
 import type { Attachment, Conversation, Message, MessageStats, Role, SearchHit, ThinkSetting, ToolEvent } from '@shared/types'
 import { isServerAllowKey } from '@shared/toolAllow'
+import { fromStored, toStored } from '../paths'
 import { now, parseJson, uid } from '../util'
 import { all, get, run, transaction } from './index'
 
@@ -174,7 +175,7 @@ export function deleteConversation(id: string): string[] {
   const paths = all<{ path: string }>(
     'SELECT a.path FROM attachments a JOIN messages m ON m.id = a.message_id WHERE m.conversation_id = ?',
     id
-  ).map((r) => r.path)
+  ).map((r) => fromStored(r.path))
   transaction(() => {
     run('DELETE FROM search_index WHERE conversation_id = ?', id)
     run('DELETE FROM conversations WHERE id = ?', id)
@@ -314,7 +315,7 @@ export function deleteMessagesFrom(conversationId: string, fromCreatedAt: number
   const doomed = 'SELECT id FROM messages WHERE conversation_id = ? AND created_at >= ?'
   return transaction(() => {
     const paths = all<{ path: string }>(`SELECT path FROM attachments WHERE message_id IN (${doomed})`, conversationId, fromCreatedAt).map(
-      (r) => r.path
+      (r) => fromStored(r.path)
     )
     // One pass over the search index (message_id is an unindexed FTS column), not one per message.
     run(`DELETE FROM search_index WHERE message_id IN (${doomed})`, conversationId, fromCreatedAt)
@@ -358,7 +359,7 @@ export function insertAttachment(a: Omit<AttachmentRow, 'created_at' | 'message_
     a.name,
     a.mime,
     a.size,
-    a.path,
+    toStored(a.path),
     a.text,
     a.token_est,
     now()
@@ -366,12 +367,15 @@ export function insertAttachment(a: Omit<AttachmentRow, 'created_at' | 'message_
   return toAttachment(getAttachmentRow(a.id)!)
 }
 
+const resolved = (r: AttachmentRow): AttachmentRow => ({ ...r, path: fromStored(r.path) })
+
 export function getAttachmentRow(id: string): AttachmentRow | undefined {
-  return get<AttachmentRow>('SELECT * FROM attachments WHERE id = ?', id)
+  const row = get<AttachmentRow>('SELECT * FROM attachments WHERE id = ?', id)
+  return row && resolved(row)
 }
 
 export function attachmentRowsForMessage(messageId: string): AttachmentRow[] {
-  return all<AttachmentRow>('SELECT * FROM attachments WHERE message_id = ? ORDER BY created_at', messageId)
+  return all<AttachmentRow>('SELECT * FROM attachments WHERE message_id = ? ORDER BY created_at', messageId).map(resolved)
 }
 
 /** Every file attached to a chat's messages, oldest first. */
@@ -379,7 +383,7 @@ export function attachmentRowsForConversation(conversationId: string): Attachmen
   return all<AttachmentRow>(
     `SELECT a.* FROM attachments a JOIN messages m ON m.id = a.message_id WHERE m.conversation_id = ? ORDER BY a.created_at`,
     conversationId
-  )
+  ).map(resolved)
 }
 
 export function linkAttachments(ids: string[], messageId: string): void {
@@ -390,7 +394,7 @@ export function deletePendingAttachment(id: string): string | null {
   const row = get<{ path: string }>('SELECT path FROM attachments WHERE id = ? AND message_id IS NULL', id)
   if (!row) return null
   run('DELETE FROM attachments WHERE id = ?', id)
-  return row.path
+  return fromStored(row.path)
 }
 
 /** Uploads that were never sent. */
@@ -399,7 +403,7 @@ export function staleAttachmentPaths(olderThan: number): string[] {
   transaction(() => {
     for (const r of rows) run('DELETE FROM attachments WHERE id = ?', r.id)
   })
-  return rows.map((r) => r.path)
+  return rows.map((r) => fromStored(r.path))
 }
 
 // ---- Search -------------------------------------------------------------

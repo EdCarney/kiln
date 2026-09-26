@@ -1,4 +1,7 @@
+import { mkdtempSync } from 'node:fs'
 import type { ServerResponse } from 'node:http'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChatEvent } from '@shared/types'
 import { line, type MockOllama, startMockOllama, streamChunks } from './ollamaMock'
@@ -44,6 +47,8 @@ const { registerToolProvider } = await import('../src/main/chat/tools')
 const approvals = await import('../src/main/chat/approvals')
 const mcpConfig = await import('../src/main/mcp/config')
 const mcpManager = await import('../src/main/mcp/manager')
+const { paths } = await import('../src/main/paths')
+paths.data = mkdtempSync(join(tmpdir(), 'kiln-service-data-'))
 
 type ChatHandler = (body: Record<string, unknown>, res: ServerResponse, call: number) => unknown
 let chat: ChatHandler
@@ -776,7 +781,7 @@ describe('web_fetch in a chat with files in it', () => {
       name: 'notes.txt',
       mime: 'text/plain',
       size: 12,
-      path: '/nonexistent/notes.txt',
+      path: join(paths.data, 'files', 'notes.txt'),
       text: 'private notes',
       token_est: 3
     })

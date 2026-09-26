@@ -1,3 +1,6 @@
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 
 // A real in-memory database: which chats may fetch link previews (#63).
@@ -7,8 +10,12 @@ const { openDatabase } = await import('../src/main/db/index')
 const db = await import('../src/main/db/conversations')
 const projects = await import('../src/main/db/projects')
 const { previewsAllowed } = await import('../src/main/chat/exposure')
+const { paths } = await import('../src/main/paths')
 
-beforeAll(() => openDatabase(':memory:'))
+beforeAll(() => {
+  paths.data = mkdtempSync(join(tmpdir(), 'kiln-exposure-'))
+  openDatabase(':memory:')
+})
 
 const chat = (over: { projectId?: string | null; toolSources?: string[] } = {}) =>
   db.createConversation({ projectId: over.projectId ?? null, model: 'm', think: null, skills: [], toolSources: over.toolSources })
@@ -48,7 +55,7 @@ describe('link previews in a chat', () => {
       name: 'notes.txt',
       mime: 'text/plain',
       size: 5,
-      path: '/x',
+      path: join(paths.data, 'files', 'x'),
       text: 'notes',
       token_est: 2
     })
@@ -64,7 +71,7 @@ describe('link previews in a chat', () => {
       name: 'plan.md',
       mime: 'text/markdown',
       size: 4,
-      path: '/y',
+      path: join(paths.data, 'files', 'y'),
       text: 'plan',
       token_est: 1
     })
