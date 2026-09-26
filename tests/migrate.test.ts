@@ -1,8 +1,20 @@
 import { spawn } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  symlinkSync,
+  writeFileSync
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, describe, expect, it, vi } from 'vitest'
+import { DatabaseSync } from 'node:sqlite'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
 // The migration's keychain use is faked, as in mcp.test.ts: Electron isn't running under vitest.
 vi.mock('electron', () => ({
@@ -112,5 +124,131 @@ describe('waiting for Kiln to quit', () => {
         10
       )
     ).toBe(false)
+  })
+})
+
+const { openDatabase } = await import('../src/main/db/index')
+const { MIGRATIONS } = await import('../src/main/db/migrations')
+const { readSetting, writeSetting } = await import('../src/main/db/kv')
+const mcp = await import('../src/main/mcp/config')
+
+const count = (file: string) => {
+  const d = new DatabaseSync(file)
+  try {
+    return (d.prepare('SELECT COUNT(*) AS n FROM t').get() as { n: number }).n
+  } finally {
+    d.close()
+  }
+}
+
+/** Kiln's database as a crash leaves it: two rows written only to the WAL, which nothing has checkpointed. */
+function crashedDatabase(): string {
+  const live = mkdtempSync(join(tmpdir(), 'migrate-db-'))
+  const writer = new DatabaseSync(join(live, 'kiln.db'))
+  writer.exec('PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0; CREATE TABLE t (x); INSERT INTO t VALUES (1), (2);')
+  const crashed = mkdtempSync(join(tmpdir(), 'migrate-crashed-'))
+  for (const f of readdirSync(live)) copyFileSync(join(live, f), join(crashed, f))
+  writer.close()
+  expect(existsSync(join(crashed, 'kiln.db-wal'))).toBe(true)
+  return crashed
+}
+
+describe('what’s left to do after the move', () => {
+  it('is pending after a move, or while Kiln’s database still has its old name', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'migrate-'))
+    expect(migrate.migrationPending(dir, join(dir, 'ollmost.db'))).toBe(false)
+    writeFileSync(join(dir, 'kiln.db'), '')
+    expect(migrate.migrationPending(dir, join(dir, 'ollmost.db'))).toBe(true)
+    // Not while the app itself still uses kiln.db (before the rename): that's the live database.
+    expect(migrate.migrationPending(dir, join(dir, 'kiln.db'))).toBe(false)
+    writeFileSync(join(dir, migrate.MARKER), '')
+    expect(migrate.migrationPending(dir, join(dir, 'kiln.db'))).toBe(true)
+  })
+})
+
+describe('renaming Kiln’s database', () => {
+  it('keeps transactions only in the WAL', () => {
+    const dir = crashedDatabase()
+    migrate.renameDatabase(dir, join(dir, 'ollmost.db'))
+    expect(existsSync(join(dir, 'kiln.db'))).toBe(false)
+    expect(existsSync(join(dir, migrate.MARKER))).toBe(true)
+    expect(count(join(dir, 'ollmost.db'))).toBe(2)
+  })
+
+  it('finishes a rename a crash interrupted after the WAL was renamed', () => {
+    const dir = crashedDatabase()
+    renameSync(join(dir, 'kiln.db-wal'), join(dir, 'ollmost.db-wal'))
+    renameSync(join(dir, 'kiln.db-shm'), join(dir, 'ollmost.db-shm'))
+    migrate.renameDatabase(dir, join(dir, 'ollmost.db'))
+    expect(count(join(dir, 'ollmost.db'))).toBe(2)
+  })
+
+  it('renames nothing when both databases exist', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'migrate-'))
+    writeFileSync(join(dir, 'kiln.db'), 'old')
+    writeFileSync(join(dir, 'ollmost.db'), 'new')
+    migrate.renameDatabase(dir, join(dir, 'ollmost.db'))
+    expect(readFileSync(join(dir, 'kiln.db'), 'utf8')).toBe('old')
+    expect(readFileSync(join(dir, 'ollmost.db'), 'utf8')).toBe('new')
+  })
+})
+
+describe('finishing the move', () => {
+  beforeAll(() => openDatabase(':memory:'))
+
+  it('forgets Kiln’s secrets, noting once what to ask for again', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'migrate-'))
+    writeFileSync(join(dir, migrate.MARKER), '')
+    writeSetting('apiKey', Buffer.from('enc:key').toString('base64'))
+    const server = mcp.saveServer({ name: 'GitHub', command: 'npx', args: [], cwd: null, env: { TOKEN: 't' }, defaultOn: false })
+    await migrate.finishMigration(dir, '.ollmost')
+    expect(readSetting('apiKey', null)).toBeNull()
+    expect(mcp.getServer(server.id)?.missingEnv).toEqual(['TOKEN'])
+    expect(migrate.migrationNotice()).toMatchObject({ apiKey: true, servers: [server.id], dismissed: false })
+    expect(existsSync(join(dir, migrate.MARKER))).toBe(false)
+    // Run again, as after a crash: what the first run noted is kept, though the secrets are gone now.
+    writeFileSync(join(dir, migrate.MARKER), '')
+    await migrate.finishMigration(dir, '.ollmost')
+    expect(migrate.migrationNotice()).toMatchObject({ apiKey: true, servers: [server.id] })
+    migrate.dismissMigrationNotice()
+    expect(migrate.migrationNotice()).toBeNull()
+  })
+
+  it('deletes the Python environments and renames each chat’s hidden folder, moving a link, not following it', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'migrate-'))
+    for (const venv of ['base-venv/bin', 'venvs/c1/bin', 'venv/bin']) mkdirSync(join(dir, 'runner', venv), { recursive: true })
+    mkdirSync(join(dir, 'runner', 'scripts', 'c1'), { recursive: true })
+    mkdirSync(join(dir, 'workspaces', 'c1', '.kiln', 'home'), { recursive: true })
+    writeFileSync(join(dir, 'workspaces', 'c1', '.kiln', 'home', 'saved.txt'), 'kept')
+    const outside = mkdtempSync(join(tmpdir(), 'migrate-outside-'))
+    writeFileSync(join(outside, 'target.txt'), 'untouched')
+    mkdirSync(join(dir, 'workspaces', 'c2'), { recursive: true })
+    symlinkSync(outside, join(dir, 'workspaces', 'c2', '.kiln'))
+    mkdirSync(join(dir, 'workspaces', 'c3', '.kiln'), { recursive: true })
+    mkdirSync(join(dir, 'workspaces', 'c3', '.ollmost'), { recursive: true })
+    writeFileSync(join(dir, 'workspaces', 'c3', '.ollmost', 'new.txt'), 'new')
+
+    await migrate.finishMigration(dir, '.ollmost')
+
+    expect(readdirSync(join(dir, 'runner'))).toEqual(['scripts'])
+    expect(readFileSync(join(dir, 'workspaces', 'c1', '.ollmost', 'home', 'saved.txt'), 'utf8')).toBe('kept')
+    expect(existsSync(join(dir, 'workspaces', 'c1', '.kiln'))).toBe(false)
+    expect(readFileSync(join(outside, 'target.txt'), 'utf8')).toBe('untouched')
+    expect(existsSync(join(dir, 'workspaces', 'c2', '.kiln'))).toBe(false)
+    expect(existsSync(join(dir, 'workspaces', 'c3', '.kiln'))).toBe(false)
+    expect(readFileSync(join(dir, 'workspaces', 'c3', '.ollmost', 'new.txt'), 'utf8')).toBe('new')
+  })
+
+  it('relabels the debugger’s recorded endpoints', () => {
+    const d = new DatabaseSync(':memory:')
+    const index = MIGRATIONS.findIndex((sql) => sql.includes('recorded endpoints'))
+    expect(index).toBeGreaterThan(0)
+    for (const sql of MIGRATIONS.slice(0, index)) d.exec(sql)
+    d.prepare(`INSERT INTO traces (id, kind, status, started_at, data) VALUES ('t1', 'tool', 'ok', 0, ?)`).run(
+      JSON.stringify({ endpoint: 'kiln://tools/web_fetch', request: null })
+    )
+    d.exec(MIGRATIONS[index])
+    const data = (d.prepare('SELECT data FROM traces').get() as { data: string }).data
+    expect(JSON.parse(data).endpoint).toBe('ollmost://tools/web_fetch')
   })
 })

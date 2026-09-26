@@ -179,5 +179,9 @@ export const MIGRATIONS: string[] = [
   -- files/; replace(path, rtrim(path, replace(path, '/', '')), '') is SQLite's way to take a path's last part.
   UPDATE attachments SET path = 'files/' || replace(path, rtrim(path, replace(path, '/', '')), '') WHERE path LIKE '/%';
   UPDATE project_files SET path = 'files/' || replace(path, rtrim(path, replace(path, '/', '')), '') WHERE path LIKE '/%';
+  `,
+  /* sql */ `
+  -- The debugger's recorded endpoints for built-in tools, under the app's new URL scheme (#60).
+  UPDATE traces SET data = replace(data, '"endpoint":"kiln://', '"endpoint":"ollmost://') WHERE data LIKE '%"endpoint":"kiln://%';
   `
 ]

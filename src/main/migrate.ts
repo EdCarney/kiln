@@ -1,6 +1,10 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, readlinkSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { lstat, readdir, rename, rm } from 'node:fs/promises'
+import { basename, dirname, join } from 'node:path'
+import { transaction } from './db/index'
+import { deleteSetting, readSetting, writeSetting } from './db/kv'
+import { forgetEnvValues } from './mcp/config'
 
 // Kiln was renamed Ollmost (#60). An install that ran Kiln has its data in the folder next to Ollmost's, named for
 // the old app; the first launch moves it over (phase 1, before anything can create the new folder), then finishes
@@ -102,3 +106,72 @@ export const moveFailedText = (error: string): { title: string; content: string 
   title: "Ollmost couldn't move your Kiln data",
   content: `${error}\n\nNothing was changed: Kiln still has all of it.`
 })
+
+/** Whether a moved Kiln folder still has work left: the marker, or Kiln's database not yet renamed. */
+export function migrationPending(dataDir: string, dbFile: string): boolean {
+  return existsSync(join(dataDir, MARKER)) || (basename(dbFile) !== OLD_DB && existsSync(join(dataDir, OLD_DB)))
+}
+
+/**
+ * Give Kiln's database its new name, before it's opened. The marker goes first, so a crash before phase 2 has
+ * finished still finishes it. Then the WAL and shared-memory files, then the database: SQLite finds the WAL by the
+ * database's name, so ollmost.db must never sit next to a kiln.db-wal (its unsaved transactions would be lost).
+ */
+export function renameDatabase(dataDir: string, dbFile: string): void {
+  const oldDb = join(dataDir, OLD_DB)
+  if (dbFile === oldDb) return
+  if (!existsSync(join(dataDir, MARKER))) writeFileSync(join(dataDir, MARKER), new Date().toISOString())
+  if (!existsSync(oldDb)) return
+  if (existsSync(dbFile)) return void console.warn(`Ollmost: both ${OLD_DB} and ${basename(dbFile)} exist; using ${basename(dbFile)}`)
+  for (const suffix of ['-wal', '-shm', '']) if (existsSync(oldDb + suffix)) renameSync(oldDb + suffix, dbFile + suffix)
+}
+
+export interface MigrationNotice {
+  at: number
+  /** An ollama.com API key was saved: it needs entering again. */
+  apiKey: boolean
+  /** MCP servers whose environment values need entering again, by id. */
+  servers: string[]
+  dismissed: boolean
+}
+
+const NOTICE_KEY = 'migratedFromKiln'
+
+/**
+ * Finish the move, once the database is open. Secrets Kiln encrypted with its keychain entry are forgotten (read with
+ * Ollmost's key they'd fail, or about once in 256 decrypt to garbage), noting in the same transaction what to ask for
+ * again. The Python environments go (they point at the old folder; the next run rebuilds them), and each chat's
+ * hidden folder gets its new name (it holds the run's home folder). Every step can run again after a crash; the
+ * marker goes last.
+ */
+export async function finishMigration(dataDir: string, workspaceDir: string): Promise<void> {
+  transaction(() => {
+    if (readSetting<MigrationNotice | null>(NOTICE_KEY, null)) return
+    const apiKey = readSetting<string | null>('apiKey', null) !== null
+    deleteSetting('apiKey')
+    writeSetting(NOTICE_KEY, { at: Date.now(), apiKey, servers: forgetEnvValues(), dismissed: false } satisfies MigrationNotice)
+  })
+  // rm removes a link code left in an environment without following it.
+  for (const venv of ['base-venv', 'venvs', 'venv']) await rm(join(dataDir, 'runner', venv), { recursive: true, force: true })
+  const workspaces = join(dataDir, 'workspaces')
+  for (const id of await readdir(workspaces).catch(() => [] as string[])) {
+    const from = join(workspaces, id, OLD_WORKSPACE_DIR)
+    const to = join(workspaces, id, workspaceDir)
+    if (from === to || !(await lstat(from).catch(() => null))) continue
+    // rename and rm act on the entry itself: a link code put there is moved or removed, never followed.
+    if (await lstat(to).catch(() => null)) await rm(from, { recursive: true, force: true })
+    else await rename(from, to)
+  }
+  await rm(join(dataDir, MARKER), { force: true })
+}
+
+/** What didn't carry over, until the user dismisses the notice. */
+export function migrationNotice(): MigrationNotice | null {
+  const notice = readSetting<MigrationNotice | null>(NOTICE_KEY, null)
+  return notice && !notice.dismissed ? notice : null
+}
+
+export function dismissMigrationNotice(): void {
+  const notice = readSetting<MigrationNotice | null>(NOTICE_KEY, null)
+  if (notice) writeSetting(NOTICE_KEY, { ...notice, dismissed: true })
+}
