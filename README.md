@@ -39,6 +39,8 @@ npm run dist       # Kiln-arm64/x64 .dmg and .zip in dist/  (or: npx electron-bu
 npm run install:mac  # build, then install/replace /Applications/Kiln.app and open it (KILN_INSTALL_DIR to change the folder)
 ```
 
+The app icon is an Icon Composer document, `resources/Ollmost.icon`. After changing it, run `node scripts/make-icon.mjs` (needs Xcode 26 or later) and commit the `Assets.car` and `icon.icns` it writes to `resources/`; building doesn't need Xcode.
+
 Your data lives in `~/Library/Application Support/Kiln/`: a SQLite database (`kiln.db`), uploaded files, and your own skills (`skills/`).
 
 ## How it works

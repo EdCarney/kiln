@@ -1,6 +1,6 @@
 import { TriangleAlert } from 'lucide-react'
 import { Composer } from '@/components/Composer'
-import { KilnMark } from '@/components/KilnMark'
+import { OllmostMark } from '@/components/OllmostMark'
 import { TopBar } from '@/components/TopBar'
 import { Button } from '@/components/ui'
 import { sendMessage } from '@/lib/chatActions'
@@ -17,7 +17,7 @@ export function HomeView() {
       <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-6 pb-[12vh]">
         <div className="w-full" style={{ maxWidth: 'var(--k-chat-width)' }}>
           <h1 className="mb-8 flex items-center justify-center gap-3 font-reading text-[40px] font-normal tracking-tight text-fg">
-            <KilnMark className="size-9 text-accent" />
+            <OllmostMark className="size-9 text-accent" />
             {greeting(settings?.userName ?? '')}
           </h1>
 

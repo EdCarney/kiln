@@ -23,3 +23,11 @@ mac:
   # enforce library validation and refuse Electron's own frameworks under an ad-hoc signature.
   identity: '-'
   hardenedRuntime: false
+  # The icon is made in Icon Composer (resources/Ollmost.icon) and compiled by scripts/make-icon.mjs, which needs Xcode, so
+  # the results are committed: Assets.car, the icon CFBundleIconName names, for macOS 26 and later (Liquid Glass, and the
+  # dark, tinted and clear styles), and icon.icns, found in resources/ by default, for older macOS.
+  extendInfo:
+    CFBundleIconName: Icon
+  extraResources:
+    - from: resources/Assets.car
+      to: Assets.car
